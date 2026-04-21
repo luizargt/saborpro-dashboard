@@ -113,15 +113,10 @@ class _NarrowShell extends StatelessWidget {
         ),
         actions: [
           const LocationSelector(),
-          IconButton(
-            icon:
-                const Icon(Icons.logout_rounded, color: Colors.white38, size: 20),
-            onPressed: onLogout,
-          ),
         ],
       ),
       body: _PageContent(index: index),
-      bottomNavigationBar: _BottomNav(index: index, onSelect: onSelect),
+      bottomNavigationBar: _BottomNav(index: index, onSelect: onSelect, onLogout: onLogout),
     );
   }
 }
@@ -267,8 +262,9 @@ class _RailItem extends StatelessWidget {
 class _BottomNav extends StatelessWidget {
   final int index;
   final ValueChanged<int> onSelect;
+  final VoidCallback onLogout;
 
-  const _BottomNav({required this.index, required this.onSelect});
+  const _BottomNav({required this.index, required this.onSelect, required this.onLogout});
 
   @override
   Widget build(BuildContext context) {
@@ -277,25 +273,37 @@ class _BottomNav extends StatelessWidget {
         color: const Color(0xFF070E1A),
         border: Border(top: BorderSide(color: Colors.white.withOpacity(0.06))),
       ),
-      child: NavigationBar(
-        backgroundColor: Colors.transparent,
-        indicatorColor: const Color(0xFF7444fd).withOpacity(0.2),
-        selectedIndex: index,
-        onDestinationSelected: onSelect,
-        labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-        destinations: [
-          NavigationDestination(
-            icon: const Icon(Icons.bar_chart_outlined, color: Colors.white38),
-            selectedIcon:
-                const Icon(Icons.bar_chart_rounded, color: Color(0xFF7444fd)),
-            label: 'Ventas',
+      child: Row(
+        children: [
+          Expanded(
+            child: NavigationBar(
+              backgroundColor: Colors.transparent,
+              indicatorColor: const Color(0xFF7444fd).withOpacity(0.2),
+              selectedIndex: index,
+              onDestinationSelected: onSelect,
+              labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+              destinations: [
+                NavigationDestination(
+                  icon: const Icon(Icons.bar_chart_outlined, color: Colors.white38),
+                  selectedIcon: const Icon(Icons.bar_chart_rounded, color: Color(0xFF7444fd)),
+                  label: 'Ventas',
+                ),
+                NavigationDestination(
+                  icon: const Icon(Icons.inventory_2_outlined, color: Colors.white38),
+                  selectedIcon: const Icon(Icons.inventory_2_rounded, color: Color(0xFF7444fd)),
+                  label: 'Inventario',
+                ),
+              ],
+            ),
           ),
-          NavigationDestination(
-            icon:
-                const Icon(Icons.inventory_2_outlined, color: Colors.white38),
-            selectedIcon:
-                const Icon(Icons.inventory_2_rounded, color: Color(0xFF7444fd)),
-            label: 'Inventario',
+          // Logout al final del bottom nav
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: IconButton(
+              icon: const Icon(Icons.logout_rounded, color: Colors.white24, size: 20),
+              onPressed: onLogout,
+              tooltip: 'Cerrar sesión',
+            ),
           ),
         ],
       ),

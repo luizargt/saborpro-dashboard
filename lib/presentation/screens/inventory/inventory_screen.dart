@@ -17,6 +17,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
   final _vNameController = ScrollController();
   final _hDataController = ScrollController();
   final _hHeaderController = ScrollController();
+  final _hFooterController = ScrollController();
   final _searchController = TextEditingController();
 
   String _query = '';
@@ -36,10 +37,14 @@ class _InventoryScreenState extends State<InventoryScreen> {
         _vNameController.jumpTo(_vDataController.offset);
       }
     });
+    // Sincronizar header, footer y datos horizontalmente
     _hDataController.addListener(() {
-      if (_hHeaderController.hasClients &&
-          _hHeaderController.offset != _hDataController.offset) {
-        _hHeaderController.jumpTo(_hDataController.offset);
+      final offset = _hDataController.offset;
+      if (_hHeaderController.hasClients && _hHeaderController.offset != offset) {
+        _hHeaderController.jumpTo(offset);
+      }
+      if (_hFooterController.hasClients && _hFooterController.offset != offset) {
+        _hFooterController.jumpTo(offset);
       }
     });
   }
@@ -50,6 +55,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
     _vNameController.dispose();
     _hDataController.dispose();
     _hHeaderController.dispose();
+    _hFooterController.dispose();
     _searchController.dispose();
     super.dispose();
   }
@@ -99,6 +105,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
               vNameController: _vNameController,
               hDataController: _hDataController,
               hHeaderController: _hHeaderController,
+              hFooterController: _hFooterController,
               nameColW: _nameColW,
               dataColW: _dataColW,
               rowH: _rowH,
@@ -360,6 +367,7 @@ class _InventoryTable extends StatelessWidget {
   final ScrollController vNameController;
   final ScrollController hDataController;
   final ScrollController hHeaderController;
+  final ScrollController hFooterController;
   final double nameColW;
   final double dataColW;
   final double rowH;
@@ -372,6 +380,7 @@ class _InventoryTable extends StatelessWidget {
     required this.vNameController,
     required this.hDataController,
     required this.hHeaderController,
+    required this.hFooterController,
     required this.nameColW,
     required this.dataColW,
     required this.rowH,
@@ -406,12 +415,12 @@ class _InventoryTable extends StatelessWidget {
               ),
               // Right shadow on name column
               _ColumnShadow(right: true),
-              // Scrollable location headers
+              // Header sigue el scroll horizontal de los datos
               Expanded(
                 child: SingleChildScrollView(
                   controller: hHeaderController,
                   scrollDirection: Axis.horizontal,
-                  physics: const NeverScrollableScrollPhysics(),
+                  physics: const NeverScrollableScrollPhysics(), // manejado por hDataController
                   child: SizedBox(
                     width: totalW,
                     child: Row(
@@ -486,7 +495,7 @@ class _InventoryTable extends StatelessWidget {
           locations: locations,
           nameColW: nameColW,
           dataColW: dataColW,
-          hController: hHeaderController,
+          hController: hFooterController,
           totalW: totalW,
           rowH: rowH,
         ),
@@ -717,25 +726,34 @@ class _StockCell extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          Text(
-            _fmt(stock!),
-            style: GoogleFonts.inter(
-              color: textColor,
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
+          // Días en grande (principal), stock en pequeño debajo
           if (daysRemaining != null) ...[
-            const SizedBox(height: 1),
             Text(
               _fmtDays(daysRemaining!),
               style: GoogleFonts.inter(
-                color: textColor.withOpacity(0.75),
-                fontSize: 9,
-                fontWeight: FontWeight.w500,
+                color: textColor,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
               ),
             ),
-          ],
+            const SizedBox(height: 1),
+            Text(
+              _fmt(stock!),
+              style: GoogleFonts.inter(
+                color: textColor.withOpacity(0.55),
+                fontSize: 9,
+                fontWeight: FontWeight.w400,
+              ),
+            ),
+          ] else
+            Text(
+              _fmt(stock!),
+              style: GoogleFonts.inter(
+                color: textColor,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
         ],
       ),
     );
