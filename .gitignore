@@ -1,0 +1,32 @@
+# Flutter
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+build/
+*.iml
+
+# Android signing (no subir al repo)
+android/local.properties
+android/.gradle/
+android/key.properties
+android/app/saborpro-dashboard.jks
+
+# iOS
+ios/Flutter/flutter_export_environment.sh
+ios/Flutter/Debug.xcconfig
+ios/Flutter/Release.xcconfig
+ios/.symlinks/
+ios/Pods/
+
+# Secrets
+lib/firebase_options.dart
+google-services.json
+GoogleService-Info.plist
+
+# Misc
+.DS_Store
+*.log
+node_modules/
