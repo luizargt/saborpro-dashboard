@@ -5,12 +5,14 @@ class IngredientStock {
   final String unit;
   final Map<String, double> stockByLocation;
   final Map<String, double> minStockByLocation;
+  final Map<String, double> daysRemainingByLocation;
 
   const IngredientStock({
     required this.name,
     required this.unit,
     required this.stockByLocation,
     required this.minStockByLocation,
+    this.daysRemainingByLocation = const {},
   });
 
   double get totalStock =>

@@ -652,11 +652,11 @@ class _DataRow extends StatelessWidget {
         children: [
           ...locations.map((l) => _StockCell(
                 stock: item.stockByLocation[l.id],
+                daysRemaining: item.daysRemainingByLocation[l.id],
                 status: item.statusAt(l.id),
                 width: colWidth,
                 height: height,
               )),
-          // Total column
           _TotalCell(
             total: item.totalStock,
             width: colWidth,
@@ -670,12 +670,14 @@ class _DataRow extends StatelessWidget {
 
 class _StockCell extends StatelessWidget {
   final double? stock;
+  final double? daysRemaining;
   final StockStatus status;
   final double width;
   final double height;
 
   const _StockCell({
     required this.stock,
+    required this.daysRemaining,
     required this.status,
     required this.width,
     required this.height,
@@ -694,39 +696,64 @@ class _StockCell extends StatelessWidget {
       );
     }
 
-    final (bgColor, textColor) = _colors(status, stock!);
+    final (bgColor, textColor) = _colors(status);
 
     return Container(
       width: width,
       height: height,
       color: bgColor,
-      alignment: Alignment.centerRight,
       padding: const EdgeInsets.symmetric(horizontal: 10),
-      child: Text(
-        _fmt(stock!),
-        style: GoogleFonts.inter(
-          color: textColor,
-          fontSize: 12,
-          fontWeight: FontWeight.w600,
-        ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Text(
+            _fmt(stock!),
+            style: GoogleFonts.inter(
+              color: textColor,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          if (daysRemaining != null) ...[
+            const SizedBox(height: 1),
+            Text(
+              _fmtDays(daysRemaining!),
+              style: GoogleFonts.inter(
+                color: _daysColor(daysRemaining!),
+                fontSize: 9,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }
 
-  (Color, Color) _colors(StockStatus s, double v) {
+  (Color, Color) _colors(StockStatus s) {
     switch (s) {
       case StockStatus.critical:
-        return (const Color(0xFFEF4444).withOpacity(0.18),
-            const Color(0xFFEF4444));
+        return (const Color(0xFFEF4444).withOpacity(0.18), const Color(0xFFEF4444));
       case StockStatus.low:
-        return (const Color(0xFFF97316).withOpacity(0.14),
-            const Color(0xFFF97316));
+        return (const Color(0xFFF97316).withOpacity(0.14), const Color(0xFFF97316));
       case StockStatus.ok:
-        return (const Color(0xFF22C55E).withOpacity(0.10),
-            const Color(0xFF22C55E));
+        return (const Color(0xFF22C55E).withOpacity(0.10), const Color(0xFF22C55E));
       case StockStatus.noData:
         return (Colors.transparent, Colors.white38);
     }
+  }
+
+  Color _daysColor(double days) {
+    if (days <= 3) return const Color(0xFFEF4444);
+    if (days <= 7) return const Color(0xFFF97316);
+    return const Color(0xFF22C55E);
+  }
+
+  String _fmtDays(double days) {
+    if (days > 999) return '∞';
+    if (days < 1) return '<1d';
+    return '${days.round()}d';
   }
 
   String _fmt(double v) {
