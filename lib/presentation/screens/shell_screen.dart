@@ -140,36 +140,34 @@ class _Rail extends StatelessWidget {
       color: const Color(0xFF070E1A),
       child: Column(
         children: [
-          const SizedBox(height: 24),
+          const SizedBox(height: 20),
           // Logo
-          Container(
+          Image.asset(
+            'assets/images/logo.png',
             width: 44,
             height: 44,
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFF7444fd), Color(0xFF9B6FFF)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(12),
-              boxShadow: [
-                BoxShadow(
-                  color: const Color(0xFF7444fd).withOpacity(0.4),
-                  blurRadius: 12,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: const Icon(Icons.restaurant_menu_rounded,
-                color: Colors.white, size: 22),
+            fit: BoxFit.contain,
           ),
-          const SizedBox(height: 8),
-          Text('SP',
-              style: GoogleFonts.inter(
-                  color: const Color(0xFF7444fd),
-                  fontSize: 10,
-                  fontWeight: FontWeight.w800)),
-          const SizedBox(height: 28),
+          const SizedBox(height: 6),
+          Text(
+            'SaborPro',
+            style: GoogleFonts.inter(
+              color: const Color(0xFF7444fd),
+              fontSize: 9,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.2,
+            ),
+          ),
+          Text(
+            'Dashboard',
+            style: GoogleFonts.inter(
+              color: Colors.white38,
+              fontSize: 8,
+              fontWeight: FontWeight.w400,
+              letterSpacing: 0.5,
+            ),
+          ),
+          const SizedBox(height: 20),
           // Divider
           Container(height: 1, color: Colors.white.withOpacity(0.06)),
           const SizedBox(height: 20),
