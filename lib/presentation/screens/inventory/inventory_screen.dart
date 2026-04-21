@@ -480,6 +480,15 @@ class _InventoryTable extends StatelessWidget {
             ],
           ),
         ),
+        // ── Footer totals ──────────────────────────────────────────────────
+        _FooterRow(
+          items: items,
+          locations: locations,
+          nameColW: nameColW,
+          dataColW: dataColW,
+          hController: hHeaderController,
+          totalW: totalW,
+        ),
       ],
     );
   }
@@ -745,7 +754,7 @@ class _StockCell extends StatelessWidget {
   }
 
   String _fmtDays(double days) {
-    if (days > 999) return '∞';
+    if (days > 180) return '+180d';
     if (days < 1) return '<1d';
     return '${days.round()}d';
   }
@@ -785,6 +794,155 @@ class _TotalCell extends StatelessWidget {
           fontWeight: FontWeight.w700,
         ),
       ),
+    );
+  }
+}
+
+// ── FOOTER TOTALS ─────────────────────────────────────────────────────────────
+class _FooterRow extends StatelessWidget {
+  final List<IngredientStock> items;
+  final List<LocationModel> locations;
+  final double nameColW;
+  final double dataColW;
+  final double totalW;
+  final ScrollController hController;
+
+  const _FooterRow({
+    required this.items,
+    required this.locations,
+    required this.nameColW,
+    required this.dataColW,
+    required this.totalW,
+    required this.hController,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        color: Color(0xFF070E1A),
+        border: Border(top: BorderSide(color: Color(0x33FFFFFF), width: 1)),
+      ),
+      child: Row(
+        children: [
+          // Fixed label column
+          SizedBox(
+            width: nameColW,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              child: Text(
+                'Totales por sucursal',
+                style: GoogleFonts.inter(
+                  color: Colors.white38,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.3,
+                ),
+              ),
+            ),
+          ),
+          _ColumnShadow(right: true),
+          // Scrollable totals synchronized with header
+          Expanded(
+            child: SingleChildScrollView(
+              controller: hController,
+              scrollDirection: Axis.horizontal,
+              physics: const NeverScrollableScrollPhysics(),
+              child: SizedBox(
+                width: totalW,
+                child: Row(
+                  children: [
+                    ...locations.map((l) => _FooterCell(
+                          critical: items.where((i) => i.statusAt(l.id) == StockStatus.critical).length,
+                          low: items.where((i) => i.statusAt(l.id) == StockStatus.low).length,
+                          ok: items.where((i) => i.statusAt(l.id) == StockStatus.ok).length,
+                          width: dataColW,
+                        )),
+                    // Total column: totals across all locations (worst status per item)
+                    _FooterCell(
+                      critical: items.where((i) => i.worstStatus == StockStatus.critical).length,
+                      low: items.where((i) => i.worstStatus == StockStatus.low).length,
+                      ok: items.where((i) => i.worstStatus == StockStatus.ok).length,
+                      width: dataColW,
+                      isTotal: true,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FooterCell extends StatelessWidget {
+  final int critical;
+  final int low;
+  final int ok;
+  final double width;
+  final bool isTotal;
+
+  const _FooterCell({
+    required this.critical,
+    required this.low,
+    required this.ok,
+    required this.width,
+    this.isTotal = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: width,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 6),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (critical > 0)
+              _CountRow(count: critical, color: const Color(0xFFEF4444)),
+            if (low > 0)
+              _CountRow(count: low, color: const Color(0xFFF97316)),
+            if (ok > 0)
+              _CountRow(count: ok, color: const Color(0xFF22C55E)),
+            if (critical == 0 && low == 0 && ok == 0)
+              Text('—', style: GoogleFonts.inter(color: Colors.white12, fontSize: 11)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CountRow extends StatelessWidget {
+  final int count;
+  final Color color;
+  const _CountRow({required this.count, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.end,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 5,
+          height: 5,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 3),
+        Text(
+          '$count',
+          style: GoogleFonts.inter(
+            color: color,
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
     );
   }
 }

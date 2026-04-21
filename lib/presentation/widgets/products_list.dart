@@ -75,8 +75,56 @@ class ProductsList extends StatelessWidget {
               ),
             ),
           )
-        else
+        else ...[
           ...products.map((p) => _ProductRow(product: p, fmt: fmt)),
+          // Fila de totales
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 10),
+            decoration: const BoxDecoration(
+              border: Border(top: BorderSide(color: Color(0x33FFFFFF), width: 1)),
+              color: Color(0x0AFFFFFF),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Total (${products.length} platillos)',
+                    style: GoogleFonts.inter(
+                      color: Colors.white54,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                SizedBox(
+                  width: 50,
+                  child: Text(
+                    '${products.fold<int>(0, (s, p) => s + p.quantity)}',
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.inter(
+                      color: Colors.white70,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                SizedBox(
+                  width: 80,
+                  child: Text(
+                    'Q${fmt.format(products.fold<double>(0, (s, p) => s + p.total))}',
+                    textAlign: TextAlign.right,
+                    style: GoogleFonts.inter(
+                      color: const Color(0xFF7444fd),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 52),
+              ],
+            ),
+          ),
+        ],
       ],
     );
   }
