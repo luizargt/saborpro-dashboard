@@ -720,7 +720,7 @@ class _StockCell extends StatelessWidget {
             Text(
               _fmtDays(daysRemaining!),
               style: GoogleFonts.inter(
-                color: _daysColor(daysRemaining!),
+                color: textColor.withOpacity(0.75),
                 fontSize: 9,
                 fontWeight: FontWeight.w500,
               ),
@@ -742,12 +742,6 @@ class _StockCell extends StatelessWidget {
       case StockStatus.noData:
         return (Colors.transparent, Colors.white38);
     }
-  }
-
-  Color _daysColor(double days) {
-    if (days <= 3) return const Color(0xFFEF4444);
-    if (days <= 7) return const Color(0xFFF97316);
-    return const Color(0xFF22C55E);
   }
 
   String _fmtDays(double days) {

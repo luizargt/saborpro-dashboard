@@ -117,16 +117,21 @@ class InventoryProvider extends ChangeNotifier {
   }
 
   // Retorna: Map<ingredientDocId, Map<locationId, consumoDiarioPromedio>>
+  // El divisor es los días reales con datos (igual que la app principal), no siempre 30.
   Future<Map<String, Map<String, double>>> _fetchConsumption() async {
     try {
-      final thirtyDaysAgo = DateTime.now().subtract(const Duration(days: 30));
+      final now = DateTime.now();
+      final thirtyDaysAgo = now.subtract(const Duration(days: 30));
       final snap = await _firestore.instance
           .collection('inventoryMovements')
           .where('tenantId', isEqualTo: _tenantId)
           .where('createdAt', isGreaterThanOrEqualTo: thirtyDaysAgo.toIso8601String())
           .get();
 
+      // totals[ingredientId][locationId] = cantidad consumida
       final totals = <String, Map<String, double>>{};
+      // oldest[ingredientId][locationId] = fecha del movimiento más antiguo
+      final oldest = <String, Map<String, DateTime>>{};
 
       for (final doc in snap.docs) {
         final data = doc.data();
@@ -136,19 +141,43 @@ class InventoryProvider extends ChangeNotifier {
         final ingredientId = data['ingredientId'] as String? ?? '';
         final locationId = data['locationId'] as String? ?? '';
         final qty = (data['quantity'] as num? ?? 0).toDouble().abs();
+        final createdAtRaw = data['createdAt'] as String? ?? '';
 
         if (ingredientId.isEmpty || locationId.isEmpty || qty <= 0) continue;
 
         totals.putIfAbsent(ingredientId, () => {});
         totals[ingredientId]![locationId] =
             (totals[ingredientId]![locationId] ?? 0) + qty;
+
+        // Rastrear el movimiento más antiguo para calcular días reales
+        if (createdAtRaw.isNotEmpty) {
+          final date = DateTime.tryParse(createdAtRaw);
+          if (date != null) {
+            oldest.putIfAbsent(ingredientId, () => {});
+            final current = oldest[ingredientId]![locationId];
+            if (current == null || date.isBefore(current)) {
+              oldest[ingredientId]![locationId] = date;
+            }
+          }
+        }
       }
 
-      // Convertir a promedio diario (últimos 30 días)
-      return totals.map((id, locMap) => MapEntry(
-            id,
-            locMap.map((locId, total) => MapEntry(locId, total / 30.0)),
-          ));
+      // Convertir a promedio diario usando días reales con datos (mínimo 1)
+      final result = <String, Map<String, double>>{};
+      for (final entry in totals.entries) {
+        final ingredientId = entry.key;
+        result[ingredientId] = {};
+        for (final locEntry in entry.value.entries) {
+          final locationId = locEntry.key;
+          final totalConsumed = locEntry.value;
+          final oldestDate = oldest[ingredientId]?[locationId];
+          final actualDays = oldestDate != null
+              ? now.difference(oldestDate).inDays.clamp(1, 30)
+              : 30;
+          result[ingredientId]![locationId] = totalConsumed / actualDays;
+        }
+      }
+      return result;
     } catch (e) {
       debugPrint('[Inventory] Sin datos de consumo: $e');
       return {};
