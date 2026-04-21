@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../../data/models/inventory_data.dart';
 import '../../../presentation/providers/inventory_provider.dart';
 import '../../../core/services/location_service.dart';
+import '../../../core/services/export_service.dart';
 
 class InventoryScreen extends StatefulWidget {
   const InventoryScreen({super.key});
@@ -154,6 +155,13 @@ class _Header extends StatelessWidget {
             ],
           ),
           const Spacer(),
+          IconButton(
+            icon: const Icon(Icons.download_rounded,
+                color: Colors.white38, size: 20),
+            onPressed: () => ExportService.exportInventory(
+                provider.items, provider.locations),
+            tooltip: 'Descargar Excel',
+          ),
           IconButton(
             icon: const Icon(Icons.refresh_rounded,
                 color: Colors.white38, size: 20),
@@ -488,16 +496,6 @@ class _InventoryTable extends StatelessWidget {
               ),
             ],
           ),
-        ),
-        // ── Footer totals ──────────────────────────────────────────────────
-        _FooterRow(
-          items: items,
-          locations: locations,
-          nameColW: nameColW,
-          dataColW: dataColW,
-          hController: hFooterController,
-          totalW: totalW,
-          rowH: rowH,
         ),
       ],
     );

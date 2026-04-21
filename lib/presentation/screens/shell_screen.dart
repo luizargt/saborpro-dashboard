@@ -113,6 +113,7 @@ class _NarrowShell extends StatelessWidget {
         ),
         actions: [
           const LocationSelector(),
+          const SizedBox(width: 8),
         ],
       ),
       body: _PageContent(index: index),
@@ -296,13 +297,23 @@ class _BottomNav extends StatelessWidget {
               ],
             ),
           ),
-          // Logout al final del bottom nav
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            child: IconButton(
-              icon: const Icon(Icons.logout_rounded, color: Colors.white24, size: 20),
-              onPressed: onLogout,
-              tooltip: 'Cerrar sesión',
+          // Salir — mismo estilo que NavigationDestination
+          GestureDetector(
+            onTap: onLogout,
+            child: SizedBox(
+              width: 72,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.logout_rounded, color: Colors.white38, size: 24),
+                  const SizedBox(height: 4),
+                  Text('Salir',
+                      style: GoogleFonts.inter(
+                          color: Colors.white38,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w400)),
+                ],
+              ),
             ),
           ),
         ],

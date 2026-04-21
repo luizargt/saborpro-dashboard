@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import '../../data/models/dashboard_data.dart';
+import '../../core/services/export_service.dart';
 
 class ProductsList extends StatelessWidget {
   final List<ProductSummary> products;
@@ -31,12 +32,23 @@ class ProductsList extends StatelessWidget {
                 fontWeight: FontWeight.w600,
               ),
             ),
-            Text(
-              'vs $prevLabel',
-              style: GoogleFonts.inter(
-                color: Colors.white38,
-                fontSize: 11,
-              ),
+            Row(
+              children: [
+                Text(
+                  'vs $prevLabel',
+                  style: GoogleFonts.inter(color: Colors.white38, fontSize: 11),
+                ),
+                const SizedBox(width: 8),
+                if (products.isNotEmpty)
+                  GestureDetector(
+                    onTap: () => ExportService.exportProducts(products, prevLabel),
+                    child: const Tooltip(
+                      message: 'Descargar Excel',
+                      child: Icon(Icons.download_rounded,
+                          color: Colors.white38, size: 16),
+                    ),
+                  ),
+              ],
             ),
           ],
         ),
