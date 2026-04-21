@@ -119,7 +119,11 @@ class DateRange {
         }
         return DateFormat('d MMM yyyy', locale).format(start);
       case PeriodMode.week:
-        return '${DateFormat('d MMM', locale).format(start)} – ${DateFormat('d MMM yyyy', locale).format(end)}';
+        final sameMonth = start.month == end.month && start.year == end.year;
+        if (sameMonth) {
+          return '${start.day}–${end.day} ${DateFormat('MMM', locale).format(start)}';
+        }
+        return '${DateFormat('d MMM', locale).format(start)} – ${DateFormat('d MMM', locale).format(end)}';
       case PeriodMode.month:
         return DateFormat('MMMM yyyy', locale).format(start);
       case PeriodMode.year:

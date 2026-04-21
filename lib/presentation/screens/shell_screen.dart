@@ -8,6 +8,7 @@ import '../../presentation/providers/inventory_provider.dart';
 import '../../presentation/screens/auth/login_screen.dart';
 import '../../presentation/screens/dashboard/dashboard_screen.dart';
 import '../../presentation/screens/inventory/inventory_screen.dart';
+import '../../presentation/widgets/location_selector.dart';
 
 class AppShell extends StatefulWidget {
   const AppShell({super.key});
@@ -111,6 +112,7 @@ class _NarrowShell extends StatelessWidget {
           ],
         ),
         actions: [
+          const LocationSelector(),
           IconButton(
             icon:
                 const Icon(Icons.logout_rounded, color: Colors.white38, size: 20),

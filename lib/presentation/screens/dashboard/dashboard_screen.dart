@@ -53,14 +53,20 @@ class _DashboardBody extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // Fila única: fecha + sucursal
-                  Row(
-                    children: [
-                      const Expanded(child: DateNavigator()),
-                      const SizedBox(width: 8),
-                      const LocationSelector(),
-                    ],
-                  ),
+                  // Fecha: ancho completo en móvil, comparte con sucursal en desktop
+                  Builder(builder: (ctx) {
+                    final wide = MediaQuery.of(ctx).size.width >= 600;
+                    if (wide) {
+                      return Row(
+                        children: [
+                          const Expanded(child: DateNavigator()),
+                          const SizedBox(width: 8),
+                          const LocationSelector(),
+                        ],
+                      );
+                    }
+                    return const DateNavigator();
+                  }),
                   const SizedBox(height: 16),
                   // Contenido
                   if (provider.loading)
