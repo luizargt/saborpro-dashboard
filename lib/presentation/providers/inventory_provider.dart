@@ -122,10 +122,12 @@ class InventoryProvider extends ChangeNotifier {
     try {
       final now = DateTime.now();
       final thirtyDaysAgo = now.subtract(const Duration(days: 30));
+
+      // Solo filtramos por tenantId para evitar índice compuesto en Firestore.
+      // El filtro de fecha y tipo se hace en Dart.
       final snap = await _firestore.instance
           .collection('inventoryMovements')
           .where('tenantId', isEqualTo: _tenantId)
-          .where('createdAt', isGreaterThanOrEqualTo: thirtyDaysAgo.toIso8601String())
           .get();
 
       // totals[ingredientId][locationId] = cantidad consumida
@@ -138,10 +140,16 @@ class InventoryProvider extends ChangeNotifier {
         final type = data['type'] as String? ?? '';
         if (type != 'salidaVenta' && type != 'salidaManual') continue;
 
+        // Filtrar por los últimos 30 días en Dart
+        final createdAtRaw = data['createdAt'] as String? ?? '';
+        if (createdAtRaw.isNotEmpty) {
+          final date = DateTime.tryParse(createdAtRaw);
+          if (date == null || date.isBefore(thirtyDaysAgo)) continue;
+        }
+
         final ingredientId = data['ingredientId'] as String? ?? '';
         final locationId = data['locationId'] as String? ?? '';
         final qty = (data['quantity'] as num? ?? 0).toDouble().abs();
-        final createdAtRaw = data['createdAt'] as String? ?? '';
 
         if (ingredientId.isEmpty || locationId.isEmpty || qty <= 0) continue;
 
@@ -150,8 +158,8 @@ class InventoryProvider extends ChangeNotifier {
             (totals[ingredientId]![locationId] ?? 0) + qty;
 
         // Rastrear el movimiento más antiguo para calcular días reales
-        if (createdAtRaw.isNotEmpty) {
-          final date = DateTime.tryParse(createdAtRaw);
+        {
+          final date = createdAtRaw.isNotEmpty ? DateTime.tryParse(createdAtRaw) : null;
           if (date != null) {
             oldest.putIfAbsent(ingredientId, () => {});
             final current = oldest[ingredientId]![locationId];
