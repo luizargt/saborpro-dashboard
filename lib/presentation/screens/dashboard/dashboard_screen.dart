@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
-import '../../../core/services/auth_service.dart';
 import '../../../core/utils/date_range.dart';
 import '../../../presentation/providers/dashboard_provider.dart';
 import '../../../presentation/widgets/period_selector.dart';
@@ -10,7 +9,6 @@ import '../../../presentation/widgets/metric_cards.dart';
 import '../../../presentation/widgets/sales_chart.dart';
 import '../../../presentation/widgets/products_list.dart';
 import '../../../presentation/widgets/summary_table.dart';
-import '../auth/login_screen.dart';
 
 enum DashboardView { chart, table }
 
@@ -25,68 +23,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
   DashboardView _view = DashboardView.chart;
 
   @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final auth = AuthService();
-      if (auth.tenantId != null) {
-        context.read<DashboardProvider>().init(auth.tenantId!);
-      }
-    });
-  }
-
-  @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF0F172A),
-        elevation: 0,
-        title: Row(
-          children: [
-            Text(
-              'SaborPro ',
-              style: GoogleFonts.inter(
-                color: const Color(0xFF7444fd),
-                fontSize: 18,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            Text(
-              'Dashboard',
-              style: GoogleFonts.inter(
-                color: Colors.white54,
-                fontSize: 18,
-                fontWeight: FontWeight.w400,
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh, color: Colors.white38, size: 20),
-            onPressed: () => context.read<DashboardProvider>().load(),
-            tooltip: 'Actualizar',
-          ),
-          IconButton(
-            icon: const Icon(Icons.logout, color: Colors.white38, size: 20),
-            onPressed: () => _logout(context),
-            tooltip: 'Cerrar sesión',
-          ),
-        ],
-      ),
-      body: _DashboardBody(
-        view: _view,
-        onViewChanged: (v) => setState(() => _view = v),
-      ),
-    );
-  }
-
-  Future<void> _logout(BuildContext context) async {
-    await AuthService().logout();
-    if (!context.mounted) return;
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => const LoginScreen()),
+    return _DashboardBody(
+      view: _view,
+      onViewChanged: (v) => setState(() => _view = v),
     );
   }
 }

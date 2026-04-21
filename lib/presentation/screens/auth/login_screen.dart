@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/services/biometric_service.dart';
-import '../dashboard/dashboard_screen.dart';
+import '../shell_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -133,7 +133,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   void _goToDashboard() {
     Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => const DashboardScreen()),
+      MaterialPageRoute(builder: (_) => const AppShell()),
     );
   }
 

@@ -6,8 +6,9 @@ import 'core/services/auth_service.dart';
 import 'core/services/firestore_service.dart';
 import 'firebase_options.dart';
 import 'presentation/providers/dashboard_provider.dart';
+import 'presentation/providers/inventory_provider.dart';
 import 'presentation/screens/auth/login_screen.dart';
-import 'presentation/screens/dashboard/dashboard_screen.dart';
+import 'presentation/screens/shell_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -26,6 +27,7 @@ class SaborProAnalyticsApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => DashboardProvider()),
+        ChangeNotifierProvider(create: (_) => InventoryProvider()),
       ],
       child: MaterialApp(
         title: 'SaborPro Dashboard',
@@ -39,7 +41,7 @@ class SaborProAnalyticsApp extends StatelessWidget {
           ),
         ),
         home: AuthService().isLoggedIn
-            ? const DashboardScreen()
+            ? const AppShell()
             : const LoginScreen(),
       ),
     );
