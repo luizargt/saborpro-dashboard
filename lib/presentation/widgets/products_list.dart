@@ -16,7 +16,7 @@ class ProductsList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final fmt = NumberFormat('#,##0.00', 'es');
+    final fmt = NumberFormat('#,##0.00', 'en_US');
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -40,12 +40,27 @@ class ProductsList extends StatelessWidget {
                 ),
                 const SizedBox(width: 8),
                 if (products.isNotEmpty)
-                  GestureDetector(
-                    onTap: () => ExportService.exportProducts(products, prevLabel),
-                    child: const Tooltip(
-                      message: 'Descargar Excel',
-                      child: Icon(Icons.download_rounded,
-                          color: Colors.white38, size: 16),
+                  Tooltip(
+                    message: 'Descargar Excel',
+                    child: InkWell(
+                      onTap: () => ExportService.exportProducts(products, prevLabel),
+                      borderRadius: BorderRadius.circular(8),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF1E293B),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.white12),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.download_rounded, color: Colors.white54, size: 16),
+                            SizedBox(width: 4),
+                            Text('Excel', style: TextStyle(color: Colors.white54, fontSize: 11)),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
               ],

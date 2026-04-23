@@ -22,6 +22,9 @@ class DashboardProvider extends ChangeNotifier {
   String? _error;
   String? get error => _error;
 
+  List<DayHourlyPoints> _weeklyHourly = [];
+  List<DayHourlyPoints> get weeklyHourly => _weeklyHourly;
+
   String? _tenantId;
   String? _locationId;
 
@@ -81,12 +84,22 @@ class DashboardProvider extends ChangeNotifier {
 
     try {
       final prev = _range.previous();
+
+      // Para el gráfico de horas, siempre cargamos la semana actual
+      final now = DateTime.now();
+      final weekStart = now.subtract(Duration(days: now.weekday - 1));
+      final ws = DateTime(weekStart.year, weekStart.month, weekStart.day);
+      final we = DateTime(now.year, now.month, now.day, 23, 59, 59);
+
       final results = await Future.wait([
         _fetchOrders(_range.start, _range.end),
         _fetchOrders(prev.start, prev.end),
         _fetchExpenses(_range.start, _range.end),
         _fetchPurchaseCosts(_range.start, _range.end),
+        _fetchOrders(ws, we),
       ]);
+
+      _weeklyHourly = _groupByHourPerDay(results[4], ws);
 
       _metrics = _buildMetrics(
         results[0],
@@ -233,6 +246,35 @@ class DashboardProvider extends ChangeNotifier {
         if (days <= 31) return _groupByDayOfWeek(orders, range);
         return _groupByMonth(orders, range);
     }
+  }
+
+  List<DayHourlyPoints> _groupByHourPerDay(
+      List<Map<String, dynamic>> orders, DateTime weekStart) {
+    final dayLabels = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+    final result = <DayHourlyPoints>[];
+
+    for (var i = 0; i < 7; i++) {
+      final date = weekStart.add(Duration(days: i));
+      if (date.isAfter(DateTime.now())) break;
+      final amounts = List<double>.filled(24, 0.0);
+      final counts = List<int>.filled(24, 0);
+      for (final o in orders) {
+        final ts = o['paid_at'];
+        if (ts == null) continue;
+        final dt = (ts as Timestamp).toDate().toLocal();
+        if (dt.year == date.year && dt.month == date.month && dt.day == date.day) {
+          amounts[dt.hour] += (o['total_amount'] as num? ?? 0).toDouble();
+          counts[dt.hour]++;
+        }
+      }
+      final dowIndex = date.weekday - 1;
+      result.add(DayHourlyPoints(
+        dayLabel: '${dayLabels[dowIndex]} ${date.day}',
+        hourlyAmounts: amounts,
+        hourlyOrders: counts,
+      ));
+    }
+    return result;
   }
 
   List<PeriodPoint> _groupByHour(List<Map<String, dynamic>> orders) {

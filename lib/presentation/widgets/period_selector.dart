@@ -28,8 +28,7 @@ class DateNavigator extends StatelessWidget {
     final canGoNext = !range.next().isFuture;
 
     return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      mainAxisSize: MainAxisSize.min,
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         IconButton(
           icon: const Icon(Icons.chevron_left, color: Colors.white),

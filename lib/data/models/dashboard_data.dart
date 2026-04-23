@@ -1,3 +1,14 @@
+class DayHourlyPoints {
+  final String dayLabel;
+  final List<double> hourlyAmounts;
+  final List<int> hourlyOrders;
+  const DayHourlyPoints({
+    required this.dayLabel,
+    required this.hourlyAmounts,
+    required this.hourlyOrders,
+  });
+}
+
 class PeriodMetrics {
   final double totalSales;
   final int totalOrders;

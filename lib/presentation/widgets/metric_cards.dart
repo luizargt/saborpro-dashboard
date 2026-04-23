@@ -9,8 +9,8 @@ class MetricCards extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final fmt = NumberFormat('#,##0.00', 'es');
-    final fmtInt = NumberFormat('#,##0', 'es');
+    final fmt = NumberFormat('#,##0.00', 'en_US');
+    final fmtInt = NumberFormat('#,##0', 'en_US');
 
     return Column(
       children: [

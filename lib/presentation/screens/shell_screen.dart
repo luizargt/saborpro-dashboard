@@ -98,21 +98,31 @@ class _NarrowShell extends StatelessWidget {
         backgroundColor: const Color(0xFF0A1020),
         elevation: 0,
         title: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Text('SaborPro ',
-                style: GoogleFonts.inter(
-                    color: const Color(0xFF7444fd),
-                    fontSize: 17,
-                    fontWeight: FontWeight.w800)),
-            Text('Dashboard',
-                style: GoogleFonts.inter(
-                    color: Colors.white38,
-                    fontSize: 17,
-                    fontWeight: FontWeight.w400)),
+            Text(
+              'SaborPro ',
+              style: GoogleFonts.inter(
+                color: const Color(0xFF7444fd),
+                fontSize: 16,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            Text(
+              'Dashboard',
+              style: GoogleFonts.inter(
+                color: Colors.white38,
+                fontSize: 16,
+                fontWeight: FontWeight.w400,
+              ),
+            ),
           ],
         ),
         actions: [
-          const LocationSelector(),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 160),
+            child: const LocationSelector(),
+          ),
           const SizedBox(width: 8),
         ],
       ),
@@ -270,6 +280,7 @@ class _BottomNav extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
+      height: 80,
       decoration: BoxDecoration(
         color: const Color(0xFF070E1A),
         border: Border(top: BorderSide(color: Colors.white.withOpacity(0.06))),
@@ -303,6 +314,7 @@ class _BottomNav extends StatelessWidget {
             child: SizedBox(
               width: 72,
               child: Column(
+                mainAxisSize: MainAxisSize.min,
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   const Icon(Icons.logout_rounded, color: Colors.white38, size: 24),

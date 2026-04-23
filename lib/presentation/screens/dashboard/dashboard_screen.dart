@@ -137,7 +137,11 @@ class _DataContent extends StatelessWidget {
               ),
               const SizedBox(height: 16),
               if (view == DashboardView.chart)
-                SalesChart(points: metrics.chartPoints, mode: provider.range.mode)
+                SalesChart(
+                  points: metrics.chartPoints,
+                  mode: provider.range.mode,
+                  weeklyHourly: provider.weeklyHourly,
+                )
               else
                 SummaryTable(metrics: metrics),
             ],
@@ -162,8 +166,9 @@ class _DataContent extends StatelessWidget {
 
   String _chartTitle(PeriodMode mode) {
     switch (mode) {
-      case PeriodMode.day: return 'Ventas por hora';
-      case PeriodMode.week: return 'Ventas por día';
+      case PeriodMode.day:
+      case PeriodMode.week:
+        return 'Ventas por hora — semana actual';
       case PeriodMode.month: return 'Ventas por semana';
       case PeriodMode.year: return 'Ventas por mes';
       case PeriodMode.custom: return 'Ventas del período';

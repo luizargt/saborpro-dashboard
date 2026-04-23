@@ -9,7 +9,7 @@ class SummaryTable extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final fmt = NumberFormat('#,##0.00', 'es');
+    final fmt = NumberFormat('#,##0.00', 'en_US');
     String q(double v) => 'Q${fmt.format(v)}';
 
     return Container(

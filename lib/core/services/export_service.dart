@@ -6,7 +6,7 @@ import '../../data/models/inventory_data.dart';
 import '../../core/services/location_service.dart';
 
 class ExportService {
-  static final _fmt = NumberFormat('#,##0.00', 'es');
+  static final _fmt = NumberFormat('#,##0.00', 'en_US');
   static final _dateFmt = DateFormat('dd/MM/yyyy HH:mm', 'es');
 
   // ── PLATILLOS VENDIDOS ────────────────────────────────────────────────────
