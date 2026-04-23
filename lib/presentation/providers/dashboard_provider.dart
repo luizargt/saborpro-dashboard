@@ -190,7 +190,7 @@ class DashboardProvider extends ChangeNotifier {
     double purchaseCosts = 0,
   }) {
     double total = 0, prevTotal = 0;
-    double grossSales = 0, discounts = 0, taxes = 0, tips = 0, refunds = 0;
+    double grossSales = 0, discounts = 0, taxes = 0, tips = 0, refunds = 0, deliveryFees = 0;
 
     for (final o in orders) {
       final t = (o['total_amount'] as num? ?? 0).toDouble();
@@ -199,6 +199,7 @@ class DashboardProvider extends ChangeNotifier {
       discounts += (o['discount_amount'] as num? ?? 0).toDouble();
       taxes += (o['tax_amount'] as num? ?? 0).toDouble();
       tips += (o['tip_amount'] as num? ?? 0).toDouble();
+      deliveryFees += (o['delivery_fee'] as num? ?? 0).toDouble();
       if (o['is_refund'] == true) refunds += t;
     }
     for (final o in prevOrders) {
@@ -224,6 +225,7 @@ class DashboardProvider extends ChangeNotifier {
       taxes: taxes,
       tips: tips,
       refunds: refunds,
+      deliveryFees: deliveryFees,
       operationalExpenses: expenses,
       purchaseCosts: purchaseCosts,
     );
@@ -364,10 +366,23 @@ class DashboardProvider extends ChangeNotifier {
         final items = o['items'] as List<dynamic>? ?? [];
         for (final item in items) {
           final map = item as Map<String, dynamic>;
+          // Saltar items anulados o de cortesía
+          if (map['is_void'] == true || map['is_courtesy'] == true) continue;
           final name = map['name'] as String? ?? 'Sin nombre';
-          final qty = (map['quantity'] as num? ?? 1).toInt();
-          final price = (map['unit_price'] as num? ?? map['price'] as num? ?? 0).toDouble();
-          dst.putIfAbsent(name, () => _ProductAcc()).add(qty, price * qty);
+          // La app guarda el campo como 'qty', no 'quantity'
+          final qty = (map['qty'] as num? ?? map['quantity'] as num? ?? 1).toInt();
+          final unitPrice = (map['unit_price'] as num? ?? map['price'] as num? ?? 0).toDouble();
+          // Sumar precios de modificadores (extras, ingredientes adicionales, etc.)
+          double modifiersTotal = 0;
+          final modifiers = map['modifiers'] as List<dynamic>? ?? [];
+          for (final mod in modifiers) {
+            final m = mod as Map<String, dynamic>;
+            final modPrice = (m['price'] as num? ?? 0).toDouble();
+            final modQty = (m['qty'] as num? ?? 1).toInt();
+            modifiersTotal += modPrice * modQty * qty;
+          }
+          final lineTotal = unitPrice * qty + modifiersTotal;
+          dst.putIfAbsent(name, () => _ProductAcc()).add(qty, lineTotal);
         }
       }
     }

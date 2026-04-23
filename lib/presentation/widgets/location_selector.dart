@@ -9,7 +9,7 @@ class LocationSelector extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<DashboardProvider>();
-    if (provider.locations.isEmpty) return const SizedBox.shrink();
+    if (provider.locations.length <= 1) return const SizedBox.shrink();
 
     return GestureDetector(
       onTap: () => _showPicker(context, provider),

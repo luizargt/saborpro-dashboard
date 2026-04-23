@@ -19,15 +19,14 @@ class SummaryTable extends StatelessWidget {
       ),
       child: Column(
         children: [
-          _SectionHeader('Ingresos'),
-          _Row(label: 'Ventas brutas', value: q(metrics.grossSales), bold: true),
-          _Row(label: 'Descuentos', value: q(metrics.discounts), negative: true),
+          _Row(label: 'Ventas brutas', sublabel: 'sin propinas ni envío', value: q(metrics.grossSales), bold: true),
+          _Row(label: '− Descuentos', value: q(metrics.discounts), negative: metrics.discounts > 0),
           if (metrics.refunds > 0)
-            _Row(label: 'Reembolsos', value: q(metrics.refunds), negative: true),
-          const _Divider(),
-          _Row(label: 'Ventas netas', value: q(metrics.netSales), bold: true),
+            _Row(label: '− Reembolsos', value: q(metrics.refunds), negative: true),
           if (metrics.tips > 0)
-            _Row(label: 'Propinas', value: q(metrics.tips)),
+            _Row(label: '+ Propinas', value: q(metrics.tips), positive: true),
+          if (metrics.deliveryFees > 0)
+            _Row(label: '+ Costos de envío', value: q(metrics.deliveryFees), positive: true),
           const _Divider(),
           _Row(
             label: 'Total cobrado',
@@ -36,6 +35,7 @@ class SummaryTable extends StatelessWidget {
             highlight: true,
           ),
           if (metrics.totalCosts > 0) ...[
+            const SizedBox(height: 8),
             _SectionHeader('Costos y gastos'),
             if (metrics.purchaseCosts > 0)
               _Row(label: 'Compras / insumos', value: q(metrics.purchaseCosts), negative: true),
@@ -50,7 +50,8 @@ class SummaryTable extends StatelessWidget {
               negative: metrics.operatingProfit < 0,
             ),
           ],
-          _SectionHeader('Resumen'),
+          const SizedBox(height: 8),
+          const _Divider(),
           _Row(label: 'Número de tickets', value: '${metrics.totalOrders}'),
           _Row(label: 'Ticket promedio', value: q(metrics.avgTicket)),
           const SizedBox(height: 8),
@@ -87,17 +88,21 @@ class _SectionHeader extends StatelessWidget {
 
 class _Row extends StatelessWidget {
   final String label;
+  final String? sublabel;
   final String value;
   final bool bold;
   final bool negative;
+  final bool positive;
   final bool highlight;
   final bool profit;
 
   const _Row({
     required this.label,
     required this.value,
+    this.sublabel,
     this.bold = false,
     this.negative = false,
+    this.positive = false,
     this.highlight = false,
     this.profit = false,
   });
@@ -110,7 +115,9 @@ class _Row extends StatelessWidget {
             ? const Color(0xFF22C55E)
             : negative
                 ? const Color(0xFFEF4444)
-                : Colors.white;
+                : positive
+                    ? const Color(0xFF22C55E)
+                    : Colors.white;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
@@ -120,13 +127,26 @@ class _Row extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(
-            label,
-            style: GoogleFonts.inter(
-              color: bold ? Colors.white : Colors.white70,
-              fontSize: 14,
-              fontWeight: bold ? FontWeight.w600 : FontWeight.w400,
-            ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: GoogleFonts.inter(
+                  color: bold ? Colors.white : Colors.white70,
+                  fontSize: 14,
+                  fontWeight: bold ? FontWeight.w600 : FontWeight.w400,
+                ),
+              ),
+              if (sublabel != null)
+                Text(
+                  sublabel!,
+                  style: GoogleFonts.inter(
+                    color: Colors.white38,
+                    fontSize: 11,
+                  ),
+                ),
+            ],
           ),
           Text(
             value,

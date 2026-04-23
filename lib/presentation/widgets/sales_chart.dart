@@ -43,11 +43,22 @@ class SalesChart extends StatelessWidget {
   Widget _buildWeeklyHourlyChart(List<DayHourlyPoints> days, NumberFormat fmt) {
     final fmtFull = NumberFormat('#,##0.00', 'en_US');
     double maxY = 100;
+    int firstHour = 23;
+    int lastHour = 0;
     for (final d in days) {
-      for (final v in d.hourlyAmounts) {
-        if (v > maxY) maxY = v;
+      for (var h = 0; h < 24; h++) {
+        if (d.hourlyAmounts[h] > 0) {
+          if (h < firstHour) firstHour = h;
+          if (h > lastHour) lastHour = h;
+        }
+        if (d.hourlyAmounts[h] > maxY) maxY = d.hourlyAmounts[h];
       }
     }
+    // Si no hay ventas, mostrar rango completo
+    if (firstHour > lastHour) { firstHour = 0; lastHour = 23; }
+    // Padding de 1 hora a cada lado
+    final minX = (firstHour - 1).clamp(0, 23).toDouble();
+    final maxX = (lastHour + 1).clamp(0, 23).toDouble();
     maxY *= 1.2;
 
     final lines = days.asMap().entries.map((entry) {
@@ -77,6 +88,8 @@ class SalesChart extends StatelessWidget {
             LineChartData(
               maxY: maxY,
               minY: 0,
+              minX: minX,
+              maxX: maxX,
               clipData: const FlClipData.all(),
               lineBarsData: lines,
               lineTouchData: LineTouchData(

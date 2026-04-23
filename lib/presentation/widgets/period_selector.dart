@@ -27,46 +27,49 @@ class DateNavigator extends StatelessWidget {
     final isCustom = range.mode == PeriodMode.custom;
     final canGoNext = !range.next().isFuture;
 
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        IconButton(
-          icon: const Icon(Icons.chevron_left, color: Colors.white),
-          onPressed: provider.goPrevious,
-        ),
-        GestureDetector(
-          onTap: () => _openPicker(context, provider),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            decoration: BoxDecoration(
-              color: const Color(0xFF1E293B),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  range.label,
-                  style: GoogleFonts.inter(
-                    color: Colors.white,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                  ),
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E293B),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          IconButton(
+            icon: const Icon(Icons.chevron_left, color: Colors.white),
+            onPressed: provider.goPrevious,
+          ),
+          Expanded(
+            child: GestureDetector(
+              onTap: () => _openPicker(context, provider),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      range.label,
+                      style: GoogleFonts.inter(
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    const Icon(Icons.keyboard_arrow_down, color: Colors.white54, size: 18),
+                  ],
                 ),
-                const SizedBox(width: 6),
-                const Icon(Icons.keyboard_arrow_down, color: Colors.white54, size: 18),
-              ],
+              ),
             ),
           ),
-        ),
-        IconButton(
-          icon: Icon(
-            Icons.chevron_right,
-            color: isCustom || !canGoNext ? Colors.white24 : Colors.white,
+          IconButton(
+            icon: Icon(
+              Icons.chevron_right,
+              color: isCustom || !canGoNext ? Colors.white24 : Colors.white,
+            ),
+            onPressed: isCustom || !canGoNext ? null : provider.goNext,
           ),
-          onPressed: isCustom || !canGoNext ? null : provider.goNext,
-        ),
-      ],
+        ],
+      ),
     );
   }
 

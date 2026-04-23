@@ -25,8 +25,12 @@ class PeriodMetrics {
   final double taxes;
   final double tips;
   final double refunds;
+  final double deliveryFees;
   final double operationalExpenses; // gastos operacionales (collection: expenses)
   final double purchaseCosts;       // compras de insumos recibidas (collection: purchaseOrders)
+
+  // Venta Bruta = total cobrado sin propinas ni fees de delivery
+  double get ventaBruta => totalSales - tips - deliveryFees;
 
   double get netSales => grossSales - discounts - refunds;
   double get totalCosts => operationalExpenses + purchaseCosts;
@@ -46,6 +50,7 @@ class PeriodMetrics {
     this.taxes = 0,
     this.tips = 0,
     this.refunds = 0,
+    this.deliveryFees = 0,
     this.operationalExpenses = 0,
     this.purchaseCosts = 0,
   });

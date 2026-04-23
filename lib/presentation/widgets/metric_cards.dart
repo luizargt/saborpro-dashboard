@@ -12,14 +12,18 @@ class MetricCards extends StatelessWidget {
     final fmt = NumberFormat('#,##0.00', 'en_US');
     final fmtInt = NumberFormat('#,##0', 'en_US');
 
+    final showTips = metrics.tips > 0;
+    final showDelivery = metrics.deliveryFees > 0;
+
     return Column(
       children: [
+        // Fila principal
         Row(
           children: [
             Expanded(
               child: _MetricCard(
-                label: 'Ventas',
-                value: 'Q${fmt.format(metrics.totalSales)}',
+                label: 'Venta Bruta',
+                value: 'Q${fmt.format(metrics.ventaBruta)}',
                 change: metrics.salesChangePercent,
                 prevLabel: 'vs anterior: Q${fmt.format(metrics.prevTotalSales)}',
               ),
@@ -44,17 +48,88 @@ class MetricCards extends StatelessWidget {
             ),
           ],
         ),
-        if (metrics.tips > 0) ...[
+        // Fila propinas + delivery (solo si hay datos)
+        if (showTips || showDelivery) ...[
           const SizedBox(height: 10),
-          _MetricCard(
-            label: 'Propinas',
-            value: 'Q${fmt.format(metrics.tips)}',
-            change: 0,
-            prevLabel: '',
-            fullWidth: true,
+          Row(
+            children: [
+              if (showTips) ...[
+                Expanded(
+                  child: _CompactMetricCard(
+                    label: 'Propinas',
+                    value: 'Q${fmt.format(metrics.tips)}',
+                    accent: const Color(0xFFF59E0B),
+                  ),
+                ),
+              ],
+              if (showTips && showDelivery) const SizedBox(width: 10),
+              if (showDelivery) ...[
+                Expanded(
+                  child: _CompactMetricCard(
+                    label: 'Cobros delivery',
+                    value: 'Q${fmt.format(metrics.deliveryFees)}',
+                    accent: const Color(0xFF3B82F6),
+                  ),
+                ),
+              ],
+            ],
           ),
         ],
       ],
+    );
+  }
+}
+
+class _CompactMetricCard extends StatelessWidget {
+  final String label;
+  final String value;
+  final Color accent;
+
+  const _CompactMetricCard({
+    required this.label,
+    required this.value,
+    required this.accent,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E293B),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: accent.withOpacity(0.3), width: 1),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(color: accent, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            label,
+            style: GoogleFonts.inter(
+              color: Colors.white54,
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const Spacer(),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              value,
+              style: GoogleFonts.inter(
+                color: accent,
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -64,14 +139,14 @@ class _MetricCard extends StatelessWidget {
   final String value;
   final double change;
   final String prevLabel;
-  final bool fullWidth;
+  final Color? accent;
 
   const _MetricCard({
     required this.label,
     required this.value,
     required this.change,
     required this.prevLabel,
-    this.fullWidth = false,
+    this.accent,
   });
 
   @override
@@ -93,17 +168,34 @@ class _MetricCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: const Color(0xFF1E293B),
         borderRadius: BorderRadius.circular(12),
+        border: accent != null
+            ? Border.all(color: accent!.withOpacity(0.3), width: 1)
+            : null,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            label,
-            style: GoogleFonts.inter(
-              color: Colors.white54,
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-            ),
+          Row(
+            children: [
+              if (accent != null)
+                Container(
+                  width: 6,
+                  height: 6,
+                  margin: const EdgeInsets.only(right: 6),
+                  decoration: BoxDecoration(
+                    color: accent,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              Text(
+                label,
+                style: GoogleFonts.inter(
+                  color: Colors.white54,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 6),
           FittedBox(
@@ -112,39 +204,43 @@ class _MetricCard extends StatelessWidget {
             child: Text(
               value,
               style: GoogleFonts.inter(
-                color: Colors.white,
+                color: accent ?? Colors.white,
                 fontSize: 18,
                 fontWeight: FontWeight.w700,
               ),
             ),
           ),
           const SizedBox(height: 6),
-          Row(
-            children: [
-              Icon(changeIcon, size: 12, color: changeColor),
-              const SizedBox(width: 2),
-              Expanded(
-                child: Text(
-                  '${change.abs().toStringAsFixed(1)}%',
-                  style: GoogleFonts.inter(
-                    color: changeColor,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
+          if (prevLabel.isEmpty)
+            const SizedBox(height: 22)
+          else ...[
+            Row(
+              children: [
+                Icon(changeIcon, size: 12, color: changeColor),
+                const SizedBox(width: 2),
+                Expanded(
+                  child: Text(
+                    '${change.abs().toStringAsFixed(1)}%',
+                    style: GoogleFonts.inter(
+                      color: changeColor,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 2),
-          Text(
-            prevLabel,
-            style: GoogleFonts.inter(
-              color: Colors.white24,
-              fontSize: 10,
+              ],
             ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
+            const SizedBox(height: 2),
+            Text(
+              prevLabel,
+              style: GoogleFonts.inter(
+                color: Colors.white24,
+                fontSize: 10,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
         ],
       ),
     );
