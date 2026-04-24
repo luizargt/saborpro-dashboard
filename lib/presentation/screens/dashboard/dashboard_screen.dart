@@ -9,8 +9,11 @@ import '../../../presentation/widgets/metric_cards.dart';
 import '../../../presentation/widgets/sales_chart.dart';
 import '../../../presentation/widgets/products_list.dart';
 import '../../../presentation/widgets/summary_table.dart';
+import '../../../presentation/widgets/payment_method_breakdown.dart';
+import 'cajas_screen.dart';
 
 enum DashboardView { chart, table }
+enum DashboardTab { resumen, cajas }
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -21,12 +24,15 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   DashboardView _view = DashboardView.chart;
+  DashboardTab _tab = DashboardTab.resumen;
 
   @override
   Widget build(BuildContext context) {
     return _DashboardBody(
       view: _view,
       onViewChanged: (v) => setState(() => _view = v),
+      tab: _tab,
+      onTabChanged: (t) => setState(() => _tab = t),
     );
   }
 }
@@ -34,8 +40,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
 class _DashboardBody extends StatelessWidget {
   final DashboardView view;
   final ValueChanged<DashboardView> onViewChanged;
+  final DashboardTab tab;
+  final ValueChanged<DashboardTab> onTabChanged;
 
-  const _DashboardBody({required this.view, required this.onViewChanged});
+  const _DashboardBody({
+    required this.view,
+    required this.onViewChanged,
+    required this.tab,
+    required this.onTabChanged,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -67,25 +80,83 @@ class _DashboardBody extends StatelessWidget {
                     }
                     return const DateNavigator();
                   }),
+                  const SizedBox(height: 12),
+                  // Tab selector
+                  _TabSelector(tab: tab, onChanged: onTabChanged),
                   const SizedBox(height: 16),
                   // Contenido
                   if (provider.loading)
                     const _LoadingState()
                   else if (provider.error != null)
                     _ErrorState(error: provider.error!, onRetry: provider.load)
-                  else if (provider.metrics != null)
-                    _DataContent(
-                      provider: provider,
-                      view: view,
-                      onViewChanged: onViewChanged,
-                    )
+                  else if (tab == DashboardTab.resumen)
+                    provider.metrics != null
+                        ? _DataContent(
+                            provider: provider,
+                            view: view,
+                            onViewChanged: onViewChanged,
+                          )
+                        : const _EmptyState()
                   else
-                    const _EmptyState(),
+                    CajasScreen(
+                      open: provider.openRegisters,
+                      closed: provider.closedRegisters,
+                    ),
                 ],
               ),
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _TabSelector extends StatelessWidget {
+  final DashboardTab tab;
+  final ValueChanged<DashboardTab> onChanged;
+
+  const _TabSelector({required this.tab, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF0F172A),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      padding: const EdgeInsets.all(3),
+      child: Row(
+        children: [
+          _tab(DashboardTab.resumen, 'Resumen'),
+          _tab(DashboardTab.cajas, 'Cajas'),
+        ],
+      ),
+    );
+  }
+
+  Widget _tab(DashboardTab t, String label) {
+    final active = tab == t;
+    return Expanded(
+      child: GestureDetector(
+        onTap: () => onChanged(t),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          padding: const EdgeInsets.symmetric(vertical: 9),
+          decoration: BoxDecoration(
+            color: active ? const Color(0xFF7444fd) : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          alignment: Alignment.center,
+          child: Text(
+            label,
+            style: GoogleFonts.inter(
+              color: active ? Colors.white : Colors.white54,
+              fontSize: 13,
+              fontWeight: active ? FontWeight.w600 : FontWeight.w400,
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -141,12 +212,30 @@ class _DataContent extends StatelessWidget {
                   points: metrics.chartPoints,
                   mode: provider.range.mode,
                   weeklyHourly: provider.weeklyHourly,
+                  monthlyDailyPoints: provider.monthlyDailyPoints,
                 )
               else
                 SummaryTable(metrics: metrics),
             ],
           ),
         ),
+        const SizedBox(height: 20),
+        // Desglose por método de pago
+        if (metrics.salesByMethod.isNotEmpty)
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1E293B),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: PaymentMethodBreakdown(
+              salesByMethod: metrics.salesByMethod,
+              customMethodNames: {
+                for (final r in provider.openRegisters) ...r.customMethodNames,
+                for (final r in provider.closedRegisters) ...r.customMethodNames,
+              },
+            ),
+          ),
         const SizedBox(height: 20),
         Container(
           padding: const EdgeInsets.all(16),
@@ -157,6 +246,9 @@ class _DataContent extends StatelessWidget {
           child: ProductsList(
             products: metrics.topProducts,
             prevLabel: provider.range.prevLabel,
+            tips: metrics.tips,
+            discounts: metrics.discounts,
+            totalSales: metrics.totalSales,
           ),
         ),
         const SizedBox(height: 32),
@@ -166,9 +258,8 @@ class _DataContent extends StatelessWidget {
 
   String _chartTitle(PeriodMode mode) {
     switch (mode) {
-      case PeriodMode.day:
-      case PeriodMode.week:
-        return 'Ventas por hora — semana actual';
+      case PeriodMode.day: return 'Ventas por hora — semana actual';
+      case PeriodMode.week: return 'Ventas por semana';
       case PeriodMode.month: return 'Ventas por semana';
       case PeriodMode.year: return 'Ventas por mes';
       case PeriodMode.custom: return 'Ventas del período';
