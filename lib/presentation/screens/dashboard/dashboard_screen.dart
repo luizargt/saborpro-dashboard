@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../../../core/utils/date_range.dart';
-import '../../../data/models/dashboard_data.dart';
 import '../../../presentation/providers/dashboard_provider.dart';
 import '../../../presentation/widgets/period_selector.dart';
 import '../../../presentation/widgets/location_selector.dart';
@@ -14,7 +12,7 @@ import '../../../presentation/widgets/summary_table.dart';
 import '../../../presentation/widgets/payment_method_breakdown.dart';
 import 'cajas_screen.dart';
 
-enum DashboardView { chart, expenses, table }
+enum DashboardView { chart, table }
 enum DashboardTab { resumen, cajas }
 
 class DashboardScreen extends StatefulWidget {
@@ -198,7 +196,7 @@ class _DataContent extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    view == DashboardView.chart ? _chartTitle(provider.range.mode) : view == DashboardView.expenses ? 'Gastos y costos' : 'Resumen financiero',
+                    view == DashboardView.chart ? _chartTitle(provider.range.mode) : 'Resumen financiero',
                     style: GoogleFonts.inter(
                       color: Colors.white,
                       fontSize: 14,
@@ -216,8 +214,6 @@ class _DataContent extends StatelessWidget {
                   weeklyHourly: provider.weeklyHourly,
                   monthlyDailyPoints: provider.monthlyDailyPoints,
                 )
-              else if (view == DashboardView.expenses)
-                _ExpensesView(metrics: metrics)
               else
                 SummaryTable(metrics: metrics),
             ],
@@ -289,7 +285,6 @@ class _ViewToggle extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           _btn(Icons.bar_chart, DashboardView.chart),
-          _btn(Icons.receipt_long_outlined, DashboardView.expenses),
           _btn(Icons.table_rows_outlined, DashboardView.table),
         ],
       ),
@@ -350,116 +345,6 @@ class _ErrorState extends StatelessWidget {
           ),
         ),
       );
-}
-
-class _ExpensesView extends StatelessWidget {
-  final PeriodMetrics metrics;
-  const _ExpensesView({required this.metrics});
-
-  @override
-  Widget build(BuildContext context) {
-    final fmt = NumberFormat('#,##0.00', 'en_US');
-    String q(double v) => 'Q${fmt.format(v)}';
-
-    final hasExpenses = metrics.operationalExpenses > 0;
-    final hasCosts = metrics.purchaseCosts > 0;
-    final totalCosts = metrics.operationalExpenses + metrics.purchaseCosts;
-    final profit = metrics.totalSales - totalCosts;
-
-    if (!hasExpenses && !hasCosts) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 24),
-        child: Center(
-          child: Text(
-            'Sin gastos registrados en este período',
-            style: GoogleFonts.inter(color: Colors.white38, fontSize: 13),
-          ),
-        ),
-      );
-    }
-
-    return Column(
-      children: [
-        if (hasCosts)
-          _ExpenseRow(
-            icon: Icons.inventory_2_outlined,
-            label: 'Compras / insumos',
-            value: q(metrics.purchaseCosts),
-            color: const Color(0xFFF97316),
-          ),
-        if (hasExpenses)
-          _ExpenseRow(
-            icon: Icons.payments_outlined,
-            label: 'Gastos operacionales',
-            value: q(metrics.operationalExpenses),
-            color: const Color(0xFFEF4444),
-          ),
-        const Divider(color: Color(0x33FFFFFF), height: 24, thickness: 1),
-        _ExpenseRow(
-          icon: Icons.summarize_outlined,
-          label: 'Total gastos',
-          value: q(totalCosts),
-          color: Colors.white,
-          bold: true,
-        ),
-        const SizedBox(height: 8),
-        _ExpenseRow(
-          icon: profit >= 0 ? Icons.trending_up : Icons.trending_down,
-          label: 'Utilidad estimada',
-          value: q(profit),
-          color: profit >= 0 ? const Color(0xFF22C55E) : const Color(0xFFEF4444),
-          bold: true,
-        ),
-      ],
-    );
-  }
-}
-
-class _ExpenseRow extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String value;
-  final Color color;
-  final bool bold;
-
-  const _ExpenseRow({
-    required this.icon,
-    required this.label,
-    required this.value,
-    required this.color,
-    this.bold = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        children: [
-          Icon(icon, size: 16, color: color.withOpacity(0.8)),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              label,
-              style: GoogleFonts.inter(
-                color: bold ? Colors.white : Colors.white70,
-                fontSize: 13,
-                fontWeight: bold ? FontWeight.w600 : FontWeight.w400,
-              ),
-            ),
-          ),
-          Text(
-            value,
-            style: GoogleFonts.inter(
-              color: color,
-              fontSize: 14,
-              fontWeight: bold ? FontWeight.w700 : FontWeight.w500,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 }
 
 class _EmptyState extends StatelessWidget {

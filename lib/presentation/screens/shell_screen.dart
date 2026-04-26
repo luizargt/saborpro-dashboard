@@ -7,6 +7,7 @@ import '../../presentation/providers/dashboard_provider.dart';
 import '../../presentation/providers/inventory_provider.dart';
 import '../../presentation/screens/auth/login_screen.dart';
 import '../../presentation/screens/dashboard/dashboard_screen.dart';
+import '../../presentation/screens/expenses/expenses_screen.dart';
 import '../../presentation/screens/inventory/inventory_screen.dart';
 import '../../presentation/widgets/location_selector.dart';
 
@@ -193,6 +194,13 @@ class _Rail extends StatelessWidget {
             active: index == 1,
             onTap: () => onSelect(1),
           ),
+          const SizedBox(height: 6),
+          _RailItem(
+            icon: Icons.payments_outlined,
+            label: 'Gastos',
+            active: index == 2,
+            onTap: () => onSelect(2),
+          ),
           const Spacer(),
           // Logout
           GestureDetector(
@@ -305,6 +313,11 @@ class _BottomNav extends StatelessWidget {
                   selectedIcon: const Icon(Icons.inventory_2_rounded, color: Color(0xFF7444fd)),
                   label: 'Inventario',
                 ),
+                NavigationDestination(
+                  icon: const Icon(Icons.payments_outlined, color: Colors.white38),
+                  selectedIcon: const Icon(Icons.payments_rounded, color: Color(0xFF7444fd)),
+                  label: 'Gastos',
+                ),
               ],
             ),
           ),
@@ -349,6 +362,7 @@ class _PageContent extends StatelessWidget {
         children: const [
           DashboardScreen(),
           InventoryScreen(),
+          ExpensesScreen(),
         ],
       ),
     );
