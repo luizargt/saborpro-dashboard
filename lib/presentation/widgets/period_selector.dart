@@ -41,8 +41,9 @@ class DateNavigator extends StatelessWidget {
           Expanded(
             child: GestureDetector(
               onTap: () => _openPicker(context, provider),
+              behavior: HitTestBehavior.opaque,
               child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 12),
+                padding: const EdgeInsets.symmetric(vertical: 16),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [

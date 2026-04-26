@@ -262,8 +262,8 @@ class _DataContent extends StatelessWidget {
 
   String _chartTitle(PeriodMode mode) {
     switch (mode) {
-      case PeriodMode.day: return 'Ventas por hora — semana actual';
-      case PeriodMode.week: return 'Ventas por semana';
+      case PeriodMode.day: return 'Ventas por hora';
+      case PeriodMode.week: return 'Ventas diarias por semana';
       case PeriodMode.month: return 'Ventas por semana';
       case PeriodMode.year: return 'Ventas por mes';
       case PeriodMode.custom: return 'Ventas del período';
