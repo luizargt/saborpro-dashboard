@@ -1,10 +1,12 @@
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+import 'package:sentry_flutter/sentry_flutter.dart';
 import '../../core/services/firestore_service.dart';
 import '../../core/services/location_service.dart';
 import '../../core/utils/date_range.dart';
 import '../../data/models/dashboard_data.dart';
+import '../../data/models/cash_register_summary.dart';
 
 class DashboardProvider extends ChangeNotifier {
   final FirestoreService _firestore = FirestoreService();
@@ -24,6 +26,15 @@ class DashboardProvider extends ChangeNotifier {
 
   List<DayHourlyPoints> _weeklyHourly = [];
   List<DayHourlyPoints> get weeklyHourly => _weeklyHourly;
+
+  List<PeriodPoint> _monthlyDailyPoints = [];
+  List<PeriodPoint> get monthlyDailyPoints => _monthlyDailyPoints;
+
+  List<CashRegisterSummary> _openRegisters = [];
+  List<CashRegisterSummary> get openRegisters => _openRegisters;
+
+  List<CashRegisterSummary> _closedRegisters = [];
+  List<CashRegisterSummary> get closedRegisters => _closedRegisters;
 
   String? _tenantId;
   String? _locationId;
@@ -84,36 +95,139 @@ class DashboardProvider extends ChangeNotifier {
 
     try {
       final prev = _range.previous();
-
-      // Para el gráfico de horas, siempre cargamos la semana actual
       final now = DateTime.now();
       final weekStart = now.subtract(Duration(days: now.weekday - 1));
       final ws = DateTime(weekStart.year, weekStart.month, weekStart.day);
       final we = DateTime(now.year, now.month, now.day, 23, 59, 59);
+      final monthStart = DateTime(now.year, now.month, 1);
 
-      final results = await Future.wait([
-        _fetchOrders(_range.start, _range.end),
-        _fetchOrders(prev.start, prev.end),
+      // Etapa 1: período actual — necesario para métricas y top platillos
+      final currentOrders = await _fetchOrders(_range.start, _range.end);
+
+      // Etapa 2: período anterior — solo para comparación, se descarta al terminar esta etapa
+      final prevOrders = await _fetchOrders(prev.start, prev.end);
+
+      // Etapa 3: gastos y costos en paralelo (colecciones pequeñas, bajo impacto en memoria)
+      final expResults = await Future.wait([
         _fetchExpenses(_range.start, _range.end),
         _fetchPurchaseCosts(_range.start, _range.end),
-        _fetchOrders(ws, we),
       ]);
+      final expenses = expResults[0].fold<double>(0, (s, e) => s + (e['amount'] as num? ?? 0).toDouble());
+      final purchaseCosts = expResults[1].fold<double>(0, (s, e) => s + (e['total'] as num? ?? 0).toDouble());
 
-      _weeklyHourly = _groupByHourPerDay(results[4], ws);
-
+      // Etapa 4: construir métricas — después de esto prevOrders puede ser recolectado por el GC
       _metrics = _buildMetrics(
-        results[0],
-        results[1],
+        currentOrders,
+        prevOrders,
         _range,
-        expenses: results[2].fold(0.0, (s, e) => s + (e['amount'] as num? ?? 0).toDouble()),
-        purchaseCosts: results[3].fold(0.0, (s, e) => s + (e['total'] as num? ?? 0).toDouble()),
+        expenses: expenses,
+        purchaseCosts: purchaseCosts,
       );
-    } catch (e) {
+
+      // Etapa 5: datos del mes actual para la gráfica de barras diarias
+      final monthlyOrders = await _fetchOrders(monthStart, we);
+      _monthlyDailyPoints = _groupByDayOfMonth(monthlyOrders, monthStart, now);
+
+      // Opción 2: derivar datos de la semana actual del dataset mensual ya cargado,
+      // evitando un _fetchOrders extra. Si la semana cruza el inicio del mes (ej: 28 abr–4 may)
+      // se carga por separado para no perder datos.
+      final weekCrossesMont = ws.month != monthStart.month || ws.year != monthStart.year;
+      if (weekCrossesMont) {
+        final weeklyOrders = await _fetchOrders(ws, we);
+        _weeklyHourly = _groupByHourPerDay(weeklyOrders, ws);
+      } else {
+        final weeklyOrders = monthlyOrders.where((o) {
+          final dt = _toDateTime(o['paid_at']);
+          return dt != null && !dt.isBefore(ws);
+        }).toList();
+        _weeklyHourly = _groupByHourPerDay(weeklyOrders, ws);
+      }
+
+      // Etapa 6: cajas registradoras
+      await _fetchCashRegisters();
+    } catch (e, st) {
       _error = 'Error cargando datos: $e';
+      Sentry.captureException(e, stackTrace: st, withScope: (scope) {
+        scope.setTag('provider', 'dashboard');
+        scope.setContexts('range', {
+          'mode': _range.mode.name,
+          'start': _range.start.toIso8601String(),
+          'end': _range.end.toIso8601String(),
+        });
+      });
     }
 
     _loading = false;
     notifyListeners();
+  }
+
+  Future<void> _fetchCashRegisters() async {
+    try {
+      // Cargar nombres de métodos personalizados desde location settings
+      final customMethodNames = await _fetchCustomMethodNames();
+
+      final snap = await _firestore.instance
+          .collection('cashRegisters')
+          .where('tenantId', isEqualTo: _tenantId)
+          .get();
+
+      final all = snap.docs.map((d) => d.data()).where((d) {
+        if (_selectedLocationId != null && _selectedLocationId!.isNotEmpty) {
+          return d['locationId'] == _selectedLocationId;
+        }
+        return true;
+      }).toList();
+
+      String? locName(String? locId) {
+        if (locId == null) return null;
+        try { return _locations.firstWhere((l) => l.id == locId).name; } catch (_) { return null; }
+      }
+
+      _openRegisters = all
+          .where((d) => d['status'] == 'open')
+          .map((d) {
+            final r = CashRegisterSummary.fromMap(d);
+            return r.copyWith(customMethodNames: customMethodNames, locationName: locName(r.locationId));
+          })
+          .toList();
+
+      _closedRegisters = all.where((d) {
+        if (d['status'] != 'closed') return false;
+        final closedAt = d['closedAt'];
+        if (closedAt == null) return false;
+        final dt = _toDateTime(closedAt);
+        if (dt == null) return false;
+        return !dt.isBefore(_range.start) && !dt.isAfter(_range.end);
+      }).map((d) {
+            final r = CashRegisterSummary.fromMap(d);
+            return r.copyWith(customMethodNames: customMethodNames, locationName: locName(r.locationId));
+          })
+          .toList()
+        ..sort((a, b) => (b.closedAt ?? b.openedAt).compareTo(a.closedAt ?? a.openedAt));
+
+    } catch (_) {
+      _openRegisters = [];
+      _closedRegisters = [];
+    }
+  }
+
+  Future<Map<String, String>> _fetchCustomMethodNames() async {
+    try {
+      final locationId = _selectedLocationId ?? (_locations.isNotEmpty ? _locations.first.id : null);
+      if (locationId == null) return {};
+      final doc = await _firestore.instance.collection('locations').doc(locationId).get();
+      if (!doc.exists) return {};
+      final settings = (doc.data() as Map<String, dynamic>)['settings'];
+      if (settings == null) return {};
+      final methods = settings['custom_payment_methods'] as List<dynamic>? ?? [];
+      return {
+        for (final m in methods)
+          if (m is Map<String, dynamic> && m['id'] != null && m['name'] != null)
+            m['id'] as String: m['name'] as String,
+      };
+    } catch (_) {
+      return {};
+    }
   }
 
   Future<List<Map<String, dynamic>>> _fetchExpenses(
@@ -163,23 +277,39 @@ class DashboardProvider extends ChangeNotifier {
 
   Future<List<Map<String, dynamic>>> _fetchOrders(
       DateTime start, DateTime end) async {
-    final snap = await _firestore.orders
-        .where('tenant_id', isEqualTo: _tenantId)
-        .where('paid_at', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
-        .where('paid_at', isLessThanOrEqualTo: Timestamp.fromDate(end))
-        .get();
+    try {
+      // Dos queries secuenciales (no paralelas) para incluir órdenes offline (ISO string)
+      // sin el pico de memoria que causaba OOM al correrlas en paralelo.
+      final snapTs = await _firestore.orders
+          .where('tenant_id', isEqualTo: _tenantId)
+          .where('paid_at', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
+          .where('paid_at', isLessThanOrEqualTo: Timestamp.fromDate(end))
+          .get();
 
-    return snap.docs
-        .map((d) => d.data() as Map<String, dynamic>)
-        .where((o) {
-          if (_selectedLocationId != null && _selectedLocationId!.isNotEmpty) {
-            if (o['location_id'] != _selectedLocationId) return false;
-          }
-          final status = o['payment_status'] as String? ?? '';
-          final orderStatus = o['status'] as String? ?? '';
-          return status == 'PAID' || orderStatus == 'COBRADO' || orderStatus == 'CERRADO';
-        })
-        .toList();
+      final startIso = start.toIso8601String().substring(0, 23);
+      final endIso   = end.toIso8601String().substring(0, 23);
+      final snapIso = await _firestore.orders
+          .where('tenant_id', isEqualTo: _tenantId)
+          .where('paid_at', isGreaterThanOrEqualTo: startIso)
+          .where('paid_at', isLessThanOrEqualTo: endIso)
+          .get();
+
+      final seen = <String>{};
+      final all  = <Map<String, dynamic>>[];
+      for (final doc in [...snapTs.docs, ...snapIso.docs]) {
+        if (seen.add(doc.id)) all.add(doc.data() as Map<String, dynamic>);
+      }
+
+      return all.where((o) {
+        if (_selectedLocationId != null && _selectedLocationId!.isNotEmpty) {
+          if (o['location_id'] != _selectedLocationId) return false;
+        }
+        final orderStatus = o['status'] as String? ?? '';
+        return orderStatus != 'CANCELLED';
+      }).toList();
+    } catch (_) {
+      return [];
+    }
   }
 
   PeriodMetrics _buildMetrics(
@@ -191,9 +321,12 @@ class DashboardProvider extends ChangeNotifier {
   }) {
     double total = 0, prevTotal = 0;
     double grossSales = 0, discounts = 0, taxes = 0, tips = 0, refunds = 0, deliveryFees = 0;
+    final salesByMethod = <String, double>{};
 
     for (final o in orders) {
-      final t = (o['total_amount'] as num? ?? 0).toDouble();
+      // Usar payment_amount si existe (mismo valor que usa CashRegisterCalculator)
+      final rawTotal = (o['total_amount'] as num? ?? 0).toDouble();
+      final t = (o['payment_amount'] as num?)?.toDouble() ?? rawTotal;
       total += t;
       grossSales += (o['subtotal'] as num? ?? t).toDouble();
       discounts += (o['discount_amount'] as num? ?? 0).toDouble();
@@ -201,6 +334,39 @@ class DashboardProvider extends ChangeNotifier {
       tips += (o['tip_amount'] as num? ?? 0).toDouble();
       deliveryFees += (o['delivery_fee'] as num? ?? 0).toDouble();
       if (o['is_refund'] == true) refunds += t;
+
+      // Desglose por método de pago
+      // Normalizar 'mixed' a 'split' (igual que CashRegisterCalculator)
+      var method = o['payment_method'] as String? ?? 'cash';
+      if (method == 'mixed') {
+        method = 'split';
+        if (o['split_payments'] == null && o['mixed_payments'] is List) {
+          final mp = o['mixed_payments'] as List<dynamic>;
+          o['split_payments'] = mp.map((e) {
+            if (e is! Map) return <String, dynamic>{'payment_method': 'cash', 'amount': 0};
+            return <String, dynamic>{
+              'payment_method': e['method'] ?? 'cash',
+              'amount': e['amount'] ?? 0,
+            };
+          }).toList();
+        }
+      }
+      if (method == 'split') {
+        final splits = (o['split_payments'] as List<dynamic>? ?? [])
+            .whereType<Map>()
+            .toList();
+        final splitsSum = splits.fold<double>(
+            0, (s, sp) => s + ((sp['amount'] as num? ?? 0).toDouble()));
+        for (final sp in splits) {
+          final sm_method = sp['payment_method'] as String? ?? 'cash';
+          final sm_amount = (sp['amount'] as num? ?? 0).toDouble();
+          final ratio = splitsSum > 0 ? sm_amount / splitsSum : 0.0;
+          final allocated = sm_amount + (t - splitsSum) * ratio;
+          salesByMethod[sm_method] = (salesByMethod[sm_method] ?? 0) + allocated;
+        }
+      } else {
+        salesByMethod[method] = (salesByMethod[method] ?? 0) + t;
+      }
     }
     for (final o in prevOrders) {
       prevTotal += (o['total_amount'] as num? ?? 0).toDouble();
@@ -228,6 +394,7 @@ class DashboardProvider extends ChangeNotifier {
       deliveryFees: deliveryFees,
       operationalExpenses: expenses,
       purchaseCosts: purchaseCosts,
+      salesByMethod: salesByMethod,
     );
   }
 
@@ -263,7 +430,16 @@ class DashboardProvider extends ChangeNotifier {
       for (final o in orders) {
         final ts = o['paid_at'];
         if (ts == null) continue;
-        final dt = (ts as Timestamp).toDate().toLocal();
+        DateTime dt;
+        if (ts is Timestamp) {
+          dt = ts.toDate().toLocal();
+        } else if (ts is String) {
+          final parsed = DateTime.tryParse(ts);
+          if (parsed == null) continue;
+          dt = parsed.toLocal();
+        } else {
+          continue;
+        }
         if (dt.year == date.year && dt.month == date.month && dt.day == date.day) {
           amounts[dt.hour] += (o['total_amount'] as num? ?? 0).toDouble();
           counts[dt.hour]++;
@@ -279,6 +455,31 @@ class DashboardProvider extends ChangeNotifier {
     return result;
   }
 
+  List<PeriodPoint> _groupByDayOfMonth(
+      List<Map<String, dynamic>> orders, DateTime monthStart, DateTime today) {
+    final map = <int, _Acc>{};
+    for (var d = 1; d <= today.day; d++) {
+      map[d] = _Acc();
+    }
+    for (final o in orders) {
+      final ts = o['paid_at'];
+      if (ts == null) continue;
+      DateTime dt;
+      if (ts is Timestamp) {
+        dt = ts.toDate().toLocal();
+      } else if (ts is String) {
+        dt = DateTime.tryParse(ts)?.toLocal() ?? DateTime.now();
+      } else continue;
+      if (dt.month == monthStart.month && dt.year == monthStart.year) {
+        map[dt.day]?.add((o['payment_amount'] as num?)?.toDouble() ??
+            (o['total_amount'] as num? ?? 0).toDouble());
+      }
+    }
+    return map.entries
+        .map((e) => PeriodPoint(label: '${e.key}', amount: e.value.amount, orders: e.value.count))
+        .toList();
+  }
+
   List<PeriodPoint> _groupByHour(List<Map<String, dynamic>> orders) {
     final map = <int, _Acc>{};
     for (var h = 0; h < 24; h++) {
@@ -287,7 +488,8 @@ class DashboardProvider extends ChangeNotifier {
     for (final o in orders) {
       final ts = o['paid_at'];
       if (ts == null) continue;
-      final dt = (ts as Timestamp).toDate().toLocal();
+      final dt = _toDateTime(ts);
+      if (dt == null) continue;
       map[dt.hour]!.add((o['total_amount'] as num? ?? 0).toDouble());
     }
     return map.entries.map((e) {
@@ -308,7 +510,8 @@ class DashboardProvider extends ChangeNotifier {
     for (final o in orders) {
       final ts = o['paid_at'];
       if (ts == null) continue;
-      final dt = (ts as Timestamp).toDate().toLocal();
+      final dt = _toDateTime(ts);
+      if (dt == null) continue;
       final key = DateFormat('E d', 'es').format(dt);
       map[key]?.add((o['total_amount'] as num? ?? 0).toDouble());
     }
@@ -327,7 +530,8 @@ class DashboardProvider extends ChangeNotifier {
     for (final o in orders) {
       final ts = o['paid_at'];
       if (ts == null) continue;
-      final dt = (ts as Timestamp).toDate().toLocal();
+      final dt = _toDateTime(ts);
+      if (dt == null) continue;
       final week = ((dt.day - 1) / 7).floor() + 1;
       map[week]?.add((o['total_amount'] as num? ?? 0).toDouble());
     }
@@ -345,7 +549,8 @@ class DashboardProvider extends ChangeNotifier {
     for (final o in orders) {
       final ts = o['paid_at'];
       if (ts == null) continue;
-      final dt = (ts as Timestamp).toDate().toLocal();
+      final dt = _toDateTime(ts);
+      if (dt == null) continue;
       map[dt.month]?.add((o['total_amount'] as num? ?? 0).toDouble());
     }
     final monthNames = ['', 'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
@@ -363,23 +568,24 @@ class DashboardProvider extends ChangeNotifier {
 
     void accumulateItems(List<Map<String, dynamic>> src, Map<String, _ProductAcc> dst) {
       for (final o in src) {
-        final items = o['items'] as List<dynamic>? ?? [];
-        for (final item in items) {
-          final map = item as Map<String, dynamic>;
+        final rawItems = o['items'];
+        if (rawItems is! List) continue;
+        for (final item in rawItems) {
+          if (item is! Map) continue;
           // Saltar items anulados o de cortesía
-          if (map['is_void'] == true || map['is_courtesy'] == true) continue;
-          final name = map['name'] as String? ?? 'Sin nombre';
-          // La app guarda el campo como 'qty', no 'quantity'
-          final qty = (map['qty'] as num? ?? map['quantity'] as num? ?? 1).toInt();
-          final unitPrice = (map['unit_price'] as num? ?? map['price'] as num? ?? 0).toDouble();
-          // Sumar precios de modificadores (extras, ingredientes adicionales, etc.)
+          if (item['is_void'] == true || item['is_courtesy'] == true) continue;
+          final name = item['name'] as String? ?? 'Sin nombre';
+          final qty = (item['qty'] as num? ?? item['quantity'] as num? ?? 1).toInt();
+          final unitPrice = (item['unit_price'] as num? ?? item['price'] as num? ?? 0).toDouble();
           double modifiersTotal = 0;
-          final modifiers = map['modifiers'] as List<dynamic>? ?? [];
-          for (final mod in modifiers) {
-            final m = mod as Map<String, dynamic>;
-            final modPrice = (m['price'] as num? ?? 0).toDouble();
-            final modQty = (m['qty'] as num? ?? 1).toInt();
-            modifiersTotal += modPrice * modQty * qty;
+          final rawMods = item['modifiers'];
+          if (rawMods is List) {
+            for (final mod in rawMods) {
+              if (mod is! Map) continue;
+              final modPrice = (mod['price'] as num? ?? 0).toDouble();
+              final modQty = (mod['qty'] as num? ?? 1).toInt();
+              modifiersTotal += modPrice * modQty * qty;
+            }
           }
           final lineTotal = unitPrice * qty + modifiersTotal;
           dst.putIfAbsent(name, () => _ProductAcc()).add(qty, lineTotal);
@@ -406,6 +612,12 @@ class DashboardProvider extends ChangeNotifier {
     result.sort((a, b) => b.total.compareTo(a.total));
     return result.take(20).toList();
   }
+}
+
+DateTime? _toDateTime(dynamic ts) {
+  if (ts is Timestamp) return ts.toDate().toLocal();
+  if (ts is String) return DateTime.tryParse(ts)?.toLocal();
+  return null;
 }
 
 class _Acc {

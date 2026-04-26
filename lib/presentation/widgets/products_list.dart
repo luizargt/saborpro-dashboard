@@ -7,11 +7,17 @@ import '../../core/services/export_service.dart';
 class ProductsList extends StatelessWidget {
   final List<ProductSummary> products;
   final String prevLabel;
+  final double tips;
+  final double discounts;
+  final double totalSales;
 
   const ProductsList({
     super.key,
     required this.products,
     required this.prevLabel,
+    this.tips = 0,
+    this.discounts = 0,
+    this.totalSales = 0,
   });
 
   @override
@@ -104,55 +110,116 @@ class ProductsList extends StatelessWidget {
           )
         else ...[
           ...products.map((p) => _ProductRow(product: p, fmt: fmt)),
-          // Fila de totales
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 10),
-            decoration: const BoxDecoration(
-              border: Border(top: BorderSide(color: Color(0x33FFFFFF), width: 1)),
-              color: Color(0x0AFFFFFF),
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'Total (${products.length} platillos)',
-                    style: GoogleFonts.inter(
-                      color: Colors.white54,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-                SizedBox(
-                  width: 50,
-                  child: Text(
-                    '${products.fold<int>(0, (s, p) => s + p.quantity)}',
-                    textAlign: TextAlign.center,
-                    style: GoogleFonts.inter(
-                      color: Colors.white70,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-                SizedBox(
-                  width: 80,
-                  child: Text(
-                    'Q${fmt.format(products.fold<double>(0, (s, p) => s + p.total))}',
-                    textAlign: TextAlign.right,
-                    style: GoogleFonts.inter(
-                      color: const Color(0xFF7444fd),
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 52),
-              ],
-            ),
+          // Subtotal platillos
+          _FooterRow(
+            label: 'Total (${products.length} platillos)',
+            qty: products.fold<int>(0, (s, p) => s + p.quantity),
+            amount: products.fold<double>(0, (s, p) => s + p.total),
+            fmt: fmt,
+            labelColor: Colors.white54,
+            amountColor: Colors.white70,
           ),
+          if (tips > 0)
+            _FooterRow(
+              label: '+ Propinas',
+              amount: tips,
+              fmt: fmt,
+              labelColor: const Color(0xFFF59E0B),
+              amountColor: const Color(0xFFF59E0B),
+            ),
+          if (discounts > 0)
+            _FooterRow(
+              label: '− Descuentos',
+              amount: -discounts,
+              fmt: fmt,
+              labelColor: const Color(0xFFEF4444),
+              amountColor: const Color(0xFFEF4444),
+            ),
+          if (totalSales > 0)
+            _FooterRow(
+              label: 'Total cobrado',
+              amount: totalSales,
+              fmt: fmt,
+              labelColor: Colors.white,
+              amountColor: const Color(0xFF7444fd),
+              bold: true,
+              topBorder: true,
+            ),
         ],
       ],
+    );
+  }
+}
+
+class _FooterRow extends StatelessWidget {
+  final String label;
+  final int? qty;
+  final double amount;
+  final NumberFormat fmt;
+  final Color labelColor;
+  final Color amountColor;
+  final bool bold;
+  final bool topBorder;
+
+  const _FooterRow({
+    required this.label,
+    required this.amount,
+    required this.fmt,
+    required this.labelColor,
+    required this.amountColor,
+    this.qty,
+    this.bold = false,
+    this.topBorder = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final style = GoogleFonts.inter(
+      color: amountColor,
+      fontSize: 13,
+      fontWeight: bold ? FontWeight.w700 : FontWeight.w600,
+    );
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+      decoration: BoxDecoration(
+        border: Border(
+          top: topBorder
+              ? const BorderSide(color: Color(0x33FFFFFF), width: 1)
+              : BorderSide.none,
+        ),
+        color: topBorder ? const Color(0x0AFFFFFF) : Colors.transparent,
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: GoogleFonts.inter(
+                color: labelColor,
+                fontSize: bold ? 13 : 12,
+                fontWeight: bold ? FontWeight.w600 : FontWeight.w500,
+              ),
+            ),
+          ),
+          SizedBox(
+            width: 50,
+            child: qty != null
+                ? Text('$qty',
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.inter(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w700))
+                : const SizedBox(),
+          ),
+          SizedBox(
+            width: 80,
+            child: Text(
+              amount < 0 ? '−Q${fmt.format(amount.abs())}' : 'Q${fmt.format(amount)}',
+              textAlign: TextAlign.right,
+              style: style,
+            ),
+          ),
+          const SizedBox(width: 52),
+        ],
+      ),
     );
   }
 }

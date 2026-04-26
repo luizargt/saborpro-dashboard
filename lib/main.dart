@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:sentry_flutter/sentry_flutter.dart';
 import 'core/services/auth_service.dart';
 import 'core/services/firestore_service.dart';
 import 'firebase_options.dart';
@@ -16,7 +17,15 @@ void main() async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   await FirestoreService().initialize();
   await AuthService().restoreSession();
-  runApp(const SaborProAnalyticsApp());
+
+  await SentryFlutter.init(
+    (options) {
+      options.dsn = 'https://80d27298109d32411a1d331095af590b@o4510177128677376.ingest.us.sentry.io/4511282065178624';
+      options.tracesSampleRate = 0.2;
+      options.environment = 'production';
+    },
+    appRunner: () => runApp(const SaborProAnalyticsApp()),
+  );
 }
 
 class SaborProAnalyticsApp extends StatelessWidget {

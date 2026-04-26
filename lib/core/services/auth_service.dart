@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class AuthService {
   static final AuthService _instance = AuthService._internal();
@@ -10,6 +11,14 @@ class AuthService {
 
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _db = FirebaseFirestore.instance;
+
+  final _storage = const FlutterSecureStorage(
+    aOptions: AndroidOptions(encryptedSharedPreferences: true),
+  );
+  static const _kTenantId   = 'session_tenant_id';
+  static const _kLocationId = 'session_location_id';
+  static const _kDisplayName = 'session_display_name';
+  static const _kUid        = 'session_firestore_uid';
 
   User? get firebaseUser => _auth.currentUser;
   bool get isLoggedIn => firebaseUser != null || _firestoreUid != null;
@@ -106,7 +115,6 @@ class AuthService {
   Future<void> _loadUserData(Map<String, dynamic> data, String docId) async {
     _firestoreUid = docId;
     _tenantId = (data['tenant_id'] ?? data['current_tenant_id']) as String?;
-    // Si hay lista de tenants, tomar el primero
     if (_tenantId == null) {
       final ids = data['tenant_ids'];
       if (ids is List && ids.isNotEmpty) {
@@ -117,19 +125,44 @@ class AuthService {
     _displayName = data['name'] as String?;
     // ignore: avoid_print
     print('[AUTH] tenantId=$_tenantId locationId=$_locationId name=$_displayName');
+    // Persistir sesión para sobrevivir proceso killed por Android
+    try {
+      await Future.wait([
+        _storage.write(key: _kUid,         value: _firestoreUid),
+        _storage.write(key: _kTenantId,    value: _tenantId),
+        _storage.write(key: _kLocationId,  value: _locationId),
+        _storage.write(key: _kDisplayName, value: _displayName),
+      ]);
+    } catch (_) {}
   }
 
   Future<void> restoreSession() async {
     final user = firebaseUser;
     if (user != null) {
-      final query = await _db
-          .collection('users')
-          .where('firebase_uid', isEqualTo: user.uid)
-          .limit(1)
-          .get();
-      if (query.docs.isNotEmpty) {
-        await _loadUserData(query.docs.first.data(), query.docs.first.id);
-      }
+      try {
+        final query = await _db
+            .collection('users')
+            .where('firebase_uid', isEqualTo: user.uid)
+            .limit(1)
+            .get()
+            .timeout(const Duration(seconds: 10));
+        if (query.docs.isNotEmpty) {
+          await _loadUserData(query.docs.first.data(), query.docs.first.id);
+        }
+      } catch (_) {}
+    } else {
+      // Usuario no-migrado: restaurar desde almacenamiento seguro si Android mató el proceso
+      try {
+        final uid = await _storage.read(key: _kUid);
+        if (uid != null) {
+          _firestoreUid   = uid;
+          _tenantId       = await _storage.read(key: _kTenantId);
+          _locationId     = await _storage.read(key: _kLocationId);
+          _displayName    = await _storage.read(key: _kDisplayName);
+          // ignore: avoid_print
+          print('[AUTH] Sesión restaurada desde storage: tenantId=$_tenantId');
+        }
+      } catch (_) {}
     }
   }
 
@@ -138,6 +171,14 @@ class AuthService {
     _locationId = null;
     _displayName = null;
     _firestoreUid = null;
+    try {
+      await Future.wait([
+        _storage.delete(key: _kUid),
+        _storage.delete(key: _kTenantId),
+        _storage.delete(key: _kLocationId),
+        _storage.delete(key: _kDisplayName),
+      ]);
+    } catch (_) {}
     if (firebaseUser != null) {
       await _auth.signOut();
     }

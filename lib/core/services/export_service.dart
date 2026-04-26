@@ -1,5 +1,6 @@
-import 'dart:html' as html;
 import 'package:excel/excel.dart';
+import 'download_helper_stub.dart'
+    if (dart.library.html) 'download_helper_web.dart';
 import 'package:intl/intl.dart';
 import '../../data/models/dashboard_data.dart';
 import '../../data/models/inventory_data.dart';
@@ -105,12 +106,6 @@ class ExportService {
   static void _download(Excel excel, String filename) {
     final bytes = excel.encode();
     if (bytes == null) return;
-    final blob = html.Blob([bytes],
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    final url = html.Url.createObjectUrlFromBlob(blob);
-    html.AnchorElement(href: url)
-      ..setAttribute('download', filename)
-      ..click();
-    html.Url.revokeObjectUrl(url);
+    downloadExcel(bytes, filename);
   }
 }

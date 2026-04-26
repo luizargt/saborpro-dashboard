@@ -1,0 +1,14 @@
+{
+  "projects": {
+    "default": "saborprocom"
+  },
+  "targets": {
+    "saborprocom": {
+      "hosting": {
+        "dashboard": [
+          "saborprodashboard"
+        ]
+      }
+    }
+  }
+}

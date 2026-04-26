@@ -36,6 +36,9 @@ class PeriodMetrics {
   double get totalCosts => operationalExpenses + purchaseCosts;
   double get operatingProfit => netSales + tips - totalCosts;
 
+  // Ventas agrupadas por método de pago (key = payment_method value)
+  final Map<String, double> salesByMethod;
+
   PeriodMetrics({
     required this.totalSales,
     required this.totalOrders,
@@ -53,7 +56,30 @@ class PeriodMetrics {
     this.deliveryFees = 0,
     this.operationalExpenses = 0,
     this.purchaseCosts = 0,
+    this.salesByMethod = const {},
   });
+
+  PeriodMetrics copyWith({Map<String, double>? salesByMethod}) {
+    return PeriodMetrics(
+      totalSales: totalSales,
+      totalOrders: totalOrders,
+      avgTicket: avgTicket,
+      prevTotalSales: prevTotalSales,
+      prevTotalOrders: prevTotalOrders,
+      prevAvgTicket: prevAvgTicket,
+      chartPoints: chartPoints,
+      topProducts: topProducts,
+      grossSales: grossSales,
+      discounts: discounts,
+      taxes: taxes,
+      tips: tips,
+      refunds: refunds,
+      deliveryFees: deliveryFees,
+      operationalExpenses: operationalExpenses,
+      purchaseCosts: purchaseCosts,
+      salesByMethod: salesByMethod ?? this.salesByMethod,
+    );
+  }
 
   double get salesChangePercent {
     if (prevTotalSales == 0) return 0;
