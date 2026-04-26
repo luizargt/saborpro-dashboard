@@ -36,6 +36,12 @@ class DashboardProvider extends ChangeNotifier {
   List<CashRegisterSummary> _closedRegisters = [];
   List<CashRegisterSummary> get closedRegisters => _closedRegisters;
 
+  List<Map<String, dynamic>> _expenseItems = [];
+  List<Map<String, dynamic>> get expenseItems => _expenseItems;
+
+  List<Map<String, dynamic>> _purchaseItems = [];
+  List<Map<String, dynamic>> get purchaseItems => _purchaseItems;
+
   String? _tenantId;
   String? _locationId;
 
@@ -112,8 +118,10 @@ class DashboardProvider extends ChangeNotifier {
         _fetchExpenses(_range.start, _range.end),
         _fetchPurchaseCosts(_range.start, _range.end),
       ]);
-      final expenses = expResults[0].fold<double>(0, (s, e) => s + (e['amount'] as num? ?? 0).toDouble());
-      final purchaseCosts = expResults[1].fold<double>(0, (s, e) => s + (e['total'] as num? ?? 0).toDouble());
+      _expenseItems = expResults[0];
+      _purchaseItems = expResults[1];
+      final expenses = _expenseItems.fold<double>(0, (s, e) => s + (e['amount'] as num? ?? 0).toDouble());
+      final purchaseCosts = _purchaseItems.fold<double>(0, (s, e) => s + (e['total'] as num? ?? 0).toDouble());
 
       // Etapa 4: construir métricas — después de esto prevOrders puede ser recolectado por el GC
       _metrics = _buildMetrics(
