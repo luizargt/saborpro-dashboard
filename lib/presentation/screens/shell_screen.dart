@@ -189,15 +189,15 @@ class _Rail extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           _RailItem(
-            icon: Icons.inventory_2_rounded,
-            label: 'Inventario',
+            icon: Icons.payments_outlined,
+            label: 'Gastos',
             active: index == 1,
             onTap: () => onSelect(1),
           ),
           const SizedBox(height: 6),
           _RailItem(
-            icon: Icons.payments_outlined,
-            label: 'Gastos',
+            icon: Icons.inventory_2_rounded,
+            label: 'Inventario',
             active: index == 2,
             onTap: () => onSelect(2),
           ),
@@ -309,14 +309,14 @@ class _BottomNav extends StatelessWidget {
                   label: 'Ventas',
                 ),
                 NavigationDestination(
-                  icon: const Icon(Icons.inventory_2_outlined, color: Colors.white38),
-                  selectedIcon: const Icon(Icons.inventory_2_rounded, color: Color(0xFF7444fd)),
-                  label: 'Inventario',
-                ),
-                NavigationDestination(
                   icon: const Icon(Icons.payments_outlined, color: Colors.white38),
                   selectedIcon: const Icon(Icons.payments_rounded, color: Color(0xFF7444fd)),
                   label: 'Gastos',
+                ),
+                NavigationDestination(
+                  icon: const Icon(Icons.inventory_2_outlined, color: Colors.white38),
+                  selectedIcon: const Icon(Icons.inventory_2_rounded, color: Color(0xFF7444fd)),
+                  label: 'Inventario',
                 ),
               ],
             ),
@@ -361,8 +361,8 @@ class _PageContent extends StatelessWidget {
         index: index,
         children: const [
           DashboardScreen(),
-          InventoryScreen(),
           ExpensesScreen(),
+          InventoryScreen(),
         ],
       ),
     );

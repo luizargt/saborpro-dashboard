@@ -241,8 +241,10 @@ class DashboardProvider extends ChangeNotifier {
   Future<List<Map<String, dynamic>>> _fetchExpenses(
       DateTime start, DateTime end) async {
     try {
-      final startStr = start.toIso8601String().substring(0, 10);
-      final endStr = end.toIso8601String().substring(0, 10);
+      // `date` se guarda como ISO completo ("2026-04-25T00:00:00.000000"),
+      // usar solo YYYY-MM-DD para <=  falla porque "2026-04-25T…" > "2026-04-25".
+      final startStr = start.toIso8601String().substring(0, 23);
+      final endStr   = end.toIso8601String().substring(0, 23);
       var query = _firestore.instance
           .collection('expenses')
           .where('tenant_id', isEqualTo: _tenantId)
