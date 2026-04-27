@@ -321,6 +321,7 @@ class _ExpenseRow extends StatelessWidget {
     final dateStr = item['date'] as String? ?? '';
     final type = item['type'] as String?;
     final source = item['source'] as String?;
+    final assignedTo = item['assigned_to'] as String?;
 
     String dateLabel = '';
     try {
@@ -351,35 +352,30 @@ class _ExpenseRow extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(category,
-                    style: GoogleFonts.inter(
-                        color: Colors.white,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500)),
-                if (description != null && description.isNotEmpty) ...[
+                // Descripción como texto principal
+                Text(
+                  (description != null && description.isNotEmpty) ? description : category,
+                  style: GoogleFonts.inter(
+                      color: Colors.white,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 2),
+                // Categoría - Tipo - Fuente como subtítulo
+                Text(
+                  [
+                    category,
+                    if (type == 'fixed') 'Fijo' else 'Variable',
+                    if (source == 'cashRegister') 'Caja',
+                  ].join(' · '),
+                  style: GoogleFonts.inter(color: Colors.white38, fontSize: 11),
+                ),
+                if (assignedTo != null && (assignedTo as String).isNotEmpty) ...[
                   const SizedBox(height: 2),
-                  Text(description,
-                      style: GoogleFonts.inter(color: Colors.white38, fontSize: 11),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis),
-                ],
-                if (type != null || source == 'cashRegister') ...[
-                  const SizedBox(height: 3),
-                  Row(
-                    children: [
-                      if (type != null)
-                        _Tag(
-                          label: type == 'fixed' ? 'Fijo' : 'Variable',
-                          color: type == 'fixed'
-                              ? const Color(0xFF6366F1)
-                              : const Color(0xFFF59E0B),
-                        ),
-                      if (source == 'cashRegister') ...[
-                        if (type != null) const SizedBox(width: 4),
-                        const _Tag(label: 'Caja', color: Color(0xFF22C55E)),
-                      ],
-                    ],
-                  ),
+                  Text(assignedTo as String,
+                      style: GoogleFonts.inter(color: Colors.white24, fontSize: 11)),
                 ],
               ],
             ),
