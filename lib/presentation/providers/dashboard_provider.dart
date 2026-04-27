@@ -241,23 +241,31 @@ class DashboardProvider extends ChangeNotifier {
   Future<List<Map<String, dynamic>>> _fetchExpenses(
       DateTime start, DateTime end) async {
     try {
-      // `date` se guarda como ISO completo ("2026-04-25T00:00:00.000000"),
-      // usar solo YYYY-MM-DD para <=  falla porque "2026-04-25T…" > "2026-04-25".
-      final startStr = start.toIso8601String().substring(0, 23);
-      final endStr   = end.toIso8601String().substring(0, 23);
-      var query = _firestore.instance
+      // Se trae por tenant_id únicamente (no requiere índice compuesto) y se
+      // filtra por fecha en memoria. El campo `date` se guarda como ISO string
+      // completo ("2026-04-26T18:41:00.000000"), la comparación es lexicográfica.
+      final snap = await _firestore.instance
           .collection('expenses')
           .where('tenant_id', isEqualTo: _tenantId)
-          .where('date', isGreaterThanOrEqualTo: startStr)
-          .where('date', isLessThanOrEqualTo: endStr);
-      final snap = await query.get();
+          .get();
+
+      final startIso = start.toIso8601String().substring(0, 23); // "2026-04-26T00:00:00.000"
+      final endIso   = end.toIso8601String().substring(0, 23);   // "2026-04-26T23:59:59.000"
+
       return snap.docs.map((d) => d.data()).where((e) {
+        final dateStr = e['date'] as String? ?? '';
+        // Comparación lexicográfica funciona con ISO 8601 del mismo formato
+        if (dateStr.compareTo(startIso) < 0) return false;
+        if (dateStr.compareTo(endIso) > 0) return false;
         if (_selectedLocationId != null && _selectedLocationId!.isNotEmpty) {
           return e['location_id'] == _selectedLocationId;
         }
         return true;
       }).toList();
-    } catch (_) {
+    } catch (e, st) {
+      Sentry.captureException(e, stackTrace: st, withScope: (scope) {
+        scope.setTag('query', 'fetchExpenses');
+      });
       return [];
     }
   }
@@ -265,22 +273,30 @@ class DashboardProvider extends ChangeNotifier {
   Future<List<Map<String, dynamic>>> _fetchPurchaseCosts(
       DateTime start, DateTime end) async {
     try {
-      final startStr = start.toIso8601String().substring(0, 10);
-      final endStr = end.toIso8601String().substring(0, 10);
-      var query = _firestore.instance
+      // Igual que expenses: traer por tenant_id y filtrar en memoria para
+      // evitar dependencia de índice compuesto en received_at.
+      final snap = await _firestore.instance
           .collection('purchaseOrders')
           .where('tenant_id', isEqualTo: _tenantId)
           .where('status', isEqualTo: 'received')
-          .where('received_at', isGreaterThanOrEqualTo: startStr)
-          .where('received_at', isLessThanOrEqualTo: endStr);
-      final snap = await query.get();
+          .get();
+
+      final startIso = start.toIso8601String().substring(0, 23);
+      final endIso   = end.toIso8601String().substring(0, 23);
+
       return snap.docs.map((d) => d.data()).where((e) {
+        final dateStr = e['received_at'] as String? ?? '';
+        if (dateStr.compareTo(startIso) < 0) return false;
+        if (dateStr.compareTo(endIso) > 0) return false;
         if (_selectedLocationId != null && _selectedLocationId!.isNotEmpty) {
           return e['location_id'] == _selectedLocationId;
         }
         return true;
       }).toList();
-    } catch (_) {
+    } catch (e, st) {
+      Sentry.captureException(e, stackTrace: st, withScope: (scope) {
+        scope.setTag('query', 'fetchPurchaseCosts');
+      });
       return [];
     }
   }
