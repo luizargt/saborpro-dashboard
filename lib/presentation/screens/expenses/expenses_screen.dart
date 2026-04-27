@@ -52,6 +52,8 @@ class ExpensesScreen extends StatelessWidget {
                     _ExpensesBody(
                       expenseItems: provider.expenseItems,
                       purchaseItems: provider.purchaseItems,
+                      expenseRawCount: provider.expenseRawCount,
+                      expenseSampleDate: provider.expenseSampleDate,
                     ),
                 ],
               ),
@@ -95,10 +97,14 @@ class _ErrorView extends StatelessWidget {
 class _ExpensesBody extends StatelessWidget {
   final List<Map<String, dynamic>> expenseItems;
   final List<Map<String, dynamic>> purchaseItems;
+  final int expenseRawCount;
+  final String expenseSampleDate;
 
   const _ExpensesBody({
     required this.expenseItems,
     required this.purchaseItems,
+    required this.expenseRawCount,
+    required this.expenseSampleDate,
   });
 
   @override
@@ -116,11 +122,24 @@ class _ExpensesBody extends StatelessWidget {
     final hasPurchases = purchaseItems.isNotEmpty;
 
     if (!hasExpenses && !hasPurchases) {
-      return const SizedBox(
+      return SizedBox(
         height: 300,
         child: Center(
-          child: Text('Sin gastos registrados en este período',
-              style: TextStyle(color: Colors.white38)),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('Sin gastos registrados en este período',
+                  style: TextStyle(color: Colors.white38)),
+              const SizedBox(height: 12),
+              // Info de diagnóstico
+              Text('Docs en Firestore: $expenseRawCount',
+                  style: const TextStyle(color: Colors.white24, fontSize: 11)),
+              if (expenseSampleDate.isNotEmpty)
+                Text('Fecha de muestra: $expenseSampleDate',
+                    style: const TextStyle(color: Colors.white24, fontSize: 11),
+                    textAlign: TextAlign.center),
+            ],
+          ),
         ),
       );
     }

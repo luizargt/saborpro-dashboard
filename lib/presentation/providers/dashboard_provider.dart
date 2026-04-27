@@ -42,6 +42,12 @@ class DashboardProvider extends ChangeNotifier {
   List<Map<String, dynamic>> _purchaseItems = [];
   List<Map<String, dynamic>> get purchaseItems => _purchaseItems;
 
+  // Debug: docs totales en Firestore antes de filtrar por fecha
+  int _expenseRawCount = 0;
+  int get expenseRawCount => _expenseRawCount;
+  String _expenseSampleDate = '';
+  String get expenseSampleDate => _expenseSampleDate;
+
   String? _tenantId;
   String? _locationId;
 
@@ -241,22 +247,27 @@ class DashboardProvider extends ChangeNotifier {
   Future<List<Map<String, dynamic>>> _fetchExpenses(
       DateTime start, DateTime end) async {
     try {
-      // Se trae por tenant_id únicamente (no requiere índice compuesto) y se
-      // filtra por fecha en memoria. El campo `date` se guarda como ISO string
-      // completo ("2026-04-26T18:41:00.000000"), la comparación es lexicográfica.
       final snap = await _firestore.instance
           .collection('expenses')
           .where('tenant_id', isEqualTo: _tenantId)
           .get();
 
-      final startIso = start.toIso8601String().substring(0, 23); // "2026-04-26T00:00:00.000"
-      final endIso   = end.toIso8601String().substring(0, 23);   // "2026-04-26T23:59:59.000"
+      _expenseRawCount = snap.docs.length;
+      _expenseSampleDate = snap.docs.isNotEmpty
+          ? (snap.docs.first.data()['date']?.toString() ?? 'null')
+          : 'sin docs';
+
+      final startDay = DateTime(start.year, start.month, start.day);
+      final endDay   = DateTime(end.year, end.month, end.day, 23, 59, 59, 999);
 
       return snap.docs.map((d) => d.data()).where((e) {
-        final dateStr = e['date'] as String? ?? '';
-        // Comparación lexicográfica funciona con ISO 8601 del mismo formato
-        if (dateStr.compareTo(startIso) < 0) return false;
-        if (dateStr.compareTo(endIso) > 0) return false;
+        final raw = e['date'];
+        DateTime? dt;
+        if (raw is String) dt = DateTime.tryParse(raw);
+        if (raw is Timestamp) dt = raw.toDate();
+        if (dt == null) return false;
+        if (dt.isUtc) dt = dt.toLocal();
+        if (dt.isBefore(startDay) || dt.isAfter(endDay)) return false;
         if (_selectedLocationId != null && _selectedLocationId!.isNotEmpty) {
           return e['location_id'] == _selectedLocationId;
         }
@@ -265,7 +276,10 @@ class DashboardProvider extends ChangeNotifier {
     } catch (e, st) {
       Sentry.captureException(e, stackTrace: st, withScope: (scope) {
         scope.setTag('query', 'fetchExpenses');
+        scope.setTag('tenantId', _tenantId ?? 'null');
       });
+      _expenseRawCount = -1;
+      _expenseSampleDate = 'error: $e';
       return [];
     }
   }
