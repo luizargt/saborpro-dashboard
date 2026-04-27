@@ -1,4 +1,4 @@
 #!/bin/bash
 flutter build apk --release
-cp build/app/outputs/apk/release/Dashboard-*.apk build/app/outputs/flutter-apk/Dashboard.apk
-echo "✅ APK lista: build/app/outputs/flutter-apk/Dashboard.apk"
+cp build/app/outputs/apk/release/SPGerencia-*.apk build/app/outputs/flutter-apk/SPGerencia.apk
+echo "✅ APK lista: build/app/outputs/flutter-apk/SPGerencia.apk"

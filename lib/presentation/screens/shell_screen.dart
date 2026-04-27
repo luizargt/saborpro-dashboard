@@ -110,7 +110,7 @@ class _NarrowShell extends StatelessWidget {
               ),
             ),
             Text(
-              'Dashboard',
+              'Gerencia',
               style: GoogleFonts.inter(
                 color: Colors.white38,
                 fontSize: 16,

@@ -57,7 +57,7 @@ android {
         variant.outputs
             .map { it as com.android.build.gradle.internal.api.BaseVariantOutputImpl }
             .forEach { output ->
-                output.outputFileName = "Dashboard-${variant.versionName}.apk"
+                output.outputFileName = "SPGerencia-${variant.versionName}.apk"
             }
     }
 }
