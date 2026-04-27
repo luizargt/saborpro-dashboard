@@ -119,12 +119,14 @@ class DashboardProvider extends ChangeNotifier {
       // Etapa 2: período anterior — solo para comparación, se descarta al terminar esta etapa
       final prevOrders = await _fetchOrders(prev.start, prev.end);
 
-      // Etapa 3: gastos y costos en paralelo (colecciones pequeñas, bajo impacto en memoria)
+      // Etapa 3: gastos y costos en paralelo
       final expResults = await Future.wait([
         _fetchExpenses(_range.start, _range.end),
         _fetchPurchaseCosts(_range.start, _range.end),
+        _fetchCashWithdrawals(_range.start, _range.end),
       ]);
-      _expenseItems = expResults[0];
+      // _fetchExpenses = gastos manuales; _fetchCashWithdrawals = retiros de caja
+      _expenseItems = [...expResults[0], ...expResults[2]];
       _purchaseItems = expResults[1];
       final expenses = _expenseItems.fold<double>(0, (s, e) => s + (e['amount'] as num? ?? 0).toDouble());
       final purchaseCosts = _purchaseItems.fold<double>(0, (s, e) => s + (e['total'] as num? ?? 0).toDouble());
@@ -280,6 +282,65 @@ class DashboardProvider extends ChangeNotifier {
       });
       _expenseRawCount = -1;
       _expenseSampleDate = 'error: $e';
+      return [];
+    }
+  }
+
+  /// Extrae retiros de caja (withdrawal) desde cashRegisters como gastos.
+  /// Los gastos "Caja" en SaborPro no van a la colección `expenses` sino a
+  /// los movimientos dentro de cada cashRegister.
+  Future<List<Map<String, dynamic>>> _fetchCashWithdrawals(
+      DateTime start, DateTime end) async {
+    try {
+      final snap = await _firestore.instance
+          .collection('cashRegisters')
+          .where('tenantId', isEqualTo: _tenantId)
+          .get();
+
+      final startDay = DateTime(start.year, start.month, start.day);
+      final endDay   = DateTime(end.year, end.month, end.day, 23, 59, 59, 999);
+      final results  = <Map<String, dynamic>>[];
+
+      for (final doc in snap.docs) {
+        final data = doc.data();
+
+        if (_selectedLocationId != null && _selectedLocationId!.isNotEmpty) {
+          if (data['locationId'] != _selectedLocationId) continue;
+        }
+
+        final movementsList = data['movements'] as List<dynamic>? ?? [];
+        for (final raw in movementsList) {
+          if (raw is! Map) continue;
+          final mov = Map<String, dynamic>.from(raw);
+
+          if (mov['type'] != 'withdrawal') continue;
+
+          // Parsear fecha del movimiento
+          final rawDate = mov['createdAt'];
+          DateTime? dt;
+          if (rawDate is String) dt = DateTime.tryParse(rawDate);
+          if (rawDate is Timestamp) dt = rawDate.toDate();
+          if (dt == null) continue;
+          if (dt.isUtc) dt = dt.toLocal();
+          if (dt.isBefore(startDay) || dt.isAfter(endDay)) continue;
+
+          results.add({
+            'amount': (mov['amount'] as num? ?? 0).toDouble(),
+            'date': dt.toIso8601String(),
+            'category_name': mov['expenseCategoryName'] as String? ?? 'Otros Gastos',
+            'description': mov['reason'] as String?,
+            'source': 'cashRegister',
+            'type': 'variable',
+            'assigned_to': mov['assignedTo'],
+          });
+        }
+      }
+
+      return results;
+    } catch (e, st) {
+      Sentry.captureException(e, stackTrace: st, withScope: (scope) {
+        scope.setTag('query', 'fetchCashWithdrawals');
+      });
       return [];
     }
   }
