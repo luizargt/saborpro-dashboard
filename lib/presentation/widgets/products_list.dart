@@ -22,7 +22,7 @@ class ProductsList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final fmt = NumberFormat('#,##0.00', 'en_US');
+    final fmt = NumberFormat('#,##0', 'en_US');
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -247,11 +247,13 @@ class _ProductRow extends StatelessWidget {
         border: Border(bottom: BorderSide(color: Color(0x14FFFFFF))),
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Expanded(
             child: Text(
               product.name,
-              style: GoogleFonts.inter(color: Colors.white, fontSize: 13),
+              style: GoogleFonts.inter(color: Colors.white, fontSize: 11.5),
+              maxLines: 2,
               overflow: TextOverflow.ellipsis,
             ),
           ),
