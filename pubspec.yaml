@@ -45,12 +45,12 @@ dev_dependencies:
 flutter_launcher_icons:
   android: true
   ios: true
-  image_path: "assets/images/Dashboard.png"
+  image_path: "assets/images/Gerencia.png"
   adaptive_icon_background: "#0F172A"
-  adaptive_icon_foreground: "assets/images/Dashboard.png"
+  adaptive_icon_foreground: "assets/images/Gerencia.png"
   web:
     generate: true
-    image_path: "assets/images/Dashboard.png"
+    image_path: "assets/images/Gerencia.png"
 
 flutter:
   uses-material-design: true
