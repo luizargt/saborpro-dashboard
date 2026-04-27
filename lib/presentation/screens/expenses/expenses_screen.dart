@@ -322,6 +322,7 @@ class _ExpenseRow extends StatelessWidget {
     final type = item['type'] as String?;
     final source = item['source'] as String?;
     final assignedTo = item['assigned_to'] as String?;
+    final registeredBy = item['registered_by'] as String?;
 
     String dateLabel = '';
     try {
@@ -372,9 +373,9 @@ class _ExpenseRow extends StatelessWidget {
                   ].join(' · '),
                   style: GoogleFonts.inter(color: Colors.white38, fontSize: 11),
                 ),
-                if (assignedTo != null && (assignedTo as String).isNotEmpty) ...[
+                if (registeredBy != null && registeredBy.isNotEmpty) ...[
                   const SizedBox(height: 2),
-                  Text(assignedTo as String,
+                  Text(registeredBy,
                       style: GoogleFonts.inter(color: Colors.white24, fontSize: 11)),
                 ],
               ],

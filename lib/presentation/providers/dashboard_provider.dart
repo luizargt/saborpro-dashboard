@@ -332,6 +332,7 @@ class DashboardProvider extends ChangeNotifier {
             'source': 'cashRegister',
             'type': 'variable',
             'assigned_to': mov['assignedTo'],
+            'registered_by': mov['authorizedBy'],
           });
         }
       }
