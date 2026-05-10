@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../../../data/models/inventory_data.dart';
 import '../../../presentation/providers/inventory_provider.dart';
+import '../../../presentation/providers/dashboard_provider.dart';
 import '../../../core/services/location_service.dart';
 import '../../../core/services/export_service.dart';
 
@@ -26,7 +27,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
 
   static const _nameColW = 190.0;
   static const _dataColW = 90.0;
-  static const _rowH = 44.0;
+  static const _rowH = 54.0;
   static const _headerH = 42.0;
 
   @override
@@ -61,15 +62,21 @@ class _InventoryScreenState extends State<InventoryScreen> {
     super.dispose();
   }
 
-  List<IngredientStock> _filtered(List<IngredientStock> all) {
+  List<IngredientStock> _filtered(List<IngredientStock> all, String? locationId) {
     var list = all;
+    if (locationId != null) {
+      list = list.where((i) => i.stockByLocation.containsKey(locationId)).toList();
+    }
     if (_query.isNotEmpty) {
       list = list
           .where((i) => i.name.toLowerCase().contains(_query.toLowerCase()))
           .toList();
     }
     if (_filter != null) {
-      list = list.where((i) => i.worstStatus == _filter).toList();
+      list = list.where((i) {
+        final s = locationId != null ? i.statusAt(locationId) : i.worstStatus;
+        return s == _filter;
+      }).toList();
     }
     return list;
   }
@@ -77,14 +84,17 @@ class _InventoryScreenState extends State<InventoryScreen> {
   @override
   Widget build(BuildContext context) {
     final prov = context.watch<InventoryProvider>();
-    final items = _filtered(prov.items);
-    final locs = prov.locations;
+    final selectedLocationId = context.watch<DashboardProvider>().selectedLocationId;
+    final allLocs = prov.locations;
+    final locs = selectedLocationId != null
+        ? allLocs.where((l) => l.id == selectedLocationId).toList()
+        : allLocs;
+    final items = _filtered(prov.items, selectedLocationId);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _Header(provider: prov),
-        _SummaryStrip(provider: prov),
         _SearchAndFilter(
           controller: _searchController,
           filter: _filter,
@@ -142,7 +152,7 @@ class _Header extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Inventario',
+                'Despensa',
                 style: GoogleFonts.inter(
                     color: Colors.white,
                     fontSize: 20,
@@ -397,7 +407,8 @@ class _InventoryTable extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final totalW = (locations.length + 1) * dataColW; // +1 for Total col
+    final showTotal = locations.length > 1;
+    final totalW = (locations.length + (showTotal ? 1 : 0)) * dataColW;
 
     return Column(
       children: [
@@ -437,11 +448,12 @@ class _InventoryTable extends StatelessWidget {
                               label: _abbrev(l.name),
                               width: dataColW,
                             )),
-                        _HeaderCell(
-                          label: 'Total',
-                          width: dataColW,
-                          isTotal: true,
-                        ),
+                        if (showTotal)
+                          _HeaderCell(
+                            label: 'Total',
+                            width: dataColW,
+                            isTotal: true,
+                          ),
                       ],
                     ),
                   ),
@@ -489,6 +501,7 @@ class _InventoryTable extends StatelessWidget {
                         rowIndex: i,
                         height: rowH,
                         colWidth: dataColW,
+                        showTotal: showTotal,
                       ),
                     ),
                   ),
@@ -605,7 +618,7 @@ class _NameCell extends StatelessWidget {
                   style: GoogleFonts.inter(
                       color: Colors.white, fontSize: 12, fontWeight: FontWeight.w500),
                   overflow: TextOverflow.ellipsis,
-                  maxLines: 1,
+                  maxLines: 2,
                 ),
                 if (item.unit.isNotEmpty)
                   Text(
@@ -649,6 +662,7 @@ class _DataRow extends StatelessWidget {
   final int rowIndex;
   final double height;
   final double colWidth;
+  final bool showTotal;
 
   const _DataRow({
     required this.item,
@@ -656,6 +670,7 @@ class _DataRow extends StatelessWidget {
     required this.rowIndex,
     required this.height,
     required this.colWidth,
+    this.showTotal = true,
   });
 
   @override
@@ -674,11 +689,12 @@ class _DataRow extends StatelessWidget {
                 width: colWidth,
                 height: height,
               )),
-          _TotalCell(
-            total: item.totalStock,
-            width: colWidth,
-            height: height,
-          ),
+          if (showTotal)
+            _TotalCell(
+              total: item.totalStock,
+              width: colWidth,
+              height: height,
+            ),
         ],
       ),
     );
@@ -730,7 +746,7 @@ class _StockCell extends StatelessWidget {
               _fmtDays(daysRemaining!),
               style: GoogleFonts.inter(
                 color: textColor,
-                fontSize: 12,
+                fontSize: 13,
                 fontWeight: FontWeight.w700,
               ),
             ),
@@ -738,8 +754,8 @@ class _StockCell extends StatelessWidget {
             Text(
               _fmt(stock!),
               style: GoogleFonts.inter(
-                color: textColor.withOpacity(0.55),
-                fontSize: 9,
+                color: textColor,
+                fontSize: 14,
                 fontWeight: FontWeight.w400,
               ),
             ),
@@ -748,8 +764,8 @@ class _StockCell extends StatelessWidget {
               _fmt(stock!),
               style: GoogleFonts.inter(
                 color: textColor,
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
               ),
             ),
         ],
@@ -771,9 +787,9 @@ class _StockCell extends StatelessWidget {
   }
 
   String _fmtDays(double days) {
-    if (days > 180) return '+180d';
-    if (days < 1) return '<1d';
-    return '${days.round()}d';
+    if (days > 180) return '+180 días';
+    if (days < 1) return '<1 día';
+    return '${days.round()} días';
   }
 
   String _fmt(double v) {
@@ -807,7 +823,7 @@ class _TotalCell extends StatelessWidget {
         fmt,
         style: GoogleFonts.inter(
           color: const Color(0xFF7444fd),
-          fontSize: 12,
+          fontSize: 15,
           fontWeight: FontWeight.w700,
         ),
       ),

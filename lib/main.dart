@@ -39,7 +39,7 @@ class SaborProAnalyticsApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => InventoryProvider()),
       ],
       child: MaterialApp(
-        title: 'SaborPro Gerencia',
+        title: 'Sabor Manager',
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
           brightness: Brightness.dark,

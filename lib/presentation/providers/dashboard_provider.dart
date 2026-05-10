@@ -51,6 +51,9 @@ class DashboardProvider extends ChangeNotifier {
   String? _tenantId;
   String? _locationId;
 
+  // Cache: no cambia con el rango de fechas, solo se fetcha una vez por sesión
+  Map<String, String>? _cachedProductClassificationMap;
+
   List<LocationModel> _locations = [];
   List<LocationModel> get locations => _locations;
 
@@ -119,6 +122,15 @@ class DashboardProvider extends ChangeNotifier {
       // Etapa 2: período anterior — solo para comparación, se descarta al terminar esta etapa
       final prevOrders = await _fetchOrders(prev.start, prev.end);
 
+      // Etapa 0b: cargar clasificaciones: por categoria y por producto
+      final categoryIds = _extractCategoryIds(currentOrders);
+      final classMaps = await _fetchCategoryClassifications(categoryIds);
+      final classificationMap = classMaps.byId;
+      final classificationByName = classMaps.byName;
+      // El mapa de productos se cachea: el menú no cambia al cambiar el rango de fechas
+      _cachedProductClassificationMap ??= await _fetchProductClassifications(classificationMap);
+      final productClassificationMap = _cachedProductClassificationMap!;
+
       // Etapa 3: gastos y costos en paralelo
       final expResults = await Future.wait([
         _fetchExpenses(_range.start, _range.end),
@@ -138,6 +150,9 @@ class DashboardProvider extends ChangeNotifier {
         _range,
         expenses: expenses,
         purchaseCosts: purchaseCosts,
+        classificationMap: classificationMap,
+        classificationByName: classificationByName,
+        productClassificationMap: productClassificationMap,
       );
 
       // Etapa 5: datos del mes actual para la gráfica de barras diarias
@@ -420,6 +435,9 @@ class DashboardProvider extends ChangeNotifier {
     DateRange range, {
     double expenses = 0,
     double purchaseCosts = 0,
+    Map<String, String> classificationMap = const {},
+    Map<String, String> classificationByName = const {},
+    Map<String, String> productClassificationMap = const {},
   }) {
     double total = 0, prevTotal = 0;
     double grossSales = 0, discounts = 0, taxes = 0, tips = 0, refunds = 0, deliveryFees = 0;
@@ -487,7 +505,7 @@ class DashboardProvider extends ChangeNotifier {
       prevTotalOrders: prevCount,
       prevAvgTicket: prevAvg,
       chartPoints: _buildChartPoints(orders, range),
-      topProducts: _buildTopProducts(orders, prevOrders),
+      topProducts: _buildTopProducts(orders, prevOrders, classificationMap, classificationByName, productClassificationMap),
       grossSales: grossSales,
       discounts: discounts,
       taxes: taxes,
@@ -661,12 +679,106 @@ class DashboardProvider extends ChangeNotifier {
         .toList();
   }
 
+  Set<String> _extractCategoryIds(List<Map<String, dynamic>> orders) {
+    final ids = <String>{};
+    for (final o in orders) {
+      final rawItems = o['items'];
+      if (rawItems is! List) continue;
+      for (final item in rawItems) {
+        if (item is! Map) continue;
+        final id = item['category_id'] as String?;
+        if (id != null && id.isNotEmpty) ids.add(id);
+      }
+    }
+    return ids;
+  }
+
+  static String _classificationLabel(String key) {
+    switch (key.toUpperCase()) {
+      case 'COMIDA': return 'Comida';
+      case 'BEBIDA': return 'Bebidas';
+      case 'POSTRES': return 'Postres';
+      default: return key;
+    }
+  }
+
+  /// Retorna dos mapas: {categoryId → label} y {categoryName → label}
+  Future<({Map<String, String> byId, Map<String, String> byName})>
+      _fetchCategoryClassifications(Set<String> categoryIds) async {
+    final byId = <String, String>{};
+    final byName = <String, String>{};
+
+    void addDoc(String docId, Map<String, dynamic> data) {
+      final key = (data['classification_key'] as String? ??
+                   data['classificationKey'] as String? ?? '');
+      final name = data['name'] as String? ?? '';
+      final label = key.isNotEmpty ? _classificationLabel(key) : '';
+      if (label.isEmpty) return;
+      if (docId.isNotEmpty) byId[docId] = label;
+      if (name.isNotEmpty) byName[name] = label;
+    }
+
+    // Intento 1: query por tenant_id (más confiable)
+    if (_tenantId != null) {
+      try {
+        final snap = await _firestore.instance
+            .collection('categories')
+            .where('tenant_id', isEqualTo: _tenantId)
+            .get();
+        for (final doc in snap.docs) {
+          addDoc(doc.id, doc.data());
+        }
+      } catch (_) {}
+    }
+
+    // Intento 2: si no hubo resultados, fetch por IDs específicos
+    if (byId.isEmpty && categoryIds.isNotEmpty) {
+      try {
+        final docs = await Future.wait(categoryIds.map((id) =>
+            _firestore.instance.collection('categories').doc(id).get()));
+        for (final doc in docs) {
+          if (doc.exists) addDoc(doc.id, doc.data()!);
+        }
+      } catch (_) {}
+    }
+
+    return (byId: byId, byName: byName);
+  }
+
+  /// Busca todos los productos del tenant y construye un mapa productId → clasificación.
+  /// Esto es necesario porque los items de las órdenes guardan category_id=null pero sí
+  /// tienen product_id, que referencia la colección `products` donde sí está category_id.
+  Future<Map<String, String>> _fetchProductClassifications(
+      Map<String, String> classificationMap) async {
+    if (_tenantId == null || classificationMap.isEmpty) return {};
+    try {
+      final snap = await _firestore.instance
+          .collection('products')
+          .where('tenant_id', isEqualTo: _tenantId)
+          .get();
+      final result = <String, String>{};
+      for (final doc in snap.docs) {
+        final data = doc.data();
+        final catId = data['category_id'] as String? ?? '';
+        final label = classificationMap[catId] ?? '';
+        if (label.isNotEmpty) result[doc.id] = label;
+      }
+      return result;
+    } catch (_) {
+      return {};
+    }
+  }
+
   List<ProductSummary> _buildTopProducts(
     List<Map<String, dynamic>> orders,
     List<Map<String, dynamic>> prevOrders,
+    Map<String, String> classificationMap,
+    Map<String, String> classificationByName,
+    Map<String, String> productClassificationMap,
   ) {
     final curr = <String, _ProductAcc>{};
     final prev = <String, _ProductAcc>{};
+    final classifications = <String, String>{};
 
     void accumulateItems(List<Map<String, dynamic>> src, Map<String, _ProductAcc> dst) {
       for (final o in src) {
@@ -691,6 +803,17 @@ class DashboardProvider extends ChangeNotifier {
           }
           final lineTotal = unitPrice * qty + modifiersTotal;
           dst.putIfAbsent(name, () => _ProductAcc()).add(qty, lineTotal);
+          // Lookup clasificación: producto → categoria → clasificación (fallbacks por id y nombre)
+          final productId = item['product_id']?.toString() ?? '';
+          final categoryId = item['category_id']?.toString() ?? '';
+          final categoryName = item['category_name']?.toString() ?? '';
+          final label = (productId.isNotEmpty ? productClassificationMap[productId] : null)
+              ?? (categoryId.isNotEmpty ? classificationMap[categoryId] : null)
+              ?? (categoryName.isNotEmpty ? classificationByName[categoryName] : null)
+              ?? '';
+          if (label.isNotEmpty) {
+            classifications.putIfAbsent(name, () => label);
+          }
         }
       }
     }
@@ -704,6 +827,7 @@ class DashboardProvider extends ChangeNotifier {
       final p = prev[name] ?? _ProductAcc();
       return ProductSummary(
         name: name,
+        category: classifications[name] ?? '',
         quantity: c.qty,
         total: c.amount,
         prevQuantity: p.qty,
@@ -712,7 +836,7 @@ class DashboardProvider extends ChangeNotifier {
     }).toList();
 
     result.sort((a, b) => b.total.compareTo(a.total));
-    return result.take(20).toList();
+    return result;
   }
 }
 

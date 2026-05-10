@@ -107,6 +107,7 @@ class PeriodPoint {
 
 class ProductSummary {
   final String name;
+  final String category;
   final int quantity;
   final double total;
   final int prevQuantity;
@@ -114,6 +115,7 @@ class ProductSummary {
 
   ProductSummary({
     required this.name,
+    this.category = '',
     required this.quantity,
     required this.total,
     required this.prevQuantity,

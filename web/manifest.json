@@ -1,11 +1,11 @@
 {
-    "name": "saborpro_reports",
-    "short_name": "saborpro_reports",
+    "name": "Sabor Manager",
+    "short_name": "Sabor Manager",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "description": "Sabor Manager para usuarios de Sabor Suite",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

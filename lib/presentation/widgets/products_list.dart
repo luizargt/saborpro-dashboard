@@ -4,7 +4,7 @@ import 'package:intl/intl.dart';
 import '../../data/models/dashboard_data.dart';
 import '../../core/services/export_service.dart';
 
-class ProductsList extends StatelessWidget {
+class ProductsList extends StatefulWidget {
   final List<ProductSummary> products;
   final String prevLabel;
   final double tips;
@@ -21,8 +21,41 @@ class ProductsList extends StatelessWidget {
   });
 
   @override
+  State<ProductsList> createState() => _ProductsListState();
+}
+
+class _ProductsListState extends State<ProductsList> {
+  String? _selectedCategory;
+
+  @override
+  void didUpdateWidget(ProductsList oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.products != widget.products) _selectedCategory = null;
+  }
+
+  String _title(String? category) {
+    switch (category) {
+      case 'Bebidas': return 'Bebidas vendidas';
+      case 'Postres': return 'Postres vendidos';
+      default: return 'Platillos vendidos';
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final fmt = NumberFormat('#,##0', 'en_US');
+
+    // Categorías únicas presentes en los datos
+    final categories = widget.products
+        .map((p) => p.category)
+        .where((c) => c.isNotEmpty)
+        .toSet()
+        .toList()
+      ..sort();
+
+    final filtered = _selectedCategory == null
+        ? widget.products
+        : widget.products.where((p) => p.category == _selectedCategory).toList();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -31,7 +64,7 @@ class ProductsList extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text(
-              'Platillos vendidos',
+              _title(_selectedCategory),
               style: GoogleFonts.inter(
                 color: Colors.white,
                 fontSize: 14,
@@ -41,15 +74,15 @@ class ProductsList extends StatelessWidget {
             Row(
               children: [
                 Text(
-                  'vs $prevLabel',
+                  'vs ${widget.prevLabel}',
                   style: GoogleFonts.inter(color: Colors.white38, fontSize: 11),
                 ),
                 const SizedBox(width: 8),
-                if (products.isNotEmpty)
+                if (widget.products.isNotEmpty)
                   Tooltip(
                     message: 'Descargar Excel',
                     child: InkWell(
-                      onTap: () => ExportService.exportProducts(products, prevLabel),
+                      onTap: () => ExportService.exportProducts(widget.products, widget.prevLabel),
                       borderRadius: BorderRadius.circular(8),
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -73,6 +106,40 @@ class ProductsList extends StatelessWidget {
             ),
           ],
         ),
+        // Filtro de clasificación
+        if (categories.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          Container(
+            height: 44,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            decoration: BoxDecoration(
+              color: const Color(0xFF0F172A),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Colors.white12),
+            ),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<String?>(
+                value: _selectedCategory,
+                dropdownColor: const Color(0xFF1E293B),
+                iconEnabledColor: Colors.white38,
+                isDense: false,
+                isExpanded: true,
+                style: GoogleFonts.inter(color: Colors.white, fontSize: 13),
+                items: [
+                  DropdownMenuItem<String?>(
+                    value: null,
+                    child: Text('Todos', style: GoogleFonts.inter(color: Colors.white54, fontSize: 13)),
+                  ),
+                  ...categories.map((cat) => DropdownMenuItem<String?>(
+                        value: cat,
+                        child: Text(cat, style: GoogleFonts.inter(color: Colors.white, fontSize: 13)),
+                      )),
+                ],
+                onChanged: (val) => setState(() => _selectedCategory = val),
+              ),
+            ),
+          ),
+        ],
         const SizedBox(height: 4),
         // Header
         Padding(
@@ -98,58 +165,62 @@ class ProductsList extends StatelessWidget {
           ),
         ),
         const Divider(color: Colors.white12, height: 1),
-        if (products.isEmpty)
+        if (filtered.isEmpty)
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 24),
             child: Center(
               child: Text(
-                'Sin ventas en este período',
+                widget.products.isEmpty ? 'Sin ventas en este período' : 'Sin productos en esta categoría',
                 style: GoogleFonts.inter(color: Colors.white38, fontSize: 13),
               ),
             ),
           )
         else ...[
-          ...products.map((p) => _ProductRow(product: p, fmt: fmt)),
-          // Subtotal platillos
+          ...filtered.map((p) => _ProductRow(product: p, fmt: fmt)),
+          // Subtotal de la vista filtrada
           _FooterRow(
-            label: 'Total (${products.length} platillos)',
-            qty: products.fold<int>(0, (s, p) => s + p.quantity),
-            amount: products.fold<double>(0, (s, p) => s + p.total),
+            label: 'Total (${filtered.length} ${_selectedCategory == 'Bebidas' ? 'bebidas' : _selectedCategory == 'Postres' ? 'postres' : 'platillos'})',
+            qty: filtered.fold<int>(0, (s, p) => s + p.quantity),
+            amount: filtered.fold<double>(0, (s, p) => s + p.total),
             fmt: fmt,
             labelColor: Colors.white54,
             amountColor: Colors.white70,
           ),
-          if (tips > 0)
-            _FooterRow(
-              label: '+ Propinas',
-              amount: tips,
-              fmt: fmt,
-              labelColor: const Color(0xFFF59E0B),
-              amountColor: const Color(0xFFF59E0B),
-            ),
-          if (discounts > 0)
-            _FooterRow(
-              label: '− Descuentos',
-              amount: -discounts,
-              fmt: fmt,
-              labelColor: const Color(0xFFEF4444),
-              amountColor: const Color(0xFFEF4444),
-            ),
-          if (totalSales > 0)
-            _FooterRow(
-              label: 'Total cobrado',
-              amount: totalSales,
-              fmt: fmt,
-              labelColor: Colors.white,
-              amountColor: const Color(0xFF7444fd),
-              bold: true,
-              topBorder: true,
-            ),
+          // Propinas, descuentos y total global solo cuando se ven todos
+          if (_selectedCategory == null) ...[
+            if (widget.tips > 0)
+              _FooterRow(
+                label: '+ Propinas',
+                amount: widget.tips,
+                fmt: fmt,
+                labelColor: const Color(0xFFF59E0B),
+                amountColor: const Color(0xFFF59E0B),
+              ),
+            if (widget.discounts > 0)
+              _FooterRow(
+                label: '− Descuentos',
+                amount: -widget.discounts,
+                fmt: fmt,
+                labelColor: const Color(0xFFEF4444),
+                amountColor: const Color(0xFFEF4444),
+              ),
+            if (widget.totalSales > 0)
+              _FooterRow(
+                label: 'Total cobrado',
+                amount: widget.totalSales,
+                fmt: fmt,
+                labelColor: Colors.white,
+                amountColor: const Color(0xFF7444fd),
+                bold: true,
+                topBorder: true,
+              ),
+          ],
         ],
       ],
     );
   }
 }
+
 
 class _FooterRow extends StatelessWidget {
   final String label;

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
+import 'package:shorebird_code_push/shorebird_code_push.dart';
 import '../../core/services/auth_service.dart';
 import '../../core/services/biometric_service.dart';
 import '../../presentation/providers/dashboard_provider.dart';
@@ -20,10 +21,12 @@ class AppShell extends StatefulWidget {
 
 class _AppShellState extends State<AppShell> {
   int _index = 0;
+  int? _patchNumber;
 
   @override
   void initState() {
     super.initState();
+    _loadPatchNumber();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final id = AuthService().tenantId;
       if (id != null) {
@@ -31,6 +34,28 @@ class _AppShellState extends State<AppShell> {
         context.read<InventoryProvider>().init(id);
       }
     });
+  }
+
+  Future<void> _loadPatchNumber() async {
+    try {
+      final updater = ShorebirdUpdater();
+      if (!updater.isAvailable) return;
+
+      final current = await updater.readCurrentPatch();
+      final next = await updater.readNextPatch();
+
+      // Mostrar el mayor número disponible (next si hay parche pendiente)
+      final display = [current?.number, next?.number]
+          .whereType<int>()
+          .fold<int?>(null, (a, b) => a == null || b > a ? b : a);
+
+      if (mounted) setState(() => _patchNumber = display);
+
+      // Descargar nuevos parches en background sin bloquear la UI
+      updater.checkForUpdate().then((status) {
+        if (status == UpdateStatus.outdated) updater.update();
+      });
+    } catch (_) {}
   }
 
   Future<void> _logout() async {
@@ -47,8 +72,10 @@ class _AppShellState extends State<AppShell> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final wide = constraints.maxWidth >= 600;
-        return wide ? _WideShell(index: _index, onSelect: _setIndex, onLogout: _logout)
-                    : _NarrowShell(index: _index, onSelect: _setIndex, onLogout: _logout);
+        final versionLabel = _patchNumber != null ? 'v1.0.1 ($_patchNumber)' : 'v1.0.1';
+        return wide
+            ? _WideShell(index: _index, onSelect: _setIndex, onLogout: _logout, versionLabel: versionLabel)
+            : _NarrowShell(index: _index, onSelect: _setIndex, onLogout: _logout, versionLabel: versionLabel);
       },
     );
   }
@@ -61,9 +88,10 @@ class _WideShell extends StatelessWidget {
   final int index;
   final ValueChanged<int> onSelect;
   final VoidCallback onLogout;
+  final String versionLabel;
 
   const _WideShell(
-      {required this.index, required this.onSelect, required this.onLogout});
+      {required this.index, required this.onSelect, required this.onLogout, required this.versionLabel});
 
   @override
   Widget build(BuildContext context) {
@@ -71,7 +99,7 @@ class _WideShell extends StatelessWidget {
       backgroundColor: const Color(0xFF0F172A),
       body: Row(
         children: [
-          _Rail(index: index, onSelect: onSelect, onLogout: onLogout),
+          _Rail(index: index, onSelect: onSelect, onLogout: onLogout, versionLabel: versionLabel),
           Container(width: 1, color: Colors.white.withOpacity(0.05)),
           Expanded(
             child: _PageContent(index: index),
@@ -87,9 +115,10 @@ class _NarrowShell extends StatelessWidget {
   final int index;
   final ValueChanged<int> onSelect;
   final VoidCallback onLogout;
+  final String versionLabel;
 
   const _NarrowShell(
-      {required this.index, required this.onSelect, required this.onLogout});
+      {required this.index, required this.onSelect, required this.onLogout, required this.versionLabel});
 
   @override
   Widget build(BuildContext context) {
@@ -98,22 +127,36 @@ class _NarrowShell extends StatelessWidget {
       appBar: AppBar(
         backgroundColor: const Color(0xFF0A1020),
         elevation: 0,
-        title: Row(
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              'SaborPro ',
-              style: GoogleFonts.inter(
-                color: const Color(0xFF7444fd),
-                fontSize: 16,
-                fontWeight: FontWeight.w800,
-              ),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Sabor Suite ',
+                  style: GoogleFonts.inter(
+                    color: const Color(0xFF7444fd),
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                Text(
+                  'Manager',
+                  style: GoogleFonts.inter(
+                    color: Colors.white38,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w400,
+                  ),
+                ),
+              ],
             ),
             Text(
-              'Gerencia',
+              versionLabel,
               style: GoogleFonts.inter(
-                color: Colors.white38,
-                fontSize: 16,
+                color: Colors.white54,
+                fontSize: 12,
                 fontWeight: FontWeight.w400,
               ),
             ),
@@ -138,9 +181,10 @@ class _Rail extends StatelessWidget {
   final int index;
   final ValueChanged<int> onSelect;
   final VoidCallback onLogout;
+  final String versionLabel;
 
   const _Rail(
-      {required this.index, required this.onSelect, required this.onLogout});
+      {required this.index, required this.onSelect, required this.onLogout, required this.versionLabel});
 
   @override
   Widget build(BuildContext context) {
@@ -159,7 +203,7 @@ class _Rail extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           Text(
-            'SaborPro',
+            'Sabor Suite',
             style: GoogleFonts.inter(
               color: const Color(0xFF7444fd),
               fontSize: 9,
@@ -168,12 +212,21 @@ class _Rail extends StatelessWidget {
             ),
           ),
           Text(
-            'Dashboard',
+            'Manager',
             style: GoogleFonts.inter(
               color: Colors.white38,
               fontSize: 8,
               fontWeight: FontWeight.w400,
               letterSpacing: 0.5,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            versionLabel,
+            style: GoogleFonts.inter(
+              color: Colors.white54,
+              fontSize: 9,
+              fontWeight: FontWeight.w400,
             ),
           ),
           const SizedBox(height: 20),

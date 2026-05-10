@@ -191,15 +191,41 @@ class _UnifiedPickerSheetState extends State<_UnifiedPickerSheet> {
       (PeriodMode.month, 'Mes'),
       (PeriodMode.year, 'Año'),
     ];
-    return Container(
-      decoration: BoxDecoration(
-        color: const Color(0xFF0F172A),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      padding: const EdgeInsets.all(3),
-      child: Row(
-        children: [
-          ...modes.map((m) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        GestureDetector(
+          onTap: () {
+            Navigator.pop(context);
+            widget.onSelected(DateRange.today());
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            decoration: BoxDecoration(
+              color: const Color(0xFF0F172A),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            alignment: Alignment.center,
+            child: Text(
+              'Hoy',
+              style: GoogleFonts.inter(
+                color: Colors.white,
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Container(
+          decoration: BoxDecoration(
+            color: const Color(0xFF0F172A),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          padding: const EdgeInsets.all(3),
+          child: Row(
+            children: [
+              ...modes.map((m) {
             final sel = _mode == m.$1;
             return Expanded(
               child: GestureDetector(
@@ -246,6 +272,8 @@ class _UnifiedPickerSheetState extends State<_UnifiedPickerSheet> {
           ),
         ],
       ),
+        ),
+      ],
     );
   }
 
