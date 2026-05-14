@@ -271,14 +271,17 @@ class _ClosedRegisterCard extends StatelessWidget {
   List<_MethodData> _buildMethods(CashRegisterSummary r) {
     final list = <_MethodData>[];
 
-    void add(String label, double salesExpected, double? actual, double initial) {
-      // Mostrar si hay ventas o si se contó algo
+    void add(String label, double salesExpected, double? actual, double initial,
+        {double withdrawals = 0, double deposits = 0}) {
+      // "Esperado neto" = ventas del método - retiros en efectivo + depósitos
+      final adjustedExpected = salesExpected - withdrawals + deposits;
       final salesActual = actual != null ? actual - initial : null;
-      if (salesExpected == 0 && (salesActual == null || salesActual == 0)) return;
-      list.add(_MethodData(label: label, expected: salesExpected, actual: salesActual));
+      if (adjustedExpected == 0 && (salesActual == null || salesActual == 0)) return;
+      list.add(_MethodData(label: label, expected: adjustedExpected, actual: salesActual));
     }
 
-    add('Efectivo', r.salesCash, r.actualCash, r.initialCash);
+    add('Efectivo', r.salesCash, r.actualCash, r.initialCash,
+        withdrawals: r.totalWithdrawals, deposits: r.totalDeposits);
     add('Tarjeta', r.salesCard, r.actualCard, r.initialCard);
     add('Transferencia', r.salesTransfer, r.actualTransfer, r.initialTransfer);
     add('PedidosYa', r.salesPedidosya, r.actualPedidosya, r.initialPedidosya);

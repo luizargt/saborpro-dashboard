@@ -31,6 +31,10 @@ class CashRegisterSummary {
   final double? actualUbereats;
   final Map<String, double> actualCustomMethods;
 
+  // Movimientos de caja (retiros y depósitos en efectivo)
+  final double totalWithdrawals;
+  final double totalDeposits;
+
   // Nombres de métodos personalizados: id → nombre
   final Map<String, String> customMethodNames;
   final String? locationName;
@@ -59,6 +63,8 @@ class CashRegisterSummary {
     this.actualPedidosya,
     this.actualUbereats,
     this.actualCustomMethods = const {},
+    this.totalWithdrawals = 0,
+    this.totalDeposits = 0,
     this.customMethodNames = const {},
     this.locationName,
   });
@@ -86,6 +92,7 @@ class CashRegisterSummary {
       expectedCustomMethods.values.fold(0, (a, b) => a + b);
 
   // Diferencia total (contado - esperado). null si no se contó nada.
+  // Los retiros reducen el efectivo esperado en gaveta; los depósitos lo aumentan.
   double? get totalDifference {
     final hasActual = actualCash != null || actualCard != null ||
         actualTransfer != null || actualPedidosya != null || actualUbereats != null ||
@@ -97,7 +104,7 @@ class CashRegisterSummary {
         (actualPedidosya ?? 0) - initialPedidosya +
         (actualUbereats ?? 0) - initialUbereats +
         actualCustomMethods.values.fold(0.0, (a, b) => a + b);
-    return counted - totalSales;
+    return counted - totalSales + totalWithdrawals - totalDeposits;
   }
 
   Duration get duration {
@@ -133,6 +140,8 @@ class CashRegisterSummary {
       actualPedidosya: actualPedidosya,
       actualUbereats: actualUbereats,
       actualCustomMethods: actualCustomMethods,
+      totalWithdrawals: totalWithdrawals,
+      totalDeposits: totalDeposits,
       customMethodNames: customMethodNames ?? this.customMethodNames,
       locationName: locationName ?? this.locationName,
     );
@@ -151,6 +160,16 @@ class CashRegisterSummary {
       if (v == null) return {};
       return (v as Map<String, dynamic>)
           .map((k, val) => MapEntry(k, (val as num? ?? 0).toDouble()));
+    }
+
+    double totalWithdrawals = 0;
+    double totalDeposits = 0;
+    final movements = (map['movements'] as List<dynamic>?) ?? [];
+    for (final m in movements) {
+      final type = (m as Map<String, dynamic>?)?['type'] as String? ?? '';
+      final amount = (m?['amount'] as num? ?? 0).toDouble();
+      if (type == 'withdrawal') { totalWithdrawals += amount; }
+      else if (type == 'deposit') { totalDeposits += amount; }
     }
 
     return CashRegisterSummary(
@@ -177,6 +196,8 @@ class CashRegisterSummary {
       actualPedidosya: dblN(map['actualPedidosya']),
       actualUbereats: dblN(map['actualUbereats']),
       actualCustomMethods: customMap(map['actualCustomMethods']),
+      totalWithdrawals: totalWithdrawals,
+      totalDeposits: totalDeposits,
     );
   }
 }
