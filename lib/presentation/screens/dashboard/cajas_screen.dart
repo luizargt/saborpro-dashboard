@@ -200,35 +200,96 @@ class _ClosedRegisterCard extends StatelessWidget {
                       const SizedBox(height: 5),
                       _StatusBadge(register.totalDifference!),
                     ],
+                    if (register.closingNotes != null &&
+                        register.closingNotes!.trim().isNotEmpty &&
+                        register.totalDifference != null &&
+                        register.totalDifference!.abs() >= 0.01) ...[
+                      const SizedBox(height: 5),
+                      _JustificationBadge(register.closingNotes!.trim()),
+                    ],
                   ],
                 ),
               ],
             ),
           ),
 
-          // Fondo inicial (si hay)
-          if (register.totalInitial > 0) ...[
-            const Divider(color: Color(0x1AFFFFFF), height: 1),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-              child: Row(
-                children: [
-                  const Icon(Icons.account_balance_wallet_outlined,
-                      size: 13, color: Colors.white38),
-                  const SizedBox(width: 6),
-                  Text(
-                    'Fondo inicial',
-                    style: GoogleFonts.inter(color: Colors.white38, fontSize: 12),
+          // Desglose resumen de la caja
+          const Divider(color: Color(0x1AFFFFFF), height: 1),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // ── EFECTIVO ─────────────────────────────
+                Text(
+                  'Efectivo',
+                  style: GoogleFonts.inter(
+                    color: Colors.white70,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.2,
                   ),
-                  const Spacer(),
-                  Text(
-                    'Q${fmt.format(register.totalInitial)}',
-                    style: GoogleFonts.inter(color: Colors.white38, fontSize: 12),
-                  ),
+                ),
+                const SizedBox(height: 8),
+                _SummaryRow(label: 'Apertura', value: register.initialCash, fmt: fmt, indent: true),
+                const SizedBox(height: 5),
+                _SummaryRow(label: 'Venta Efectivo', value: register.salesCash, fmt: fmt, indent: true, sales: true),
+                const SizedBox(height: 5),
+                _SummaryRow(label: 'Depósitos', value: register.totalDeposits, fmt: fmt, indent: true),
+                const SizedBox(height: 5),
+                _SummaryRow(label: 'Retiros', value: register.totalWithdrawals, fmt: fmt, indent: true, negative: true),
+                const SizedBox(height: 8),
+                _SummaryRow(
+                  label: 'Total Efectivo',
+                  value: register.initialCash + register.salesCash + register.totalDeposits - register.totalWithdrawals,
+                  fmt: fmt,
+                  highlight: true,
+                ),
+
+                // ── OTROS MÉTODOS ─────────────────────────
+                if (register.salesCard > 0) ...[
+                  const SizedBox(height: 10),
+                  _SummaryRow(label: 'Venta Tarjeta', value: register.salesCard, fmt: fmt, sales: true),
                 ],
-              ),
+                if (register.salesTransfer > 0) ...[
+                  const SizedBox(height: 5),
+                  _SummaryRow(label: 'Venta Transferencia', value: register.salesTransfer, fmt: fmt, sales: true),
+                ],
+                if (register.salesPedidosya > 0) ...[
+                  const SizedBox(height: 5),
+                  _SummaryRow(label: 'PedidosYa', value: register.salesPedidosya, fmt: fmt, sales: true),
+                ],
+                if (register.salesUbereats > 0) ...[
+                  const SizedBox(height: 5),
+                  _SummaryRow(label: 'Uber Eats', value: register.salesUbereats, fmt: fmt, sales: true),
+                ],
+                ...register.expectedCustomMethods.entries
+                    .where((e) => e.value > 0)
+                    .map((e) => Padding(
+                          padding: const EdgeInsets.only(top: 5),
+                          child: _SummaryRow(
+                            label: register.customMethodNames[e.key] ?? e.key,
+                            value: e.value,
+                            fmt: fmt,
+                            sales: true,
+                          ),
+                        )),
+
+                // ── TOTAL ─────────────────────────────────
+                const SizedBox(height: 10),
+                const Divider(color: Color(0x1AFFFFFF), height: 1),
+                const SizedBox(height: 8),
+                _SummaryRow(
+                  label: 'Total',
+                  value: register.initialCash + register.salesCash + register.totalDeposits - register.totalWithdrawals +
+                      register.salesCard + register.salesTransfer + register.salesPedidosya + register.salesUbereats +
+                      register.expectedCustomMethods.values.fold(0.0, (a, b) => a + b),
+                  fmt: fmt,
+                  total: true,
+                ),
+              ],
             ),
-          ],
+          ),
 
           // Tabla de métodos de pago
           if (methods.isNotEmpty) ...[
@@ -295,6 +356,114 @@ class _ClosedRegisterCard extends StatelessWidget {
     });
 
     return list;
+  }
+}
+
+class _JustificationBadge extends StatelessWidget {
+  final String notes;
+  const _JustificationBadge(this.notes);
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 220),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF59E0B).withOpacity(0.1),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: const Color(0xFFF59E0B).withOpacity(0.3), width: 1),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.chat_bubble_outline, size: 11, color: Color(0xFFF59E0B)),
+          const SizedBox(width: 5),
+          Flexible(
+            child: Text(
+              notes,
+              style: GoogleFonts.inter(
+                color: const Color(0xFFF59E0B),
+                fontSize: 10,
+                height: 1.4,
+              ),
+              maxLines: 4,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SummaryRow extends StatelessWidget {
+  final String label;
+  final double value;
+  final NumberFormat fmt;
+  final bool highlight;
+  final bool negative;
+  final bool total;
+  final bool indent;
+  final bool sales;
+
+  const _SummaryRow({
+    required this.label,
+    required this.value,
+    required this.fmt,
+    this.highlight = false,
+    this.negative = false,
+    this.total = false,
+    this.indent = false,
+    this.sales = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final Color color;
+    if (total) {
+      color = Colors.white;
+    } else if (negative && value > 0) {
+      color = const Color(0xFFEF4444);
+    } else if (highlight) {
+      color = const Color(0xFF22C55E);
+    } else if (sales) {
+      color = const Color(0xFF7444fd);
+    } else {
+      color = Colors.white38;
+    }
+
+    final String valueText;
+    if (value == 0 && !total) {
+      valueText = '-';
+    } else if (negative && value > 0) {
+      valueText = '-Q${fmt.format(value)}';
+    } else {
+      valueText = 'Q${fmt.format(value)}';
+    }
+
+    return Row(
+      children: [
+        if (indent) const SizedBox(width: 12),
+        Text(
+          label,
+          style: GoogleFonts.inter(
+            color: color,
+            fontSize: 12,
+            fontWeight: (highlight || total) ? FontWeight.w600 : FontWeight.w400,
+          ),
+        ),
+        const Spacer(),
+        Text(
+          valueText,
+          style: GoogleFonts.inter(
+            color: color,
+            fontSize: total ? 13 : 12,
+            fontWeight: (highlight || total) ? FontWeight.w700 : FontWeight.w400,
+          ),
+        ),
+      ],
+    );
   }
 }
 

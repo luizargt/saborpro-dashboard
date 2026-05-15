@@ -35,6 +35,9 @@ class CashRegisterSummary {
   final double totalWithdrawals;
   final double totalDeposits;
 
+  // Notas de cierre (incluye aclaraciones de cuadre si hubo diferencia)
+  final String? closingNotes;
+
   // Nombres de métodos personalizados: id → nombre
   final Map<String, String> customMethodNames;
   final String? locationName;
@@ -65,6 +68,7 @@ class CashRegisterSummary {
     this.actualCustomMethods = const {},
     this.totalWithdrawals = 0,
     this.totalDeposits = 0,
+    this.closingNotes,
     this.customMethodNames = const {},
     this.locationName,
   });
@@ -142,6 +146,7 @@ class CashRegisterSummary {
       actualCustomMethods: actualCustomMethods,
       totalWithdrawals: totalWithdrawals,
       totalDeposits: totalDeposits,
+      closingNotes: closingNotes,
       customMethodNames: customMethodNames ?? this.customMethodNames,
       locationName: locationName ?? this.locationName,
     );
@@ -198,6 +203,7 @@ class CashRegisterSummary {
       actualCustomMethods: customMap(map['actualCustomMethods']),
       totalWithdrawals: totalWithdrawals,
       totalDeposits: totalDeposits,
+      closingNotes: map['closingNotes'] as String?,
     );
   }
 }

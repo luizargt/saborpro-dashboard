@@ -112,16 +112,9 @@ class _ExpensesBody extends StatelessWidget {
     final fmt = NumberFormat('#,##0.00', 'en_US');
     String q(double v) => 'Q${fmt.format(v)}';
 
-    final totalExpenses = expenseItems.fold<double>(
-        0, (s, e) => s + (e['amount'] as num? ?? 0).toDouble());
-    final totalPurchases = purchaseItems.fold<double>(
-        0, (s, e) => s + (e['total'] as num? ?? 0).toDouble());
-    final grandTotal = totalExpenses + totalPurchases;
+    // grandTotal se calcula abajo después de separar tipos
 
-    final hasExpenses = expenseItems.isNotEmpty;
-    final hasPurchases = purchaseItems.isNotEmpty;
-
-    if (!hasExpenses && !hasPurchases) {
+    if (expenseItems.isEmpty && purchaseItems.isEmpty) {
       return SizedBox(
         height: 300,
         child: Center(
@@ -144,13 +137,22 @@ class _ExpensesBody extends StatelessWidget {
       );
     }
 
-    // Ordenar gastos por fecha descendente
-    final sortedExpenses = [...expenseItems];
-    sortedExpenses.sort((a, b) {
-      final da = a['date'] as String? ?? '';
-      final db = b['date'] as String? ?? '';
-      return db.compareTo(da);
-    });
+    // Separar gastos manuales de retiros de caja
+    final manualExpenses = expenseItems.where((e) => e['source'] != 'cashRegister').toList();
+    final cashWithdrawals = expenseItems.where((e) => e['source'] == 'cashRegister').toList();
+
+    manualExpenses.sort((a, b) => (b['date'] as String? ?? '').compareTo(a['date'] as String? ?? ''));
+
+    // Agrupar retiros por caja (register_id)
+    final Map<String, List<Map<String, dynamic>>> withdrawalsByRegister = {};
+    for (final w in cashWithdrawals) {
+      final rid = w['register_id'] as String? ?? 'unknown';
+      withdrawalsByRegister.putIfAbsent(rid, () => []).add(w);
+    }
+    // Ordenar cada grupo por fecha
+    for (final group in withdrawalsByRegister.values) {
+      group.sort((a, b) => (b['date'] as String? ?? '').compareTo(a['date'] as String? ?? ''));
+    }
 
     final sortedPurchases = [...purchaseItems];
     sortedPurchases.sort((a, b) {
@@ -158,6 +160,15 @@ class _ExpensesBody extends StatelessWidget {
       final db = b['received_at'] as String? ?? '';
       return db.compareTo(da);
     });
+
+    final totalManual = manualExpenses.fold<double>(0, (s, e) => s + (e['amount'] as num? ?? 0).toDouble());
+    final totalWithdrawals = cashWithdrawals.fold<double>(0, (s, e) => s + (e['amount'] as num? ?? 0).toDouble());
+    final totalPurchases = purchaseItems.fold<double>(0, (s, e) => s + (e['total'] as num? ?? 0).toDouble());
+    final grandTotal = totalManual + totalWithdrawals + totalPurchases;
+
+    final hasManual = manualExpenses.isNotEmpty;
+    final hasWithdrawals = cashWithdrawals.isNotEmpty;
+    final hasPurchases = purchaseItems.isNotEmpty;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -200,14 +211,14 @@ class _ExpensesBody extends StatelessWidget {
         ),
         const SizedBox(height: 16),
 
-        // Sección gastos operacionales
-        if (hasExpenses) ...[
+        // Sección gastos manuales
+        if (hasManual) ...[
           _SectionHeader(
             icon: Icons.receipt_long_outlined,
             label: 'Gastos operacionales',
-            total: q(totalExpenses),
+            total: q(totalManual),
             color: const Color(0xFFEF4444),
-            count: sortedExpenses.length,
+            count: manualExpenses.length,
           ),
           const SizedBox(height: 8),
           Container(
@@ -217,16 +228,86 @@ class _ExpensesBody extends StatelessWidget {
             ),
             child: Column(
               children: [
-                for (var i = 0; i < sortedExpenses.length; i++) ...[
-                  _ExpenseRow(item: sortedExpenses[i], fmt: fmt),
-                  if (i < sortedExpenses.length - 1)
-                    const Divider(
-                        color: Color(0x1AFFFFFF), height: 1, indent: 16, endIndent: 16),
+                for (var i = 0; i < manualExpenses.length; i++) ...[
+                  _ExpenseRow(item: manualExpenses[i], fmt: fmt),
+                  if (i < manualExpenses.length - 1)
+                    const Divider(color: Color(0x1AFFFFFF), height: 1, indent: 16, endIndent: 16),
                 ],
               ],
             ),
           ),
           const SizedBox(height: 16),
+        ],
+
+        // Sección retiros de caja agrupados por caja
+        if (hasWithdrawals) ...[
+          _SectionHeader(
+            icon: Icons.account_balance_wallet_outlined,
+            label: 'Retiros de caja',
+            total: q(totalWithdrawals),
+            color: const Color(0xFFEF4444),
+            count: cashWithdrawals.length,
+          ),
+          const SizedBox(height: 8),
+          ...withdrawalsByRegister.entries.map((entry) {
+            final items = entry.value;
+            final user = items.first['register_user'] as String? ?? 'Cajero';
+            final openedAt = _parseDateTime(items.first['register_opened_at']);
+            final closedAt = _parseDateTime(items.first['register_closed_at']);
+            final subtotal = items.fold<double>(0, (s, e) => s + (e['amount'] as num? ?? 0).toDouble());
+            final timeFmt = DateFormat('hh:mm a');
+            final timeLabel = openedAt != null
+                ? '${timeFmt.format(openedAt)}${closedAt != null ? ' → ${timeFmt.format(closedAt)}' : ''}'
+                : '';
+
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1E293B),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Sub-header de la caja
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.point_of_sale_outlined, size: 13, color: Colors.white38),
+                          const SizedBox(width: 6),
+                          Text(user,
+                              style: GoogleFonts.inter(
+                                  color: Colors.white70,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600)),
+                          if (timeLabel.isNotEmpty) ...[
+                            const SizedBox(width: 6),
+                            Text('· $timeLabel',
+                                style: GoogleFonts.inter(color: Colors.white38, fontSize: 11)),
+                          ],
+                          const Spacer(),
+                          Text(q(subtotal),
+                              style: GoogleFonts.inter(
+                                  color: const Color(0xFFEF4444),
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600)),
+                        ],
+                      ),
+                    ),
+                    const Divider(color: Color(0x1AFFFFFF), height: 1),
+                    for (var i = 0; i < items.length; i++) ...[
+                      _ExpenseRow(item: items[i], fmt: fmt),
+                      if (i < items.length - 1)
+                        const Divider(color: Color(0x1AFFFFFF), height: 1, indent: 16, endIndent: 16),
+                    ],
+                  ],
+                ),
+              ),
+            );
+          }),
+          const SizedBox(height: 6),
         ],
 
         // Sección compras / insumos
@@ -520,6 +601,11 @@ class _PurchaseRow extends StatelessWidget {
       ),
     );
   }
+}
+
+DateTime? _parseDateTime(dynamic value) {
+  if (value is! String) return null;
+  return DateTime.tryParse(value)?.toLocal();
 }
 
 class _Tag extends StatelessWidget {

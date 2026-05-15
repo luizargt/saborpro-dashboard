@@ -348,6 +348,10 @@ class DashboardProvider extends ChangeNotifier {
             'type': 'variable',
             'assigned_to': mov['assignedTo'],
             'registered_by': mov['authorizedBy'],
+            'register_id': doc.id,
+            'register_user': data['userName'] as String? ?? '',
+            'register_opened_at': _toDateTime(data['openedAt'])?.toIso8601String(),
+            'register_closed_at': _toDateTime(data['closedAt'])?.toIso8601String(),
           });
         }
       }
