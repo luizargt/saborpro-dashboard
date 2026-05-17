@@ -788,6 +788,12 @@ class DashboardProvider extends ChangeNotifier {
       for (final o in src) {
         final rawItems = o['items'];
         if (rawItems is! List) continue;
+        // Distribuir el descuento del pedido proporcionalmente entre los items
+        final orderSubtotal = (o['subtotal'] as num? ?? 0).toDouble();
+        final orderDiscount = (o['discount_amount'] as num? ?? 0).toDouble();
+        final discountRatio = (orderSubtotal > 0 && orderDiscount > 0)
+            ? orderDiscount / orderSubtotal
+            : 0.0;
         for (final item in rawItems) {
           if (item is! Map) continue;
           // Saltar items anulados o de cortesía
@@ -805,7 +811,7 @@ class DashboardProvider extends ChangeNotifier {
               modifiersTotal += modPrice * modQty * qty;
             }
           }
-          final lineTotal = unitPrice * qty + modifiersTotal;
+          final lineTotal = (unitPrice * qty + modifiersTotal) * (1 - discountRatio);
           dst.putIfAbsent(name, () => _ProductAcc()).add(qty, lineTotal);
           // Lookup clasificación: producto → categoria → clasificación (fallbacks por id y nombre)
           final productId = item['product_id']?.toString() ?? '';

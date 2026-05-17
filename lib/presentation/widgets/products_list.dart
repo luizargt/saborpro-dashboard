@@ -106,6 +106,13 @@ class _ProductsListState extends State<ProductsList> {
             ),
           ],
         ),
+        if (widget.tips > 0) ...[
+          const SizedBox(height: 4),
+          Text(
+            'Propinas no incluidas',
+            style: GoogleFonts.inter(color: Colors.white38, fontSize: 11),
+          ),
+        ],
         // Filtro de clasificación
         if (categories.isNotEmpty) ...[
           const SizedBox(height: 10),
