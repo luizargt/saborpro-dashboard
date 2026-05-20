@@ -353,7 +353,8 @@ class _OrderRow extends StatelessWidget {
     final tips = (order['tip_amount'] as num? ?? 0).toDouble();
     final courtesy = _courtesyTotal(order);
 
-    final method = _methodLabel(order['payment_method'] as String? ?? 'cash');
+    final rawMethod = order['payment_method'] as String? ?? 'cash';
+    final method = _methodLabel(rawMethod);
 
     return Container(
       color: even ? Colors.transparent : const Color(0x06FFFFFF),
@@ -384,7 +385,7 @@ class _OrderRow extends StatelessWidget {
                     color: Colors.white,
                     fontSize: 12,
                     fontWeight: FontWeight.w700)),
-            _methodBadge(method, 100),
+            _methodBadge(method, rawMethod, 100),
           ],
         ),
       ),
@@ -435,19 +436,20 @@ class _OrderRow extends StatelessWidget {
     );
   }
 
-  Widget _methodBadge(String label, double width) {
+  Widget _methodBadge(String label, String rawMethod, double width) {
+    final color = _methodColor(rawMethod);
     return SizedBox(
       width: width,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
         decoration: BoxDecoration(
-          color: const Color(0xFF7444fd).withOpacity(0.12),
+          color: color.withOpacity(0.14),
           borderRadius: BorderRadius.circular(5),
         ),
         child: Text(
           label,
           style: GoogleFonts.inter(
-            color: const Color(0xFF7444fd),
+            color: color,
             fontSize: 10,
             fontWeight: FontWeight.w600,
           ),
@@ -669,21 +671,27 @@ double _courtesyTotal(Map<String, dynamic> order) {
 
 String _methodLabel(String method) {
   switch (method) {
-    case 'cash':
-      return 'Efectivo';
-    case 'card':
-      return 'Tarjeta';
-    case 'transfer':
-      return 'Transferencia';
-    case 'pedidosya':
-      return 'PedidosYa';
-    case 'ubereats':
-      return 'Uber Eats';
+    case 'cash':        return 'Efectivo';
+    case 'card':        return 'Tarjeta';
+    case 'transfer':    return 'Transferencia';
+    case 'pedidosya':   return 'PedidosYa';
+    case 'ubereats':    return 'Uber Eats';
     case 'split':
-    case 'mixed':
-      return 'Mixto';
-    default:
-      return method;
+    case 'mixed':       return 'Mixto';
+    default:            return method;
+  }
+}
+
+Color _methodColor(String method) {
+  switch (method) {
+    case 'cash':        return const Color(0xFF22C55E); // verde
+    case 'card':        return const Color(0xFF3B82F6); // azul
+    case 'transfer':    return const Color(0xFF06B6D4); // cyan
+    case 'pedidosya':   return const Color(0xFFF59E0B); // amarillo
+    case 'ubereats':    return const Color(0xFFF97316); // naranja
+    case 'split':
+    case 'mixed':       return const Color(0xFFA855F7); // violeta
+    default:            return const Color(0xFF94A3B8); // gris
   }
 }
 
