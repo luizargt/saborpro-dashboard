@@ -1,20 +1,22 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
+import '../../../core/services/firestore_service.dart';
 import '../../../data/models/cash_register_summary.dart';
 
 class RegisterDetailScreen extends StatefulWidget {
   final CashRegisterSummary register;
-  final List<Map<String, dynamic>> orders;
   final List<Map<String, dynamic>> expenseItems;
   final Map<String, String> locationNames;
+  final String? tenantId;
 
   const RegisterDetailScreen({
     super.key,
     required this.register,
-    required this.orders,
     required this.expenseItems,
     required this.locationNames,
+    this.tenantId,
   });
 
   @override
@@ -25,42 +27,19 @@ class _RegisterDetailScreenState extends State<RegisterDetailScreen>
     with SingleTickerProviderStateMixin {
   late final TabController _tabs;
 
-  late final List<Map<String, dynamic>> _orders;
+  bool _loading = true;
+  List<Map<String, dynamic>> _orders = [];
   late final List<Map<String, dynamic>> _expenses;
 
   @override
   void initState() {
     super.initState();
     _tabs = TabController(length: 2, vsync: this);
+    _filterExpenses();
+    _loadOrders();
+  }
 
-    final reg = widget.register;
-    final rangeEnd = reg.closedAt ?? DateTime.now();
-    final openBuffer = reg.openedAt.subtract(const Duration(seconds: 1));
-    final closeBuffer = rangeEnd.add(const Duration(seconds: 1));
-
-    _orders = widget.orders.where((o) {
-      // Misma sucursal
-      if (reg.locationId != null && reg.locationId!.isNotEmpty) {
-        if (o['location_id'] != reg.locationId) return false;
-      }
-      // Mismo cajero (igual que CashRegisterCalculator)
-      if (reg.userId.isNotEmpty) {
-        if (o['paid_by_user_id'] != reg.userId) return false;
-      }
-      // Rango de tiempo con buffer de 1 segundo
-      final paidAt = _toDateTime(o['paid_at']);
-      if (paidAt == null) return false;
-      return paidAt.isAfter(openBuffer) && paidAt.isBefore(closeBuffer);
-    }).toList()
-      ..sort((a, b) {
-        final da = _toDateTime(a['paid_at']);
-        final db = _toDateTime(b['paid_at']);
-        if (da == null && db == null) return 0;
-        if (da == null) return 1;
-        if (db == null) return -1;
-        return db.compareTo(da);
-      });
-
+  void _filterExpenses() {
     _expenses = widget.expenseItems
         .where((e) =>
             e['source'] == 'cashRegister' &&
@@ -68,6 +47,82 @@ class _RegisterDetailScreenState extends State<RegisterDetailScreen>
         .toList()
       ..sort((a, b) =>
           (b['date'] as String? ?? '').compareTo(a['date'] as String? ?? ''));
+  }
+
+  Future<void> _loadOrders() async {
+    final reg = widget.register;
+    final tenantId = widget.tenantId;
+    if (tenantId == null || tenantId.isEmpty) {
+      setState(() => _loading = false);
+      return;
+    }
+
+    try {
+      final rangeEnd = reg.closedAt ?? DateTime.now();
+      final openBuffer = reg.openedAt.subtract(const Duration(seconds: 1));
+      final closeBuffer = rangeEnd.add(const Duration(seconds: 1));
+
+      final fs = FirestoreService().instance;
+
+      // Query por Timestamp (formato principal de paid_at)
+      final snapTs = await fs
+          .collection('orders')
+          .where('tenant_id', isEqualTo: tenantId)
+          .where('paid_at', isGreaterThanOrEqualTo: Timestamp.fromDate(openBuffer))
+          .where('paid_at', isLessThanOrEqualTo: Timestamp.fromDate(closeBuffer))
+          .get();
+
+      // Query por ISO string (formato offline: paid_at se guarda como hora local sin timezone)
+      final openIso = openBuffer.toIso8601String().substring(0, 23);
+      final closeIso = closeBuffer.toIso8601String().substring(0, 23);
+
+      final snapIso = await fs
+          .collection('orders')
+          .where('tenant_id', isEqualTo: tenantId)
+          .where('paid_at', isGreaterThanOrEqualTo: openIso)
+          .where('paid_at', isLessThanOrEqualTo: closeIso)
+          .get();
+
+      final results = [snapTs, snapIso];
+
+      final seen = <String>{};
+      final all = <Map<String, dynamic>>[];
+      for (final snap in results) {
+        for (final doc in snap.docs) {
+          if (seen.add(doc.id)) all.add(doc.data());
+        }
+      }
+
+      // Filtrar en memoria: solo excluir canceladas y filtrar por sucursal.
+      // No filtramos por paid_by_user_id porque ese campo puede tener el
+      // userId del creador en lugar del cajero en órdenes históricas.
+      final locationId = reg.locationId ?? '';
+      final filtered = all.where((o) {
+        final status = o['status'] as String? ?? '';
+        if (status == 'CANCELLED') return false;
+
+        if (locationId.isNotEmpty) {
+          if (o['location_id'] != locationId) return false;
+        }
+
+        return true;
+      }).toList()
+        ..sort((a, b) {
+          final da = _toDateTime(a['paid_at']);
+          final db = _toDateTime(b['paid_at']);
+          if (da == null && db == null) return 0;
+          if (da == null) return 1;
+          if (db == null) return -1;
+          return db.compareTo(da);
+        });
+
+      setState(() {
+        _orders = filtered;
+        _loading = false;
+      });
+    } catch (e) {
+      setState(() => _loading = false);
+    }
   }
 
   @override
@@ -116,21 +171,48 @@ class _RegisterDetailScreenState extends State<RegisterDetailScreen>
           labelStyle: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600),
           unselectedLabelStyle: GoogleFonts.inter(fontSize: 13),
           tabs: [
-            Tab(text: 'Pedidos (${_orders.length})'),
+            Tab(text: _loading ? 'Pedidos' : 'Pedidos (${_orders.length})'),
             Tab(text: 'Gastos (${_expenses.length})'),
           ],
         ),
       ),
-      body: TabBarView(
-        controller: _tabs,
-        children: [
-          _OrdersTab(
-            orders: _orders,
-            locationNames: widget.locationNames,
-          ),
-          _ExpensesTab(expenses: _expenses),
-        ],
-      ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator(color: Color(0xFF7444fd)))
+          : Column(
+              children: [
+                Container(
+                  width: double.infinity,
+                  color: const Color(0xFFF59E0B).withOpacity(0.12),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.construction_rounded, size: 14, color: Color(0xFFF59E0B)),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Esta sección está en desarrollo',
+                        style: GoogleFonts.inter(
+                          color: const Color(0xFFF59E0B),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: TabBarView(
+                    controller: _tabs,
+                    children: [
+                      _OrdersTab(
+                        orders: _orders,
+                        locationNames: widget.locationNames,
+                      ),
+                      _ExpensesTab(expenses: _expenses),
+                    ],
+                  ),
+                ),
+              ],
+            ),
     );
   }
 }
@@ -158,7 +240,6 @@ class _OrdersTab extends StatelessWidget {
 
     return Column(
       children: [
-        // Encabezado de columnas (sticky)
         _TableHeader(),
         const Divider(color: Color(0x1AFFFFFF), height: 1),
         Expanded(
@@ -180,7 +261,6 @@ class _OrdersTab extends StatelessWidget {
             ),
           ),
         ),
-        // Fila de totales
         const Divider(color: Color(0x2AFFFFFF), height: 1),
         _TotalsRow(orders: orders, fmt: fmt),
       ],
@@ -273,8 +353,7 @@ class _OrderRow extends StatelessWidget {
     final tips = (order['tip_amount'] as num? ?? 0).toDouble();
     final courtesy = _courtesyTotal(order);
 
-    final method = _methodLabel(
-        order['payment_method'] as String? ?? 'cash');
+    final method = _methodLabel(order['payment_method'] as String? ?? 'cash');
 
     return Container(
       color: even ? Colors.transparent : const Color(0x06FFFFFF),
@@ -474,7 +553,6 @@ class _ExpensesTab extends StatelessWidget {
 
     return Column(
       children: [
-        // Total banner
         Container(
           color: const Color(0xFF1E293B),
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -618,7 +696,6 @@ double? _parseAmount(dynamic v) {
 DateTime? _toDateTime(dynamic ts) {
   if (ts is DateTime) return ts.toLocal();
   if (ts is String) return DateTime.tryParse(ts)?.toLocal();
-  // Firestore Timestamp duck-type
   try {
     return (ts as dynamic).toDate().toLocal() as DateTime;
   } catch (_) {}

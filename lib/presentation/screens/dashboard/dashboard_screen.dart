@@ -106,6 +106,7 @@ class _DashboardBody extends StatelessWidget {
                       locationNames: {
                         for (final l in provider.locations) l.id: l.name,
                       },
+                      tenantId: provider.tenantId,
                     ),
                 ],
               ),

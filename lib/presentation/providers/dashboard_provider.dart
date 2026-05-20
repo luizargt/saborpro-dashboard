@@ -52,6 +52,7 @@ class DashboardProvider extends ChangeNotifier {
   String get expenseSampleDate => _expenseSampleDate;
 
   String? _tenantId;
+  String? get tenantId => _tenantId;
   String? _locationId;
 
   // Cache: no cambia con el rango de fechas, solo se fetcha una vez por sesión
