@@ -36,6 +36,9 @@ class DashboardProvider extends ChangeNotifier {
   List<CashRegisterSummary> _closedRegisters = [];
   List<CashRegisterSummary> get closedRegisters => _closedRegisters;
 
+  List<Map<String, dynamic>> _currentOrders = [];
+  List<Map<String, dynamic>> get currentOrders => _currentOrders;
+
   List<Map<String, dynamic>> _expenseItems = [];
   List<Map<String, dynamic>> get expenseItems => _expenseItems;
 
@@ -118,6 +121,7 @@ class DashboardProvider extends ChangeNotifier {
 
       // Etapa 1: período actual — necesario para métricas y top platillos
       final currentOrders = await _fetchOrders(_range.start, _range.end);
+      _currentOrders = currentOrders;
 
       // Etapa 2: período anterior — solo para comparación, se descarta al terminar esta etapa
       final prevOrders = await _fetchOrders(prev.start, prev.end);

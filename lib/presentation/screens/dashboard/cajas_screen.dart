@@ -2,12 +2,23 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import '../../../data/models/cash_register_summary.dart';
+import 'register_detail_screen.dart';
 
 class CajasScreen extends StatelessWidget {
   final List<CashRegisterSummary> open;
   final List<CashRegisterSummary> closed;
+  final List<Map<String, dynamic>> orders;
+  final List<Map<String, dynamic>> expenseItems;
+  final Map<String, String> locationNames;
 
-  const CajasScreen({super.key, required this.open, required this.closed});
+  const CajasScreen({
+    super.key,
+    required this.open,
+    required this.closed,
+    required this.orders,
+    required this.expenseItems,
+    required this.locationNames,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -35,7 +46,12 @@ class CajasScreen extends StatelessWidget {
         if (closed.isNotEmpty) ...[
           _sectionLabel('Cierres del período'),
           const SizedBox(height: 8),
-          ...closed.map((r) => _ClosedRegisterCard(register: r)),
+          ...closed.map((r) => _ClosedRegisterCard(
+                register: r,
+                orders: orders,
+                expenseItems: expenseItems,
+                locationNames: locationNames,
+              )),
         ],
       ],
     );
@@ -133,7 +149,16 @@ class _OpenRegisterCard extends StatelessWidget {
 // ── CIERRE DE CAJA ───────────────────────────────────────────────────────────
 class _ClosedRegisterCard extends StatelessWidget {
   final CashRegisterSummary register;
-  const _ClosedRegisterCard({required this.register});
+  final List<Map<String, dynamic>> orders;
+  final List<Map<String, dynamic>> expenseItems;
+  final Map<String, String> locationNames;
+
+  const _ClosedRegisterCard({
+    required this.register,
+    required this.orders,
+    required this.expenseItems,
+    required this.locationNames,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -308,6 +333,41 @@ class _ClosedRegisterCard extends StatelessWidget {
             ...methods.map((m) => _MethodRow(method: m, fmt: fmt)),
             const SizedBox(height: 6),
           ],
+
+          // Enlace ver detalle
+          const Divider(color: Color(0x1AFFFFFF), height: 1),
+          InkWell(
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => RegisterDetailScreen(
+                  register: register,
+                  orders: orders,
+                  expenseItems: expenseItems,
+                  locationNames: locationNames,
+                ),
+              ),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  Text(
+                    'ver detalle',
+                    style: GoogleFonts.inter(
+                      color: const Color(0xFF7444fd),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  const Icon(Icons.arrow_forward_ios,
+                      size: 11, color: Color(0xFF7444fd)),
+                ],
+              ),
+            ),
+          ),
         ],
       ),
     );

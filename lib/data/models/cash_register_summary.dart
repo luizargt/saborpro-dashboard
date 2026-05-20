@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 class CashRegisterSummary {
   final String id;
+  final String userId;
   final String userName;
   final String status; // 'open' | 'closed'
   final DateTime openedAt;
@@ -44,6 +45,7 @@ class CashRegisterSummary {
 
   CashRegisterSummary({
     required this.id,
+    required this.userId,
     required this.userName,
     required this.status,
     required this.openedAt,
@@ -122,6 +124,7 @@ class CashRegisterSummary {
   }) {
     return CashRegisterSummary(
       id: id,
+      userId: userId,
       userName: userName,
       status: status,
       openedAt: openedAt,
@@ -179,6 +182,7 @@ class CashRegisterSummary {
 
     return CashRegisterSummary(
       id: map['id'] as String? ?? '',
+      userId: map['userId'] as String? ?? '',
       userName: map['userName'] as String? ?? 'Sin nombre',
       status: map['status'] as String? ?? 'unknown',
       openedAt: parseTs(map['openedAt']),

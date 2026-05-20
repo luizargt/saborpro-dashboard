@@ -101,6 +101,11 @@ class _DashboardBody extends StatelessWidget {
                     CajasScreen(
                       open: provider.openRegisters,
                       closed: provider.closedRegisters,
+                      orders: provider.currentOrders,
+                      expenseItems: provider.expenseItems,
+                      locationNames: {
+                        for (final l in provider.locations) l.id: l.name,
+                      },
                     ),
                 ],
               ),
