@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:shorebird_code_push/shorebird_code_push.dart';
 import '../../core/services/auth_service.dart';
 import '../../core/services/biometric_service.dart';
+import '../../core/services/export_service.dart';
 import '../../presentation/providers/dashboard_provider.dart';
 import '../../presentation/providers/inventory_provider.dart';
 import '../../presentation/screens/auth/login_screen.dart';
@@ -255,9 +256,9 @@ class _Rail extends StatelessWidget {
             onTap: () => onSelect(2),
           ),
           const Spacer(),
-          // Logout
+          // Menu
           GestureDetector(
-            onTap: onLogout,
+            onTap: () => _showMenuModal(context, onLogout),
             child: Container(
               width: 48,
               height: 48,
@@ -266,8 +267,8 @@ class _Rail extends StatelessWidget {
                 color: Colors.white.withOpacity(0.04),
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: const Icon(Icons.logout_rounded,
-                  color: Colors.white24, size: 18),
+              child: const Icon(Icons.menu_rounded,
+                  color: Colors.white38, size: 20),
             ),
           ),
         ],
@@ -374,18 +375,18 @@ class _BottomNav extends StatelessWidget {
               ],
             ),
           ),
-          // Salir — mismo estilo que NavigationDestination
+          // Menú
           GestureDetector(
-            onTap: onLogout,
+            onTap: () => _showMenuModal(context, onLogout),
             child: SizedBox(
               width: 72,
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Icon(Icons.logout_rounded, color: Colors.white38, size: 24),
+                  const Icon(Icons.menu_rounded, color: Colors.white38, size: 24),
                   const SizedBox(height: 4),
-                  Text('Salir',
+                  Text('Más',
                       style: GoogleFonts.inter(
                           color: Colors.white38,
                           fontSize: 12,
@@ -416,6 +417,203 @@ class _PageContent extends StatelessWidget {
           DashboardScreen(),
           ExpensesScreen(),
           InventoryScreen(),
+        ],
+      ),
+    );
+  }
+}
+
+// ── MENU MODAL ────────────────────────────────────────────────────────────────
+void _showMenuModal(BuildContext context, VoidCallback onLogout) {
+  showModalBottomSheet(
+    context: context,
+    backgroundColor: const Color(0xFF1E293B),
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+    ),
+    isScrollControlled: true,
+    builder: (_) => _MenuModal(onLogout: onLogout),
+  );
+}
+
+enum _ReportType {
+  platillos('Platillos vendidos'),
+  inventario('Inventario');
+
+  final String label;
+  const _ReportType(this.label);
+}
+
+class _MenuModal extends StatefulWidget {
+  final VoidCallback onLogout;
+  const _MenuModal({required this.onLogout});
+
+  @override
+  State<_MenuModal> createState() => _MenuModalState();
+}
+
+class _MenuModalState extends State<_MenuModal> {
+  _ReportType _selected = _ReportType.platillos;
+
+  void _download() {
+    final dp = context.read<DashboardProvider>();
+    final ip = context.read<InventoryProvider>();
+    if (dp.loading || ip.loading) return;
+    switch (_selected) {
+      case _ReportType.platillos:
+        ExportService.exportProducts(
+          dp.metrics?.topProducts ?? [],
+          dp.range.prevLabel,
+        );
+      case _ReportType.inventario:
+        ExportService.exportInventory(ip.items, ip.locations);
+    }
+    Navigator.pop(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final dp = context.watch<DashboardProvider>();
+    final ip = context.watch<InventoryProvider>();
+    final isLoading = dp.loading || ip.loading;
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 24,
+        right: 24,
+        top: 12,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 32,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Handle
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.white12,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 24),
+
+          // Sección Reportes
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              Text(
+                'Reportes',
+                style: GoogleFonts.inter(
+                  color: Colors.white,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.3,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '(${dp.range.label})',
+                style: GoogleFonts.inter(
+                  color: Colors.white38,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w400,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF0F172A),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.white.withOpacity(0.08)),
+                  ),
+                  child: DropdownButton<_ReportType>(
+                    value: _selected,
+                    isExpanded: true,
+                    underline: const SizedBox(),
+                    dropdownColor: const Color(0xFF1E293B),
+                    iconEnabledColor: Colors.white38,
+                    style: GoogleFonts.inter(
+                      color: Colors.white70,
+                      fontSize: 14,
+                    ),
+                    items: _ReportType.values
+                        .map((r) => DropdownMenuItem(
+                              value: r,
+                              child: Text(r.label),
+                            ))
+                        .toList(),
+                    onChanged: (v) {
+                      if (v != null) setState(() => _selected = v);
+                    },
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              GestureDetector(
+                onTap: isLoading ? null : _download,
+                child: Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF7444fd).withOpacity(isLoading ? 0.06 : 0.15),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                        color: const Color(0xFF7444fd).withOpacity(isLoading ? 0.1 : 0.3)),
+                  ),
+                  child: isLoading
+                      ? const Padding(
+                          padding: EdgeInsets.all(12),
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Color(0xFF7444fd),
+                          ),
+                        )
+                      : const Icon(Icons.download_rounded,
+                          color: Color(0xFF7444fd), size: 20),
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 28),
+          Divider(color: Colors.white.withOpacity(0.06)),
+          const SizedBox(height: 8),
+
+          // Botón Salir
+          GestureDetector(
+            onTap: () {
+              Navigator.pop(context);
+              widget.onLogout();
+            },
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              child: Row(
+                children: [
+                  const Icon(Icons.logout_rounded,
+                      color: Colors.white38, size: 20),
+                  const SizedBox(width: 12),
+                  Text(
+                    'Cerrar sesión',
+                    style: GoogleFonts.inter(
+                      color: Colors.white38,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ],
       ),
     );
