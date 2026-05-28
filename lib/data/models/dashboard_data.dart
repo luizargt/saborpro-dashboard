@@ -28,6 +28,7 @@ class PeriodMetrics {
   final double deliveryFees;
   final double operationalExpenses; // gastos operacionales (collection: expenses)
   final double purchaseCosts;       // compras de insumos recibidas (collection: purchaseOrders)
+  final double courtesyTotal;       // valor precio original de ítems de cortesía
 
   // Venta Bruta = total cobrado sin propinas ni fees de delivery
   double get ventaBruta => totalSales - tips - deliveryFees;
@@ -56,6 +57,7 @@ class PeriodMetrics {
     this.deliveryFees = 0,
     this.operationalExpenses = 0,
     this.purchaseCosts = 0,
+    this.courtesyTotal = 0,
     this.salesByMethod = const {},
   });
 
@@ -77,6 +79,7 @@ class PeriodMetrics {
       deliveryFees: deliveryFees,
       operationalExpenses: operationalExpenses,
       purchaseCosts: purchaseCosts,
+      courtesyTotal: courtesyTotal,
       salesByMethod: salesByMethod ?? this.salesByMethod,
     );
   }

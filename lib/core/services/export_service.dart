@@ -135,6 +135,7 @@ class ExportService {
       'Subtotal (Q)',
       'Propinas (Q)',
       'Descuentos (Q)',
+      'Cortesía / Donación (Q)',
       'Total (Q)',
     ]);
 
@@ -160,6 +161,7 @@ class ExportService {
       final cajero = (o['paid_by_user_name'] as String? ?? '').isNotEmpty
           ? o['paid_by_user_name'] as String
           : userNamesById[paidByUserId] ?? '';
+      final cortesia = _valorCortesia(o);
 
       sheet.appendRow([
         TextCellValue(cajero),
@@ -175,6 +177,7 @@ class ExportService {
         DoubleCellValue(subtotal),
         DoubleCellValue(propina),
         DoubleCellValue(descuento),
+        DoubleCellValue(cortesia),
         DoubleCellValue(total),
       ]);
     }
@@ -237,6 +240,17 @@ class ExportService {
     final total = (o['payment_amount'] as num? ?? o['total_amount'] as num? ?? 0).toDouble();
     if (total == 0) return 'Cortesía';
     return 'Venta';
+  }
+
+  static double _valorCortesia(Map<String, dynamic> o) {
+    final items = o['items'];
+    if (items is! List) return 0;
+    return items.fold<double>(0, (acc, i) {
+      if (i is! Map || i['is_void'] == true || i['is_courtesy'] != true) return acc;
+      final price = (i['unit_price'] as num? ?? 0).toDouble();
+      final qty   = (i['qty']        as num? ?? 1).toDouble();
+      return acc + price * qty;
+    });
   }
 
   static int _contarItems(Map<String, dynamic> o) {

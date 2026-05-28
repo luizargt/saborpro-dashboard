@@ -452,6 +452,7 @@ class DashboardProvider extends ChangeNotifier {
   }) {
     double total = 0, prevTotal = 0;
     double grossSales = 0, discounts = 0, taxes = 0, tips = 0, refunds = 0, deliveryFees = 0;
+    double courtesyTotal = 0;
     final salesByMethod = <String, double>{};
 
     for (final o in orders) {
@@ -465,6 +466,16 @@ class DashboardProvider extends ChangeNotifier {
       tips += (o['tip_amount'] as num? ?? 0).toDouble();
       deliveryFees += (o['delivery_fee'] as num? ?? 0).toDouble();
       if (o['is_refund'] == true) refunds += t;
+      final items = o['items'];
+      if (items is List) {
+        for (final item in items) {
+          if (item is Map && item['is_courtesy'] == true && item['is_void'] != true) {
+            final price = (item['unit_price'] as num? ?? 0).toDouble();
+            final qty   = (item['qty']        as num? ?? 1).toDouble();
+            courtesyTotal += price * qty;
+          }
+        }
+      }
 
       // Desglose por método de pago
       // Normalizar 'mixed' a 'split' (igual que CashRegisterCalculator)
@@ -525,6 +536,7 @@ class DashboardProvider extends ChangeNotifier {
       deliveryFees: deliveryFees,
       operationalExpenses: expenses,
       purchaseCosts: purchaseCosts,
+      courtesyTotal: courtesyTotal,
       salesByMethod: salesByMethod,
     );
   }

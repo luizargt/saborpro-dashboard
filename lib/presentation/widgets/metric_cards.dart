@@ -12,8 +12,9 @@ class MetricCards extends StatelessWidget {
     final fmt = NumberFormat('#,##0.00', 'en_US');
     final fmtInt = NumberFormat('#,##0', 'en_US');
 
-    final showTips = metrics.tips > 0;
+    final showTips     = metrics.tips > 0;
     final showDelivery = metrics.deliveryFees > 0;
+    final showCourtesy = metrics.courtesyTotal > 0;
 
     return Column(
       children: [
@@ -73,6 +74,15 @@ class MetricCards extends StatelessWidget {
                 ),
               ],
             ],
+          ),
+        ],
+        // Fila cortesías (solo si hay)
+        if (showCourtesy) ...[
+          const SizedBox(height: 10),
+          _CompactMetricCard(
+            label: 'Cortesías / Donaciones',
+            value: 'Q${fmt.format(metrics.courtesyTotal)}',
+            accent: const Color(0xFF14B8A6),
           ),
         ],
       ],
