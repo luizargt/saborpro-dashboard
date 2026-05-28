@@ -114,6 +114,7 @@ class ExportService {
   static void exportCajaReport(
     List<Map<String, dynamic>> orders,
     Set<String> certifiedInvoiceOrderIds,
+    Map<String, String> userNamesById,
     String periodLabel,
   ) {
     final excel = Excel.createExcel();
@@ -154,8 +155,13 @@ class ExportService {
       final descuento = (o['discount_amount']  as num? ?? 0).toDouble();
       final total     = (o['payment_amount']   as num? ?? o['total_amount'] as num? ?? 0).toDouble();
 
+      final paidByUserId = o['paid_by_user_id'] as String? ?? '';
+      final cajero = (o['paid_by_user_name'] as String? ?? '').isNotEmpty
+          ? o['paid_by_user_name'] as String
+          : userNamesById[paidByUserId] ?? '';
+
       sheet.appendRow([
-        TextCellValue(o['paid_by_user_name']     as String? ?? ''),
+        TextCellValue(cajero),
         TextCellValue(o['created_by_user_name']  as String? ?? ''),
         TextCellValue(tipo),
         TextCellValue(ticket),

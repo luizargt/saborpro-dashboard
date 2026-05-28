@@ -466,12 +466,24 @@ class _MenuModalState extends State<_MenuModal> {
     try {
       switch (_selected) {
         case _ReportType.caja:
-          final orderDocIds = dp.currentOrders
+          final orders = dp.currentOrders;
+          final orderDocIds = orders
               .map((o) => o['_docId'] as String? ?? '')
               .where((id) => id.isNotEmpty)
               .toList();
-          final certifiedIds = await dp.fetchCertifiedInvoiceOrderIds(orderDocIds);
-          ExportService.exportCajaReport(dp.currentOrders, certifiedIds, dp.range.label);
+          final userIdsToResolve = orders
+              .where((o) => (o['paid_by_user_name'] as String? ?? '').isEmpty)
+              .map((o) => o['paid_by_user_id'] as String? ?? '')
+              .where((id) => id.isNotEmpty)
+              .toSet()
+              .toList();
+          final results = await Future.wait([
+            dp.fetchCertifiedInvoiceOrderIds(orderDocIds),
+            dp.fetchUserNamesById(userIdsToResolve),
+          ]);
+          final certifiedIds = results[0] as Set<String>;
+          final userNamesById = results[1] as Map<String, String>;
+          ExportService.exportCajaReport(orders, certifiedIds, userNamesById, dp.range.label);
         case _ReportType.platillos:
           ExportService.exportProducts(
             dp.metrics?.topProducts ?? [],

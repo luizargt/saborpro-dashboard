@@ -856,6 +856,26 @@ class DashboardProvider extends ChangeNotifier {
     return result;
   }
 
+  /// Resuelve userId → nombre desde la colección users (en lotes de 30).
+  Future<Map<String, String>> fetchUserNamesById(List<String> userIds) async {
+    if (userIds.isEmpty) return {};
+    final result = <String, String>{};
+    const batchSize = 30;
+    for (int i = 0; i < userIds.length; i += batchSize) {
+      final batch = userIds.sublist(i, (i + batchSize).clamp(0, userIds.length));
+      try {
+        final snap = await _firestore.users
+            .where(FieldPath.documentId, whereIn: batch)
+            .get();
+        for (final doc in snap.docs) {
+          final name = doc.data()['name'] as String?;
+          if (name != null && name.isNotEmpty) result[doc.id] = name;
+        }
+      } catch (_) {}
+    }
+    return result;
+  }
+
   /// Devuelve los order_ids (doc IDs de Firestore) que tienen factura certificada.
   Future<Set<String>> fetchCertifiedInvoiceOrderIds(List<String> orderDocIds) async {
     if (orderDocIds.isEmpty || _tenantId == null) return {};
