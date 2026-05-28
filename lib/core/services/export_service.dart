@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:excel/excel.dart';
 import 'download_helper_stub.dart'
     if (dart.library.html) 'download_helper_web.dart';
@@ -107,5 +108,145 @@ class ExportService {
     final bytes = excel.encode();
     if (bytes == null) return;
     downloadExcel(bytes, filename);
+  }
+
+  // ── REPORTE DE CAJA ───────────────────────────────────────────────────────
+  static void exportCajaReport(
+    List<Map<String, dynamic>> orders,
+    Set<String> certifiedInvoiceOrderIds,
+    String periodLabel,
+  ) {
+    final excel = Excel.createExcel();
+    final sheet = excel['Reporte de Caja'];
+    excel.setDefaultSheet('Reporte de Caja');
+
+    _header(sheet, [
+      'Cajero',
+      'Mesero',
+      'Tipo de pedido',
+      'Nº Ticket',
+      'Mesa / Zona',
+      'Fecha y hora',
+      'Método de pago',
+      'Tipo de venta',
+      'Comprobante',
+      'Cant. items',
+      'Subtotal (Q)',
+      'Propinas (Q)',
+      'Descuentos (Q)',
+      'Total (Q)',
+    ]);
+
+    final dateFmt = DateFormat('dd/MM/yyyy HH:mm', 'es');
+
+    for (final o in orders) {
+      final docId   = o['_docId'] as String? ?? '';
+      final tipo    = _tipoOrden(o['type'] as String? ?? '');
+      final ticket  = '${o['order_prefix'] ?? ''}${o['order_no'] ?? ''}';
+      final mesa    = (o['type'] == 'dine_in') ? (o['table_name'] as String? ?? '') : '';
+      final fecha   = _parsePaidAt(o['paid_at']);
+      final metodo  = _metodoPago(o);
+      final venta   = _tipoVenta(o);
+      final comprobante = certifiedInvoiceOrderIds.contains(docId) ? 'Factura' : '—';
+      final cantItems = _contarItems(o);
+      final subtotal  = (o['subtotal']        as num? ?? 0).toDouble();
+      final propina   = (o['tip_amount']       as num? ?? 0).toDouble();
+      final descuento = (o['discount_amount']  as num? ?? 0).toDouble();
+      final total     = (o['payment_amount']   as num? ?? o['total_amount'] as num? ?? 0).toDouble();
+
+      sheet.appendRow([
+        TextCellValue(o['paid_by_user_name']     as String? ?? ''),
+        TextCellValue(o['created_by_user_name']  as String? ?? ''),
+        TextCellValue(tipo),
+        TextCellValue(ticket),
+        TextCellValue(mesa),
+        TextCellValue(fecha != null ? dateFmt.format(fecha.toLocal()) : ''),
+        TextCellValue(metodo),
+        TextCellValue(venta),
+        TextCellValue(comprobante),
+        IntCellValue(cantItems),
+        DoubleCellValue(subtotal),
+        DoubleCellValue(propina),
+        DoubleCellValue(descuento),
+        DoubleCellValue(total),
+      ]);
+    }
+
+    _download(excel, 'reporte_caja_${_slug(periodLabel)}.xlsx');
+  }
+
+  static String _tipoOrden(String type) {
+    switch (type) {
+      case 'dine_in':    return 'Mesa';
+      case 'takeout':    return 'Para llevar';
+      case 'delivery':   return 'Delivery';
+      case 'quick_sale': return 'Venta rápida';
+      default:           return type;
+    }
+  }
+
+  static String _metodoPago(Map<String, dynamic> o) {
+    final method = o['payment_method'] as String? ?? '';
+    if (method == 'split' || method == 'mixed') {
+      final splits = o['split_payments'] ?? o['mixed_payments'];
+      if (splits is List && splits.isNotEmpty) {
+        final parts = splits
+            .map((s) {
+              if (s is! Map) return '';
+              return _traducirMetodo(s['payment_method'] as String? ?? s['method'] as String? ?? '');
+            })
+            .where((s) => s.isNotEmpty)
+            .toSet()
+            .toList();
+        if (parts.isNotEmpty) return parts.join(' + ');
+      }
+    }
+    return _traducirMetodo(method);
+  }
+
+  static String _traducirMetodo(String method) {
+    switch (method) {
+      case 'cash':       return 'Efectivo';
+      case 'card':       return 'Tarjeta';
+      case 'transfer':   return 'Transferencia';
+      case 'pedidosya':  return 'PedidosYa';
+      case 'ubereats':   return 'UberEats';
+      default:
+        if (method.startsWith('custom_')) return 'Personalizado';
+        return method;
+    }
+  }
+
+  static String _tipoVenta(Map<String, dynamic> o) {
+    final items = o['items'];
+    if (items is List && items.isNotEmpty) {
+      final active = items.where((i) => i is Map && i['is_void'] != true);
+      if (active.isNotEmpty && active.every((i) => i is Map && i['is_courtesy'] == true)) {
+        final courtesyType = active.first['courtesy_type'] as String?;
+        if (courtesyType == 'DONACION') return 'Donación';
+        return 'Cortesía';
+      }
+    }
+    final total = (o['payment_amount'] as num? ?? o['total_amount'] as num? ?? 0).toDouble();
+    if (total == 0) return 'Cortesía';
+    return 'Venta';
+  }
+
+  static int _contarItems(Map<String, dynamic> o) {
+    final items = o['items'];
+    if (items is! List) return 0;
+    return items.fold<int>(0, (acc, i) {
+      if (i is! Map || i['is_void'] == true) return acc;
+      return acc + ((i['qty'] as num? ?? 1).toInt());
+    });
+  }
+
+  static DateTime? _parsePaidAt(dynamic raw) {
+    if (raw == null) return null;
+    if (raw is Timestamp) return raw.toDate();
+    if (raw is String) {
+      try { return DateTime.parse(raw); } catch (_) { return null; }
+    }
+    return null;
   }
 }

@@ -437,6 +437,7 @@ void _showMenuModal(BuildContext context, VoidCallback onLogout) {
 }
 
 enum _ReportType {
+  caja('Reporte de Caja'),
   platillos('Platillos vendidos'),
   inventario('Inventario');
 
@@ -453,29 +454,43 @@ class _MenuModal extends StatefulWidget {
 }
 
 class _MenuModalState extends State<_MenuModal> {
-  _ReportType _selected = _ReportType.platillos;
+  _ReportType _selected = _ReportType.caja;
+  bool _downloading = false;
 
-  void _download() {
+  Future<void> _download() async {
     final dp = context.read<DashboardProvider>();
     final ip = context.read<InventoryProvider>();
-    if (dp.loading || ip.loading) return;
-    switch (_selected) {
-      case _ReportType.platillos:
-        ExportService.exportProducts(
-          dp.metrics?.topProducts ?? [],
-          dp.range.prevLabel,
-        );
-      case _ReportType.inventario:
-        ExportService.exportInventory(ip.items, ip.locations);
+    if (dp.loading || ip.loading || _downloading) return;
+
+    setState(() => _downloading = true);
+    try {
+      switch (_selected) {
+        case _ReportType.caja:
+          final orderDocIds = dp.currentOrders
+              .map((o) => o['_docId'] as String? ?? '')
+              .where((id) => id.isNotEmpty)
+              .toList();
+          final certifiedIds = await dp.fetchCertifiedInvoiceOrderIds(orderDocIds);
+          ExportService.exportCajaReport(dp.currentOrders, certifiedIds, dp.range.label);
+        case _ReportType.platillos:
+          ExportService.exportProducts(
+            dp.metrics?.topProducts ?? [],
+            dp.range.prevLabel,
+          );
+        case _ReportType.inventario:
+          ExportService.exportInventory(ip.items, ip.locations);
+      }
+      if (mounted) Navigator.pop(context);
+    } finally {
+      if (mounted) setState(() => _downloading = false);
     }
-    Navigator.pop(context);
   }
 
   @override
   Widget build(BuildContext context) {
     final dp = context.watch<DashboardProvider>();
     final ip = context.watch<InventoryProvider>();
-    final isLoading = dp.loading || ip.loading;
+    final isLoading = dp.loading || ip.loading || _downloading;
     return Padding(
       padding: EdgeInsets.only(
         left: 24,

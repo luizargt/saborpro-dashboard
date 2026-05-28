@@ -423,7 +423,9 @@ class DashboardProvider extends ChangeNotifier {
       final seen = <String>{};
       final all  = <Map<String, dynamic>>[];
       for (final doc in [...snapTs.docs, ...snapIso.docs]) {
-        if (seen.add(doc.id)) all.add(doc.data() as Map<String, dynamic>);
+        if (seen.add(doc.id)) {
+          all.add({'_docId': doc.id, ...doc.data()});
+        }
       }
 
       return all.where((o) {
@@ -852,6 +854,31 @@ class DashboardProvider extends ChangeNotifier {
 
     result.sort((a, b) => b.total.compareTo(a.total));
     return result;
+  }
+
+  /// Devuelve los order_ids (doc IDs de Firestore) que tienen factura certificada.
+  Future<Set<String>> fetchCertifiedInvoiceOrderIds(List<String> orderDocIds) async {
+    if (orderDocIds.isEmpty || _tenantId == null) return {};
+    final certified = <String>{};
+    const batchSize = 30;
+    for (int i = 0; i < orderDocIds.length; i += batchSize) {
+      final batch = orderDocIds.sublist(
+        i,
+        (i + batchSize).clamp(0, orderDocIds.length),
+      );
+      try {
+        final snap = await _firestore.instance
+            .collection('invoices')
+            .where('order_id', whereIn: batch)
+            .where('status', isEqualTo: 'certified')
+            .get();
+        for (final doc in snap.docs) {
+          final orderId = doc.data()['order_id'] as String?;
+          if (orderId != null) certified.add(orderId);
+        }
+      } catch (_) {}
+    }
+    return certified;
   }
 }
 
