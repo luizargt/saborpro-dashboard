@@ -424,7 +424,9 @@ class DashboardProvider extends ChangeNotifier {
       final all  = <Map<String, dynamic>>[];
       for (final doc in [...snapTs.docs, ...snapIso.docs]) {
         if (seen.add(doc.id)) {
-          all.add({'_docId': doc.id, ...doc.data()});
+          final data = doc.data();
+          data['_docId'] = doc.id;
+          all.add(data);
         }
       }
 
