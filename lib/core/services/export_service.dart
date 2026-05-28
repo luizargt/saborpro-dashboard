@@ -150,10 +150,11 @@ class ExportService {
       final venta   = _tipoVenta(o);
       final comprobante = certifiedInvoiceOrderIds.contains(docId) ? 'Factura' : '—';
       final cantItems = _contarItems(o);
-      final subtotal  = (o['subtotal']        as num? ?? 0).toDouble();
-      final propina   = (o['tip_amount']       as num? ?? 0).toDouble();
-      final descuento = (o['discount_amount']  as num? ?? 0).toDouble();
-      final total     = (o['payment_amount']   as num? ?? o['total_amount'] as num? ?? 0).toDouble();
+      final propina   = (o['tip_amount']      as num? ?? 0).toDouble();
+      final descuento = (o['discount_amount'] as num? ?? 0).toDouble();
+      final total     = (o['payment_amount']  as num? ?? o['total_amount'] as num? ?? 0).toDouble();
+      final stored    = (o['subtotal']        as num? ?? 0).toDouble();
+      final subtotal  = stored > 0 ? stored : total - propina + descuento;
 
       final paidByUserId = o['paid_by_user_id'] as String? ?? '';
       final cajero = (o['paid_by_user_name'] as String? ?? '').isNotEmpty
