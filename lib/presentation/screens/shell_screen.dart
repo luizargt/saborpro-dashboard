@@ -481,18 +481,53 @@ class _MenuModalState extends State<_MenuModal> {
 
   Future<void> _toggleBiometric(bool enable) async {
     if (enable) {
-      await _showBiometricSetupDialog();
+      final email    = AuthService().sessionEmail;
+      final password = AuthService().sessionPassword;
+      if (email != null && password != null) {
+        // Tenemos credenciales de sesión → activar directamente
+        await _activateBiometricWithCredentials(email, password);
+      } else {
+        // Sesión restaurada desde storage → pedir contraseña
+        await _showBiometricSetupDialog();
+      }
     } else {
       await BiometricService().clearCredentials();
       if (mounted) setState(() => _biometricEnabled = false);
     }
   }
 
+  Future<void> _activateBiometricWithCredentials(
+      String email, String password) async {
+    final hasEnrolled = await BiometricService().isAvailable();
+    if (!hasEnrolled) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'No hay huellas registradas en el dispositivo. '
+            'Ve a Configuración → Seguridad para registrar una.',
+            style: GoogleFonts.inter(fontSize: 13),
+          ),
+          backgroundColor: const Color(0xFF1E293B),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+    await BiometricService().saveCredentials(email, password);
+    final auth = await BiometricService().authenticate();
+    if (auth != null) {
+      if (mounted) setState(() => _biometricEnabled = true);
+    } else {
+      await BiometricService().clearCredentials();
+    }
+  }
+
   Future<void> _showBiometricSetupDialog() async {
-    // Pre-llenar email: primero desde Firebase Auth, luego desde storage anterior
-    final firebaseEmail  = FirebaseAuth.instance.currentUser?.email ?? '';
-    final storedEmail    = await BiometricService().getStoredEmail();
-    final initialEmail   = firebaseEmail.isNotEmpty ? firebaseEmail : (storedEmail ?? '');
+    // Sesión restaurada desde storage: intentar obtener email de Firebase o storage
+    final firebaseEmail = FirebaseAuth.instance.currentUser?.email ?? '';
+    final storedEmail   = await BiometricService().getStoredEmail();
+    final initialEmail  = firebaseEmail.isNotEmpty ? firebaseEmail : (storedEmail ?? '');
 
     final emailCtrl = TextEditingController(text: initialEmail);
     final pwCtrl    = TextEditingController();

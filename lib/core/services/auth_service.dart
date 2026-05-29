@@ -29,9 +29,15 @@ class AuthService {
   String? _displayName;
   String? _firestoreUid;
 
+  // Solo en memoria — nunca persisten en disco
+  String? _sessionEmail;
+  String? _sessionPassword;
+
   String? get tenantId => _tenantId;
   String? get locationId => _locationId;
   String? get displayName => _displayName;
+  String? get sessionEmail => _sessionEmail;
+  String? get sessionPassword => _sessionPassword;
 
   Future<String?> login(String email, String password) async {
     final normalizedEmail = email.trim().toLowerCase();
@@ -64,6 +70,8 @@ class AuthService {
           password: password,
         );
         await _loadUserData(data, query.docs.first.id);
+        _sessionEmail = normalizedEmail;
+        _sessionPassword = password;
         return null;
       } on FirebaseAuthException catch (e) {
         switch (e.code) {
@@ -86,6 +94,8 @@ class AuthService {
         return 'Email o contraseña incorrectos';
       }
       await _loadUserData(data, query.docs.first.id);
+      _sessionEmail = normalizedEmail;
+      _sessionPassword = password;
       return null;
     }
   }
@@ -171,6 +181,8 @@ class AuthService {
     _locationId = null;
     _displayName = null;
     _firestoreUid = null;
+    _sessionEmail = null;
+    _sessionPassword = null;
     try {
       await Future.wait([
         _storage.delete(key: _kUid),
