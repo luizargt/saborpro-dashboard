@@ -459,8 +459,9 @@ class _MenuModalState extends State<_MenuModal> {
   bool _downloading = false;
 
   // Biometría — null mientras carga
-  bool? _biometricAvailable;
-  bool  _biometricEnabled = false;
+  bool?  _biometricAvailable;
+  bool   _biometricEnabled = false;
+  String? _biometricError;
 
   @override
   void initState() {
@@ -500,26 +501,23 @@ class _MenuModalState extends State<_MenuModal> {
       String email, String password) async {
     final hasEnrolled = await BiometricService().isAvailable();
     if (!hasEnrolled) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'No hay huellas registradas en el dispositivo. '
-            'Ve a Configuración → Seguridad para registrar una.',
-            style: GoogleFonts.inter(fontSize: 13),
-          ),
-          backgroundColor: const Color(0xFF1E293B),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      if (mounted) {
+        setState(() => _biometricError =
+            'No hay huellas registradas. Ve a Configuración → '
+            'Seguridad del dispositivo para registrar una.');
+      }
       return;
     }
     await BiometricService().saveCredentials(email, password);
     final auth = await BiometricService().authenticate();
     if (auth != null) {
-      if (mounted) setState(() => _biometricEnabled = true);
+      if (mounted) setState(() {
+        _biometricEnabled = true;
+        _biometricError   = null;
+      });
     } else {
       await BiometricService().clearCredentials();
+      if (mounted) setState(() => _biometricError = 'No se pudo verificar la huella.');
     }
   }
 
@@ -833,9 +831,7 @@ class _MenuModalState extends State<_MenuModal> {
                 child: Row(
                   children: [
                     Icon(
-                      _biometricEnabled
-                          ? Icons.fingerprint
-                          : Icons.fingerprint,
+                      Icons.fingerprint,
                       color: _biometricEnabled
                           ? const Color(0xFF7444fd)
                           : Colors.white38,
@@ -843,15 +839,30 @@ class _MenuModalState extends State<_MenuModal> {
                     ),
                     const SizedBox(width: 12),
                     Expanded(
-                      child: Text(
-                        'Inicio con huella / Face ID',
-                        style: GoogleFonts.inter(
-                          color: _biometricEnabled
-                              ? Colors.white70
-                              : Colors.white38,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w500,
-                        ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Inicio con huella / Face ID',
+                            style: GoogleFonts.inter(
+                              color: _biometricEnabled
+                                  ? Colors.white70
+                                  : Colors.white38,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          if (_biometricError != null) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              _biometricError!,
+                              style: GoogleFonts.inter(
+                                color: const Color(0xFFEF4444),
+                                fontSize: 11,
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
                     ),
                     Switch(
