@@ -37,7 +37,12 @@ class BiometricService {
   Future<bool> isHardwarePresent() async {
     if (kIsWeb) return false;
     try {
-      return await _auth.isDeviceSupported();
+      final supported = await _auth.isDeviceSupported();
+      if (supported) return true;
+      // Fallback: algunos dispositivos reportan false en isDeviceSupported
+      // pero sí tienen sensor; canCheckBiometrics lo detecta correctamente
+      final canCheck = await _auth.canCheckBiometrics;
+      return canCheck;
     } catch (_) {
       return false;
     }
