@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
@@ -457,6 +458,169 @@ class _MenuModalState extends State<_MenuModal> {
   _ReportType _selected = _ReportType.caja;
   bool _downloading = false;
 
+  // Biometría — null mientras carga
+  bool? _biometricAvailable;
+  bool  _biometricEnabled = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadBiometricState();
+  }
+
+  Future<void> _loadBiometricState() async {
+    final available = await BiometricService().isAvailable();
+    final enabled   = await BiometricService().isEnabled();
+    if (mounted) {
+      setState(() {
+        _biometricAvailable = available;
+        _biometricEnabled   = enabled;
+      });
+    }
+  }
+
+  Future<void> _toggleBiometric(bool enable) async {
+    if (enable) {
+      await _showBiometricSetupDialog();
+    } else {
+      await BiometricService().clearCredentials();
+      if (mounted) setState(() => _biometricEnabled = false);
+    }
+  }
+
+  Future<void> _showBiometricSetupDialog() async {
+    // Pre-llenar email: primero desde Firebase Auth, luego desde storage anterior
+    final firebaseEmail  = FirebaseAuth.instance.currentUser?.email ?? '';
+    final storedEmail    = await BiometricService().getStoredEmail();
+    final initialEmail   = firebaseEmail.isNotEmpty ? firebaseEmail : (storedEmail ?? '');
+
+    final emailCtrl = TextEditingController(text: initialEmail);
+    final pwCtrl    = TextEditingController();
+    bool obscure    = true;
+    String? errorMsg;
+
+    if (!mounted) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setStateDialog) => AlertDialog(
+          backgroundColor: const Color(0xFF1E293B),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: [
+              const Icon(Icons.fingerprint, color: Color(0xFF7444fd), size: 22),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Activar acceso con huella',
+                  style: GoogleFonts.inter(
+                    color: Colors.white,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: emailCtrl,
+                keyboardType: TextInputType.emailAddress,
+                readOnly: firebaseEmail.isNotEmpty,
+                style: GoogleFonts.inter(color: Colors.white, fontSize: 14),
+                decoration: InputDecoration(
+                  labelText: 'Correo',
+                  labelStyle: GoogleFonts.inter(color: Colors.white38),
+                  filled: true,
+                  fillColor: const Color(0xFF0F172A),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide.none,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: pwCtrl,
+                obscureText: obscure,
+                style: GoogleFonts.inter(color: Colors.white, fontSize: 14),
+                decoration: InputDecoration(
+                  labelText: 'Contraseña',
+                  labelStyle: GoogleFonts.inter(color: Colors.white38),
+                  filled: true,
+                  fillColor: const Color(0xFF0F172A),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide.none,
+                  ),
+                  suffixIcon: IconButton(
+                    icon: Icon(
+                      obscure ? Icons.visibility_off : Icons.visibility,
+                      color: Colors.white38,
+                      size: 18,
+                    ),
+                    onPressed: () => setStateDialog(() => obscure = !obscure),
+                  ),
+                ),
+              ),
+              if (errorMsg != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  errorMsg!,
+                  style: GoogleFonts.inter(
+                    color: const Color(0xFFEF4444),
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text('Cancelar',
+                  style: GoogleFonts.inter(color: Colors.white38)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF7444fd),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8)),
+              ),
+              onPressed: () async {
+                if (emailCtrl.text.trim().isEmpty || pwCtrl.text.isEmpty) {
+                  setStateDialog(
+                      () => errorMsg = 'Ingresa tu correo y contraseña');
+                  return;
+                }
+                await BiometricService()
+                    .saveCredentials(emailCtrl.text.trim(), pwCtrl.text);
+                final auth = await BiometricService().authenticate();
+                if (auth != null) {
+                  if (ctx.mounted) Navigator.pop(ctx, true);
+                } else {
+                  await BiometricService().clearCredentials();
+                  setStateDialog(
+                      () => errorMsg = 'No se pudo verificar la huella');
+                }
+              },
+              child: Text('Activar', style: GoogleFonts.inter()),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      setState(() => _biometricEnabled = true);
+    }
+  }
+
   Future<void> _download() async {
     final dp = context.read<DashboardProvider>();
     final ip = context.read<InventoryProvider>();
@@ -615,6 +779,54 @@ class _MenuModalState extends State<_MenuModal> {
           const SizedBox(height: 28),
           Divider(color: Colors.white.withOpacity(0.06)),
           const SizedBox(height: 8),
+
+          // Biometría (solo Android/iOS con soporte)
+          if (_biometricAvailable == true) ...[
+            GestureDetector(
+              onTap: () => _toggleBiometric(!_biometricEnabled),
+              behavior: HitTestBehavior.opaque,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Row(
+                  children: [
+                    Icon(
+                      _biometricEnabled
+                          ? Icons.fingerprint
+                          : Icons.fingerprint,
+                      color: _biometricEnabled
+                          ? const Color(0xFF7444fd)
+                          : Colors.white38,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Inicio con huella / Face ID',
+                        style: GoogleFonts.inter(
+                          color: _biometricEnabled
+                              ? Colors.white70
+                              : Colors.white38,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                    Switch(
+                      value: _biometricEnabled,
+                      onChanged: _toggleBiometric,
+                      activeColor: const Color(0xFF7444fd),
+                      activeTrackColor:
+                          const Color(0xFF7444fd).withOpacity(0.3),
+                      inactiveThumbColor: Colors.white38,
+                      inactiveTrackColor: Colors.white12,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            Divider(color: Colors.white.withOpacity(0.06)),
+            const SizedBox(height: 8),
+          ],
 
           // Botón Salir
           GestureDetector(

@@ -31,6 +31,12 @@ class BiometricService {
     }
   }
 
+  // Devuelve el email guardado (si existe) para pre-llenar el diálogo de configuración
+  Future<String?> getStoredEmail() async {
+    if (kIsWeb) return null;
+    return _storage.read(key: _keyEmail);
+  }
+
   // Verifica si el usuario activó el login biométrico
   Future<bool> isEnabled() async {
     if (kIsWeb) return false;
