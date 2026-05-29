@@ -18,6 +18,7 @@ class BiometricService {
   static const _keyEnabled = 'bio_enabled';
 
   // Verifica si el dispositivo soporta biometría y tiene alguna enrollada
+  // (usado en login para mostrar el botón de huella)
   Future<bool> isAvailable() async {
     if (kIsWeb) return false;
     try {
@@ -26,6 +27,17 @@ class BiometricService {
       if (!canCheck || !isSupported) return false;
       final biometrics = await _auth.getAvailableBiometrics();
       return biometrics.isNotEmpty;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // Verifica solo si el hardware biométrico existe en el dispositivo
+  // (usado en ajustes: muestra la opción aunque no haya huellas registradas aún)
+  Future<bool> isHardwarePresent() async {
+    if (kIsWeb) return false;
+    try {
+      return await _auth.isDeviceSupported();
     } catch (_) {
       return false;
     }

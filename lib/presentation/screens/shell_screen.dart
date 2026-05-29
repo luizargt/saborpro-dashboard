@@ -469,7 +469,7 @@ class _MenuModalState extends State<_MenuModal> {
   }
 
   Future<void> _loadBiometricState() async {
-    final available = await BiometricService().isAvailable();
+    final available = await BiometricService().isHardwarePresent();
     final enabled   = await BiometricService().isEnabled();
     if (mounted) {
       setState(() {
@@ -600,6 +600,14 @@ class _MenuModalState extends State<_MenuModal> {
                 }
                 await BiometricService()
                     .saveCredentials(emailCtrl.text.trim(), pwCtrl.text);
+                final hasEnrolled = await BiometricService().isAvailable();
+                if (!hasEnrolled) {
+                  await BiometricService().clearCredentials();
+                  setStateDialog(() => errorMsg =
+                      'No hay huellas registradas en el dispositivo. '
+                      'Ve a Configuración → Seguridad para registrar una.');
+                  return;
+                }
                 final auth = await BiometricService().authenticate();
                 if (auth != null) {
                   if (ctx.mounted) Navigator.pop(ctx, true);
