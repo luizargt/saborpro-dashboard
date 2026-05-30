@@ -133,7 +133,8 @@ class AuthService {
       }
     }
     _locationId = (data['location_id'] ?? data['current_location_id']) as String?;
-    _displayName = data['name'] as String?;
+    _displayName  = data['name']  as String?;
+    _sessionEmail ??= data['email'] as String?;
     // ignore: avoid_print
     print('[AUTH] tenantId=$_tenantId locationId=$_locationId name=$_displayName');
     // Persistir sesión para sobrevivir proceso killed por Android
@@ -143,8 +144,7 @@ class AuthService {
         _storage.write(key: _kTenantId,    value: _tenantId),
         _storage.write(key: _kLocationId,  value: _locationId),
         _storage.write(key: _kDisplayName, value: _displayName),
-        if (_sessionEmail != null)
-          _storage.write(key: _kEmail, value: _sessionEmail),
+        _storage.write(key: _kEmail, value: _sessionEmail ?? ''),
       ]);
     } catch (_) {}
   }
