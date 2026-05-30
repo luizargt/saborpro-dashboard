@@ -15,10 +15,11 @@ class AuthService {
   final _storage = const FlutterSecureStorage(
     aOptions: AndroidOptions(encryptedSharedPreferences: true),
   );
-  static const _kTenantId   = 'session_tenant_id';
-  static const _kLocationId = 'session_location_id';
+  static const _kTenantId    = 'session_tenant_id';
+  static const _kLocationId  = 'session_location_id';
   static const _kDisplayName = 'session_display_name';
-  static const _kUid        = 'session_firestore_uid';
+  static const _kUid         = 'session_firestore_uid';
+  static const _kEmail       = 'session_email';
 
   User? get firebaseUser => _auth.currentUser;
   bool get isLoggedIn => firebaseUser != null || _firestoreUid != null;
@@ -142,6 +143,8 @@ class AuthService {
         _storage.write(key: _kTenantId,    value: _tenantId),
         _storage.write(key: _kLocationId,  value: _locationId),
         _storage.write(key: _kDisplayName, value: _displayName),
+        if (_sessionEmail != null)
+          _storage.write(key: _kEmail, value: _sessionEmail),
       ]);
     } catch (_) {}
   }
@@ -169,6 +172,7 @@ class AuthService {
           _tenantId       = await _storage.read(key: _kTenantId);
           _locationId     = await _storage.read(key: _kLocationId);
           _displayName    = await _storage.read(key: _kDisplayName);
+          _sessionEmail   = await _storage.read(key: _kEmail);
           // ignore: avoid_print
           print('[AUTH] Sesión restaurada desde storage: tenantId=$_tenantId');
         }
@@ -189,6 +193,7 @@ class AuthService {
         _storage.delete(key: _kTenantId),
         _storage.delete(key: _kLocationId),
         _storage.delete(key: _kDisplayName),
+        _storage.delete(key: _kEmail),
       ]);
     } catch (_) {}
     if (firebaseUser != null) {

@@ -485,15 +485,18 @@ class _MenuModalState extends State<_MenuModal> {
       final email    = AuthService().sessionEmail;
       final password = AuthService().sessionPassword;
       if (email != null && password != null) {
-        // Tenemos credenciales de sesión → activar directamente
+        // Credenciales completas en sesión → activar directo sin diálogo
         await _activateBiometricWithCredentials(email, password);
       } else {
-        // Sesión restaurada desde storage → pedir contraseña
+        // Solo tenemos email (sesión restaurada) → pedir solo contraseña
         await _showBiometricSetupDialog();
       }
     } else {
       await BiometricService().clearCredentials();
-      if (mounted) setState(() => _biometricEnabled = false);
+      if (mounted) setState(() {
+        _biometricEnabled = false;
+        _biometricError   = null;
+      });
     }
   }
 
@@ -522,16 +525,18 @@ class _MenuModalState extends State<_MenuModal> {
   }
 
   Future<void> _showBiometricSetupDialog() async {
-    // Sesión restaurada desde storage: intentar obtener email de Firebase o storage
+    // Email: sesión en memoria > Firebase Auth > storage biométrico anterior
+    final sessionEmail  = AuthService().sessionEmail ?? '';
     final firebaseEmail = FirebaseAuth.instance.currentUser?.email ?? '';
-    final storedEmail   = await BiometricService().getStoredEmail();
-    final initialEmail  = firebaseEmail.isNotEmpty ? firebaseEmail : (storedEmail ?? '');
+    final storedEmail   = await BiometricService().getStoredEmail() ?? '';
+    final email = sessionEmail.isNotEmpty ? sessionEmail
+        : firebaseEmail.isNotEmpty ? firebaseEmail
+        : storedEmail;
 
-    final emailCtrl = TextEditingController(text: initialEmail);
+    final emailCtrl = TextEditingController(text: email);
     final pwCtrl    = TextEditingController();
     bool obscure    = true;
     String? errorMsg;
-
     if (!mounted) return;
 
     final confirmed = await showDialog<bool>(
@@ -546,40 +551,45 @@ class _MenuModalState extends State<_MenuModal> {
               const Icon(Icons.fingerprint, color: Color(0xFF7444fd), size: 22),
               const SizedBox(width: 10),
               Expanded(
-                child: Text(
-                  'Activar acceso con huella',
-                  style: GoogleFonts.inter(
-                    color: Colors.white,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
+                child: Text('Activar acceso con huella',
+                    style: GoogleFonts.inter(
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600)),
               ),
             ],
           ),
           content: Column(
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              TextField(
-                controller: emailCtrl,
-                keyboardType: TextInputType.emailAddress,
-                readOnly: firebaseEmail.isNotEmpty,
-                style: GoogleFonts.inter(color: Colors.white, fontSize: 14),
-                decoration: InputDecoration(
-                  labelText: 'Correo',
-                  labelStyle: GoogleFonts.inter(color: Colors.white38),
-                  filled: true,
-                  fillColor: const Color(0xFF0F172A),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide.none,
+              // Mostrar email como texto si ya lo tenemos, campo editable si no
+              if (email.isNotEmpty) ...[
+                Text(email,
+                    style: GoogleFonts.inter(
+                        color: Colors.white54, fontSize: 13)),
+                const SizedBox(height: 12),
+              ] else ...[
+                TextField(
+                  controller: emailCtrl,
+                  keyboardType: TextInputType.emailAddress,
+                  style: GoogleFonts.inter(color: Colors.white, fontSize: 14),
+                  decoration: InputDecoration(
+                    labelText: 'Correo',
+                    labelStyle: GoogleFonts.inter(color: Colors.white38),
+                    filled: true,
+                    fillColor: const Color(0xFF0F172A),
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide: BorderSide.none),
                   ),
                 ),
-              ),
-              const SizedBox(height: 12),
+                const SizedBox(height: 12),
+              ],
               TextField(
                 controller: pwCtrl,
                 obscureText: obscure,
+                autofocus: true,
                 style: GoogleFonts.inter(color: Colors.white, fontSize: 14),
                 decoration: InputDecoration(
                   labelText: 'Contraseña',
@@ -587,28 +597,22 @@ class _MenuModalState extends State<_MenuModal> {
                   filled: true,
                   fillColor: const Color(0xFF0F172A),
                   border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide.none,
-                  ),
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: BorderSide.none),
                   suffixIcon: IconButton(
                     icon: Icon(
-                      obscure ? Icons.visibility_off : Icons.visibility,
-                      color: Colors.white38,
-                      size: 18,
-                    ),
+                        obscure ? Icons.visibility_off : Icons.visibility,
+                        color: Colors.white38,
+                        size: 18),
                     onPressed: () => setStateDialog(() => obscure = !obscure),
                   ),
                 ),
               ),
               if (errorMsg != null) ...[
                 const SizedBox(height: 8),
-                Text(
-                  errorMsg!,
-                  style: GoogleFonts.inter(
-                    color: const Color(0xFFEF4444),
-                    fontSize: 12,
-                  ),
-                ),
+                Text(errorMsg!,
+                    style: GoogleFonts.inter(
+                        color: const Color(0xFFEF4444), fontSize: 12)),
               ],
             ],
           ),
@@ -626,28 +630,29 @@ class _MenuModalState extends State<_MenuModal> {
                     borderRadius: BorderRadius.circular(8)),
               ),
               onPressed: () async {
-                if (emailCtrl.text.trim().isEmpty || pwCtrl.text.isEmpty) {
+                final resolvedEmail =
+                    email.isNotEmpty ? email : emailCtrl.text.trim();
+                if (resolvedEmail.isEmpty || pwCtrl.text.isEmpty) {
                   setStateDialog(
                       () => errorMsg = 'Ingresa tu correo y contraseña');
                   return;
                 }
-                await BiometricService()
-                    .saveCredentials(emailCtrl.text.trim(), pwCtrl.text);
                 final hasEnrolled = await BiometricService().isAvailable();
                 if (!hasEnrolled) {
-                  await BiometricService().clearCredentials();
                   setStateDialog(() => errorMsg =
-                      'No hay huellas registradas en el dispositivo. '
-                      'Ve a Configuración → Seguridad para registrar una.');
+                      'No hay huellas registradas. Ve a Configuración → '
+                      'Seguridad del dispositivo para registrar una.');
                   return;
                 }
+                await BiometricService()
+                    .saveCredentials(resolvedEmail, pwCtrl.text);
                 final auth = await BiometricService().authenticate();
                 if (auth != null) {
                   if (ctx.mounted) Navigator.pop(ctx, true);
                 } else {
                   await BiometricService().clearCredentials();
                   setStateDialog(
-                      () => errorMsg = 'No se pudo verificar la huella');
+                      () => errorMsg = 'No se pudo verificar la huella.');
                 }
               },
               child: Text('Activar', style: GoogleFonts.inter()),
@@ -658,7 +663,10 @@ class _MenuModalState extends State<_MenuModal> {
     );
 
     if (confirmed == true && mounted) {
-      setState(() => _biometricEnabled = true);
+      setState(() {
+        _biometricEnabled = true;
+        _biometricError   = null;
+      });
     }
   }
 
