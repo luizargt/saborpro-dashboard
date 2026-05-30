@@ -505,22 +505,54 @@ class _MenuModalState extends State<_MenuModal> {
     final hasEnrolled = await BiometricService().isAvailable();
     if (!hasEnrolled) {
       if (mounted) {
-        setState(() => _biometricError =
-            'No hay huellas registradas. Ve a Configuración → '
-            'Seguridad del dispositivo para registrar una.');
+        showDialog(
+          context: context,
+          builder: (_) => AlertDialog(
+            backgroundColor: const Color(0xFF1E293B),
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16)),
+            title: Row(children: [
+              const Icon(Icons.fingerprint,
+                  color: Color(0xFF7444fd), size: 22),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text('Sin huella registrada',
+                    style: GoogleFonts.inter(
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600)),
+              ),
+            ]),
+            content: Text(
+              'Este dispositivo no tiene huellas registradas.\n\n'
+              'Ve a Configuración → Seguridad → Huella digital '
+              'para registrar una y luego vuelve aquí.',
+              style: GoogleFonts.inter(
+                  color: Colors.white70, fontSize: 14, height: 1.5),
+            ),
+            actions: [
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF7444fd),
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8)),
+                ),
+                onPressed: () => Navigator.pop(context),
+                child: Text('Entendido', style: GoogleFonts.inter()),
+              ),
+            ],
+          ),
+        );
       }
       return;
     }
     await BiometricService().saveCredentials(email, password);
     final auth = await BiometricService().authenticate();
     if (auth != null) {
-      if (mounted) setState(() {
-        _biometricEnabled = true;
-        _biometricError   = null;
-      });
+      if (mounted) setState(() => _biometricEnabled = true);
     } else {
       await BiometricService().clearCredentials();
-      if (mounted) setState(() => _biometricError = 'No se pudo verificar la huella.');
     }
   }
 
@@ -847,30 +879,15 @@ class _MenuModalState extends State<_MenuModal> {
                     ),
                     const SizedBox(width: 12),
                     Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Inicio con huella / Face ID',
-                            style: GoogleFonts.inter(
-                              color: _biometricEnabled
-                                  ? Colors.white70
-                                  : Colors.white38,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                          if (_biometricError != null) ...[
-                            const SizedBox(height: 4),
-                            Text(
-                              _biometricError!,
-                              style: GoogleFonts.inter(
-                                color: const Color(0xFFEF4444),
-                                fontSize: 11,
-                              ),
-                            ),
-                          ],
-                        ],
+                      child: Text(
+                        'Inicio con huella / Face ID',
+                        style: GoogleFonts.inter(
+                          color: _biometricEnabled
+                              ? Colors.white70
+                              : Colors.white38,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
                     ),
                     Switch(
