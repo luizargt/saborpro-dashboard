@@ -110,6 +110,12 @@ class DashboardProvider extends ChangeNotifier {
     if (_tenantId == null) return;
     _loading = true;
     _error = null;
+    // Liberar listas grandes del período anterior para que el GC pueda reclamar
+    // memoria antes de iniciar los nuevos fetches, evitando pico de OOM.
+    _currentOrders = [];
+    _monthlyDailyPoints = [];
+    _weeklyHourly = [];
+    _metrics = null;
     notifyListeners();
 
     try {
@@ -125,7 +131,7 @@ class DashboardProvider extends ChangeNotifier {
       _currentOrders = currentOrders;
 
       // Etapa 2: período anterior — solo para comparación, se descarta al terminar esta etapa
-      final prevOrders = await _fetchOrders(prev.start, prev.end);
+      var prevOrders = await _fetchOrders(prev.start, prev.end);
 
       // Etapa 0b: cargar clasificaciones: por categoria y por producto
       final categoryIds = _extractCategoryIds(currentOrders);
@@ -148,7 +154,8 @@ class DashboardProvider extends ChangeNotifier {
       final expenses = _expenseItems.fold<double>(0, (s, e) => s + (e['amount'] as num? ?? 0).toDouble());
       final purchaseCosts = _purchaseItems.fold<double>(0, (s, e) => s + (e['total'] as num? ?? 0).toDouble());
 
-      // Etapa 4: construir métricas — después de esto prevOrders puede ser recolectado por el GC
+      // Etapa 4: construir métricas — liberar prevOrders después para que el GC
+      // pueda reclamar esa memoria antes del siguiente fetch de monthlyOrders.
       _metrics = _buildMetrics(
         currentOrders,
         prevOrders,
@@ -159,6 +166,7 @@ class DashboardProvider extends ChangeNotifier {
         classificationByName: classificationByName,
         productClassificationMap: productClassificationMap,
       );
+      prevOrders = [];
 
       // Etapa 5: datos del mes actual para la gráfica de barras diarias
       final monthlyOrders = await _fetchOrders(monthStart, we);
@@ -406,10 +414,13 @@ class DashboardProvider extends ChangeNotifier {
     try {
       // Dos queries secuenciales (no paralelas) para incluir órdenes offline (ISO string)
       // sin el pico de memoria que causaba OOM al correrlas en paralelo.
+      // Límite de 5000 como válvula de seguridad anti-OOM; un mes normal tiene < 3000 órdenes.
+      const kOrderLimit = 5000;
       final snapTs = await _firestore.orders
           .where('tenant_id', isEqualTo: _tenantId)
           .where('paid_at', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
           .where('paid_at', isLessThanOrEqualTo: Timestamp.fromDate(end))
+          .limit(kOrderLimit)
           .get();
 
       final startIso = start.toIso8601String().substring(0, 23);
@@ -418,6 +429,7 @@ class DashboardProvider extends ChangeNotifier {
           .where('tenant_id', isEqualTo: _tenantId)
           .where('paid_at', isGreaterThanOrEqualTo: startIso)
           .where('paid_at', isLessThanOrEqualTo: endIso)
+          .limit(kOrderLimit)
           .get();
 
       final seen = <String>{};
