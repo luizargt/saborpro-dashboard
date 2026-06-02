@@ -147,18 +147,25 @@ class ExportService {
       sheet.appendRow(_buildCajaRow(o, certifiedInvoiceOrderIds, userNamesById, dateFmt));
     }
 
-    // Hoja 2: órdenes canceladas (fecha tomada de cancelled_at / updated_at / created_at)
+    // Hoja 2: órdenes canceladas — mismas columnas + Razón de cancelación + Monto cancelado
     final cancelSheet = excel['Órdenes Canceladas'];
-    _header(cancelSheet, _cajaHeaders);
+    _header(cancelSheet, [..._cajaHeaders, 'Razón de cancelación', 'Monto cancelado (Q)']);
     for (final o in cancelledOrders) {
       final rawFecha = o['cancelled_at'] ?? o['updated_at'] ?? o['created_at'];
-      cancelSheet.appendRow(_buildCajaRow(
+      final baseRow = _buildCajaRow(
         o,
         certifiedInvoiceOrderIds,
         userNamesById,
         dateFmt,
         dateOverride: rawFecha,
-      ));
+      );
+      final razon = o['cancellation_reason'] as String?
+          ?? o['cancelled_reason']  as String?
+          ?? o['cancel_reason']     as String?
+          ?? o['reason']            as String?
+          ?? '';
+      final monto = (o['total_amount'] as num? ?? 0).toDouble();
+      cancelSheet.appendRow([...baseRow, TextCellValue(razon), DoubleCellValue(monto)]);
     }
 
     _download(excel, 'reporte_caja_${_slug(periodLabel)}.xlsx');
