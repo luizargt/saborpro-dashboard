@@ -159,11 +159,7 @@ class ExportService {
         dateFmt,
         dateOverride: rawFecha,
       );
-      final razon = o['cancellation_reason'] as String?
-          ?? o['cancelled_reason']  as String?
-          ?? o['cancel_reason']     as String?
-          ?? o['reason']            as String?
-          ?? '';
+      final razon = o['cancellation_reason'] as String? ?? '';
       final monto = (o['total_amount'] as num? ?? 0).toDouble();
       cancelSheet.appendRow([...baseRow, TextCellValue(razon), DoubleCellValue(monto)]);
     }
