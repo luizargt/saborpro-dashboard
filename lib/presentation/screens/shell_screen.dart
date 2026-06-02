@@ -725,10 +725,18 @@ class _MenuModalState extends State<_MenuModal> {
           final results = await Future.wait([
             dp.fetchCertifiedInvoiceOrderIds(orderDocIds),
             dp.fetchUserNamesById(userIdsToResolve),
+            dp.fetchCancelledOrders(),
           ]);
-          final certifiedIds = results[0] as Set<String>;
-          final userNamesById = results[1] as Map<String, String>;
-          ExportService.exportCajaReport(orders, certifiedIds, userNamesById, dp.range.label);
+          final certifiedIds    = results[0] as Set<String>;
+          final userNamesById   = results[1] as Map<String, String>;
+          final cancelledOrders = results[2] as List<Map<String, dynamic>>;
+          ExportService.exportCajaReport(
+            orders,
+            certifiedIds,
+            userNamesById,
+            dp.range.label,
+            cancelledOrders: cancelledOrders,
+          );
         case _ReportType.platillos:
           ExportService.exportProducts(
             dp.metrics?.topProducts ?? [],

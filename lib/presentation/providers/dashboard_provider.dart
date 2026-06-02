@@ -902,6 +902,38 @@ class DashboardProvider extends ChangeNotifier {
     return result;
   }
 
+  /// Devuelve las órdenes canceladas del rango actual, filtrando en memoria por fecha.
+  Future<List<Map<String, dynamic>>> fetchCancelledOrders() async {
+    if (_tenantId == null) return [];
+    try {
+      final snap = await _firestore.orders
+          .where('tenant_id', isEqualTo: _tenantId)
+          .where('status', isEqualTo: 'CANCELLED')
+          .limit(2000)
+          .get();
+
+      final start = _range.start;
+      final end   = _range.end;
+
+      return snap.docs.map((d) {
+        final data = d.data();
+        data['_docId'] = d.id;
+        return data;
+      }).where((o) {
+        if (_selectedLocationId != null && _selectedLocationId!.isNotEmpty) {
+          if (o['location_id'] != _selectedLocationId) return false;
+        }
+        // Las canceladas usan cancelled_at > updated_at > created_at para la fecha
+        final raw = o['cancelled_at'] ?? o['updated_at'] ?? o['created_at'];
+        final dt = _toDateTime(raw);
+        if (dt == null) return false;
+        return !dt.isBefore(start) && !dt.isAfter(end);
+      }).toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
   /// Devuelve los order_ids (doc IDs de Firestore) que tienen factura certificada.
   Future<Set<String>> fetchCertifiedInvoiceOrderIds(List<String> orderDocIds) async {
     if (orderDocIds.isEmpty || _tenantId == null) return {};

@@ -111,78 +111,103 @@ class ExportService {
   }
 
   // ── REPORTE DE CAJA ───────────────────────────────────────────────────────
+  static const _cajaHeaders = [
+    'Cajero',
+    'Mesero',
+    'Tipo de pedido',
+    'Nº Ticket',
+    'Mesa / Zona',
+    'Fecha y hora',
+    'Método de pago',
+    'Tipo de venta',
+    'Comprobante',
+    'Cant. items',
+    'Subtotal (Q)',
+    'Propinas (Q)',
+    'Descuentos (Q)',
+    'Cortesía / Donación (Q)',
+    'Total (Q)',
+  ];
+
   static void exportCajaReport(
     List<Map<String, dynamic>> orders,
     Set<String> certifiedInvoiceOrderIds,
     Map<String, String> userNamesById,
-    String periodLabel,
-  ) {
+    String periodLabel, {
+    List<Map<String, dynamic>> cancelledOrders = const [],
+  }) {
     final excel = Excel.createExcel();
-    final sheet = excel['Reporte de Caja'];
-    excel.setDefaultSheet('Reporte de Caja');
-
-    _header(sheet, [
-      'Cajero',
-      'Mesero',
-      'Tipo de pedido',
-      'Nº Ticket',
-      'Mesa / Zona',
-      'Fecha y hora',
-      'Método de pago',
-      'Tipo de venta',
-      'Comprobante',
-      'Cant. items',
-      'Subtotal (Q)',
-      'Propinas (Q)',
-      'Descuentos (Q)',
-      'Cortesía / Donación (Q)',
-      'Total (Q)',
-    ]);
-
     final dateFmt = DateFormat('dd/MM/yyyy HH:mm', 'es');
 
+    // Hoja 1: órdenes completadas
+    final sheet = excel['Reporte de Caja'];
+    excel.setDefaultSheet('Reporte de Caja');
+    _header(sheet, _cajaHeaders);
     for (final o in orders) {
-      final docId   = o['_docId'] as String? ?? '';
-      final tipo    = _tipoOrden(o['type'] as String? ?? '');
-      final ticket  = '${o['order_prefix'] ?? ''}${o['order_no'] ?? ''}';
-      final mesa    = (o['type'] == 'dine_in') ? (o['table_name'] as String? ?? '') : '';
-      final fecha   = _parsePaidAt(o['paid_at']);
-      final metodo  = _metodoPago(o);
-      final venta   = _tipoVenta(o);
-      final comprobante = certifiedInvoiceOrderIds.contains(docId) ? 'Factura' : '—';
-      final cantItems = _contarItems(o);
-      final propina   = (o['tip_amount']      as num? ?? 0).toDouble();
-      final descuento = (o['discount_amount'] as num? ?? 0).toDouble();
-      final total     = (o['payment_amount']  as num? ?? o['total_amount'] as num? ?? 0).toDouble();
-      final stored    = (o['subtotal']        as num? ?? 0).toDouble();
-      final subtotal  = stored > 0 ? stored : total - propina + descuento;
+      sheet.appendRow(_buildCajaRow(o, certifiedInvoiceOrderIds, userNamesById, dateFmt));
+    }
 
-      final paidByUserId = o['paid_by_user_id'] as String? ?? '';
-      final cajero = (o['paid_by_user_name'] as String? ?? '').isNotEmpty
-          ? o['paid_by_user_name'] as String
-          : userNamesById[paidByUserId] ?? '';
-      final cortesia = _valorCortesia(o);
-
-      sheet.appendRow([
-        TextCellValue(cajero),
-        TextCellValue(o['created_by_user_name']  as String? ?? ''),
-        TextCellValue(tipo),
-        TextCellValue(ticket),
-        TextCellValue(mesa),
-        TextCellValue(fecha != null ? dateFmt.format(fecha.toLocal()) : ''),
-        TextCellValue(metodo),
-        TextCellValue(venta),
-        TextCellValue(comprobante),
-        IntCellValue(cantItems),
-        DoubleCellValue(subtotal),
-        DoubleCellValue(propina),
-        DoubleCellValue(descuento),
-        DoubleCellValue(cortesia),
-        DoubleCellValue(total),
-      ]);
+    // Hoja 2: órdenes canceladas (fecha tomada de cancelled_at / updated_at / created_at)
+    final cancelSheet = excel['Órdenes Canceladas'];
+    _header(cancelSheet, _cajaHeaders);
+    for (final o in cancelledOrders) {
+      final rawFecha = o['cancelled_at'] ?? o['updated_at'] ?? o['created_at'];
+      cancelSheet.appendRow(_buildCajaRow(
+        o,
+        certifiedInvoiceOrderIds,
+        userNamesById,
+        dateFmt,
+        dateOverride: rawFecha,
+      ));
     }
 
     _download(excel, 'reporte_caja_${_slug(periodLabel)}.xlsx');
+  }
+
+  static List<CellValue> _buildCajaRow(
+    Map<String, dynamic> o,
+    Set<String> certifiedInvoiceOrderIds,
+    Map<String, String> userNamesById,
+    DateFormat dateFmt, {
+    dynamic dateOverride,
+  }) {
+    final docId   = o['_docId'] as String? ?? '';
+    final tipo    = _tipoOrden(o['type'] as String? ?? '');
+    final ticket  = '${o['order_prefix'] ?? ''}${o['order_no'] ?? ''}';
+    final mesa    = (o['type'] == 'dine_in') ? (o['table_name'] as String? ?? '') : '';
+    final fecha   = _parsePaidAt(dateOverride ?? o['paid_at']);
+    final metodo  = _metodoPago(o);
+    final venta   = _tipoVenta(o);
+    final comprobante = certifiedInvoiceOrderIds.contains(docId) ? 'Factura' : '—';
+    final cantItems = _contarItems(o);
+    final propina   = (o['tip_amount']      as num? ?? 0).toDouble();
+    final descuento = (o['discount_amount'] as num? ?? 0).toDouble();
+    final total     = (o['payment_amount']  as num? ?? o['total_amount'] as num? ?? 0).toDouble();
+    final stored    = (o['subtotal']        as num? ?? 0).toDouble();
+    final subtotal  = stored > 0 ? stored : total - propina + descuento;
+    final paidByUserId = o['paid_by_user_id'] as String? ?? '';
+    final cajero = (o['paid_by_user_name'] as String? ?? '').isNotEmpty
+        ? o['paid_by_user_name'] as String
+        : userNamesById[paidByUserId] ?? '';
+    final cortesia = _valorCortesia(o);
+
+    return [
+      TextCellValue(cajero),
+      TextCellValue(o['created_by_user_name'] as String? ?? ''),
+      TextCellValue(tipo),
+      TextCellValue(ticket),
+      TextCellValue(mesa),
+      TextCellValue(fecha != null ? dateFmt.format(fecha.toLocal()) : ''),
+      TextCellValue(metodo),
+      TextCellValue(venta),
+      TextCellValue(comprobante),
+      IntCellValue(cantItems),
+      DoubleCellValue(subtotal),
+      DoubleCellValue(propina),
+      DoubleCellValue(descuento),
+      DoubleCellValue(cortesia),
+      DoubleCellValue(total),
+    ];
   }
 
   static String _tipoOrden(String type) {
