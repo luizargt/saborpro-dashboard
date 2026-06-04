@@ -108,7 +108,14 @@ class _RegisterDetailScreenState extends State<RegisterDetailScreen>
         }
 
         final paidByUserId = o['paid_by_user_id'] as String? ?? '';
-        if (paidByUserId.isNotEmpty && paidByUserId != registerId) return false;
+        final paidByUserName = o['paid_by_user_name'] as String? ?? '';
+        if (paidByUserId.isNotEmpty) {
+          // Filtrar por ID si está disponible
+          if (paidByUserId != registerId) return false;
+        } else if (paidByUserName.isNotEmpty && reg.userName.isNotEmpty) {
+          // Fallback: filtrar por nombre cuando el ID no está guardado
+          if (paidByUserName != reg.userName) return false;
+        }
 
         return true;
       }).toList()
