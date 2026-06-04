@@ -36,6 +36,15 @@ class CashRegisterSummary {
   final double totalWithdrawals;
   final double totalDeposits;
 
+  // Diferencias almacenadas al cierre (calculadas desde órdenes reales en saborpro_app).
+  // Cuando están presentes, son más confiables que expectedCash/expectedCard que pueden
+  // ser sobreescritos por sincronización posterior de otro dispositivo.
+  final double? differenceCash;
+  final double? differenceCard;
+  final double? differenceTransfer;
+  final double? differencePedidosya;
+  final double? differenceUbereats;
+
   // Notas de cierre (incluye aclaraciones de cuadre si hubo diferencia)
   final String? closingNotes;
 
@@ -70,6 +79,11 @@ class CashRegisterSummary {
     this.actualCustomMethods = const {},
     this.totalWithdrawals = 0,
     this.totalDeposits = 0,
+    this.differenceCash,
+    this.differenceCard,
+    this.differenceTransfer,
+    this.differencePedidosya,
+    this.differenceUbereats,
     this.closingNotes,
     this.customMethodNames = const {},
     this.locationName,
@@ -81,12 +95,44 @@ class CashRegisterSummary {
   double get totalInitial =>
       initialCash + initialCard + initialTransfer + initialPedidosya + initialUbereats;
 
-  // Ventas en efectivo = expected - initial (lo que se vendió, sin el fondo)
-  double get salesCash => expectedCash - initialCash;
-  double get salesCard => expectedCard - initialCard;
-  double get salesTransfer => expectedTransfer - initialTransfer;
-  double get salesPedidosya => expectedPedidosya - initialPedidosya;
-  double get salesUbereats => expectedUbereats - initialUbereats;
+  // Ventas por método de pago.
+  // Cuando están disponibles las diferencias del cierre, se derivan desde actual-diferencia
+  // (más confiable que expected, que puede ser sobreescrito por sync posterior).
+  // Fórmula: actual - difference - initial + withdrawals - deposits (solo efectivo lleva ajuste)
+  double get salesCash {
+    if (differenceCash != null) {
+      return (actualCash ?? 0) - differenceCash! - initialCash + totalWithdrawals - totalDeposits;
+    }
+    return expectedCash - initialCash;
+  }
+
+  double get salesCard {
+    if (differenceCard != null) {
+      return (actualCard ?? 0) - differenceCard! - initialCard;
+    }
+    return expectedCard - initialCard;
+  }
+
+  double get salesTransfer {
+    if (differenceTransfer != null) {
+      return (actualTransfer ?? 0) - differenceTransfer! - initialTransfer;
+    }
+    return expectedTransfer - initialTransfer;
+  }
+
+  double get salesPedidosya {
+    if (differencePedidosya != null) {
+      return (actualPedidosya ?? 0) - differencePedidosya! - initialPedidosya;
+    }
+    return expectedPedidosya - initialPedidosya;
+  }
+
+  double get salesUbereats {
+    if (differenceUbereats != null) {
+      return (actualUbereats ?? 0) - differenceUbereats! - initialUbereats;
+    }
+    return expectedUbereats - initialUbereats;
+  }
 
   // Total de ventas (sin fondo inicial)
   double get totalSales =>
@@ -149,6 +195,11 @@ class CashRegisterSummary {
       actualCustomMethods: actualCustomMethods,
       totalWithdrawals: totalWithdrawals,
       totalDeposits: totalDeposits,
+      differenceCash: differenceCash,
+      differenceCard: differenceCard,
+      differenceTransfer: differenceTransfer,
+      differencePedidosya: differencePedidosya,
+      differenceUbereats: differenceUbereats,
       closingNotes: closingNotes,
       customMethodNames: customMethodNames ?? this.customMethodNames,
       locationName: locationName ?? this.locationName,
@@ -207,6 +258,11 @@ class CashRegisterSummary {
       actualCustomMethods: customMap(map['actualCustomMethods']),
       totalWithdrawals: totalWithdrawals,
       totalDeposits: totalDeposits,
+      differenceCash: dblN(map['differenceCash']),
+      differenceCard: dblN(map['differenceCard']),
+      differenceTransfer: dblN(map['differenceTransfer']),
+      differencePedidosya: dblN(map['differencePedidosya']),
+      differenceUbereats: dblN(map['differenceUbereats']),
       closingNotes: map['closingNotes'] as String?,
     );
   }

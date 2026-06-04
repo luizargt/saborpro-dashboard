@@ -172,8 +172,11 @@ class _ClosedRegisterCard extends StatelessWidget {
     final fmt = NumberFormat('#,##0.00', 'en_US');
     final dur = _formatDuration(register.duration);
 
-    // Recalcular ventas desde órdenes reales (igual que historial en saborpro_app)
-    final calc = _calcSalesFromOrders(register, orders);
+    // Cuando el cierre tiene diferencias almacenadas (differenceCash != null), usarlas
+    // directamente porque son las calculadas desde órdenes reales al momento del cierre.
+    // Si no hay diferencias almacenadas (registros antiguos), recalcular desde órdenes.
+    final hasDiffs = register.differenceCash != null;
+    final calc = hasDiffs ? const _SalesCalc() : _calcSalesFromOrders(register, orders);
     final salesCash = calc.hasOrders ? calc.cash : register.salesCash;
     final salesCard = calc.hasOrders ? calc.card : register.salesCard;
     final salesTransfer = calc.hasOrders ? calc.transfer : register.salesTransfer;
@@ -181,9 +184,9 @@ class _ClosedRegisterCard extends StatelessWidget {
     final salesUbereats = calc.hasOrders ? calc.ubereats : register.salesUbereats;
     final totalSales = calc.hasOrders ? calc.total : register.totalSales;
 
-    // Recalcular diferencia total con ventas reales
+    // Diferencia total: usar la almacenada cuando hay diffs, recalcular si no
     double? totalDifference = register.totalDifference;
-    if (calc.hasOrders) {
+    if (!hasDiffs && calc.hasOrders) {
       final hasActual = register.actualCash != null || register.actualCard != null ||
           register.actualTransfer != null || register.actualPedidosya != null ||
           register.actualUbereats != null || register.actualCustomMethods.isNotEmpty;
