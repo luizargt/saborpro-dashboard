@@ -108,13 +108,15 @@ class _RegisterDetailScreenState extends State<RegisterDetailScreen>
         }
 
         final paidByUserId = o['paid_by_user_id'] as String? ?? '';
-        final paidByUserName = o['paid_by_user_name'] as String? ?? '';
+        // Usar mismo fallback de nombre que la columna "Usuario" del display
+        final effectiveUserName = o['paid_by_user_name'] as String? ??
+            o['waiter_name'] as String? ??
+            o['created_by_user_name'] as String? ??
+            '';
         if (paidByUserId.isNotEmpty) {
-          // Filtrar por ID si está disponible
           if (paidByUserId != registerId) return false;
-        } else if (paidByUserName.isNotEmpty && reg.userName.isNotEmpty) {
-          // Fallback: filtrar por nombre cuando el ID no está guardado
-          if (paidByUserName != reg.userName) return false;
+        } else if (effectiveUserName.isNotEmpty && reg.userName.isNotEmpty) {
+          if (effectiveUserName != reg.userName) return false;
         }
 
         return true;
