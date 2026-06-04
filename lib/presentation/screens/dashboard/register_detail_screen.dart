@@ -93,10 +93,12 @@ class _RegisterDetailScreenState extends State<RegisterDetailScreen>
         }
       }
 
-      // Filtrar en memoria: solo excluir canceladas y filtrar por sucursal.
-      // No filtramos por paid_by_user_id porque ese campo puede tener el
-      // userId del creador en lugar del cajero en órdenes históricas.
+      // Filtrar en memoria: excluir canceladas, filtrar por sucursal y por cajero.
+      // Filtramos por paid_by_user_id cuando está disponible para mostrar solo las
+      // órdenes cobradas por este cajero. Si el campo está vacío (órdenes muy antiguas),
+      // se incluye la orden para mantener compatibilidad con registros históricos.
       final locationId = reg.locationId ?? '';
+      final registerId = reg.userId;
       final filtered = all.where((o) {
         final status = o['status'] as String? ?? '';
         if (status == 'CANCELLED') return false;
@@ -104,6 +106,9 @@ class _RegisterDetailScreenState extends State<RegisterDetailScreen>
         if (locationId.isNotEmpty) {
           if (o['location_id'] != locationId) return false;
         }
+
+        final paidByUserId = o['paid_by_user_id'] as String? ?? '';
+        if (paidByUserId.isNotEmpty && paidByUserId != registerId) return false;
 
         return true;
       }).toList()
