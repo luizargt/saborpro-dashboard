@@ -167,7 +167,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(height: 12),
                   Text(
-                    'Sabor Suite',
+                    'Sabor Manager',
                     textAlign: TextAlign.center,
                     style: GoogleFonts.inter(
                       color: const Color(0xFF7444fd),
@@ -176,7 +176,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   ),
                   Text(
-                    'Manager',
+                    'de SaborPro',
                     textAlign: TextAlign.center,
                     style: GoogleFonts.inter(
                       color: Colors.white54,

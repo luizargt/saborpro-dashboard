@@ -123,14 +123,6 @@ class _ExpensesBody extends StatelessWidget {
             children: [
               const Text('Sin gastos registrados en este período',
                   style: TextStyle(color: Colors.white38)),
-              const SizedBox(height: 12),
-              // Info de diagnóstico
-              Text('Docs en Firestore: $expenseRawCount',
-                  style: const TextStyle(color: Colors.white24, fontSize: 11)),
-              if (expenseSampleDate.isNotEmpty)
-                Text('Fecha de muestra: $expenseSampleDate',
-                    style: const TextStyle(color: Colors.white24, fontSize: 11),
-                    textAlign: TextAlign.center),
             ],
           ),
         ),

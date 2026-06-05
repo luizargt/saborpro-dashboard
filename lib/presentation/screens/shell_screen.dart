@@ -133,26 +133,13 @@ class _NarrowShell extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  'Sabor Suite ',
-                  style: GoogleFonts.inter(
-                    color: const Color(0xFF7444fd),
-                    fontSize: 16,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                Text(
-                  'Manager',
-                  style: GoogleFonts.inter(
-                    color: Colors.white38,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w400,
-                  ),
-                ),
-              ],
+            Text(
+              'Sabor Manager',
+              style: GoogleFonts.inter(
+                color: const Color(0xFF7444fd),
+                fontSize: 16,
+                fontWeight: FontWeight.w800,
+              ),
             ),
             Text(
               versionLabel,
@@ -205,21 +192,12 @@ class _Rail extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           Text(
-            'Sabor Suite',
+            'Sabor Manager',
             style: GoogleFonts.inter(
               color: const Color(0xFF7444fd),
               fontSize: 9,
               fontWeight: FontWeight.w800,
               letterSpacing: 0.2,
-            ),
-          ),
-          Text(
-            'Manager',
-            style: GoogleFonts.inter(
-              color: Colors.white38,
-              fontSize: 8,
-              fontWeight: FontWeight.w400,
-              letterSpacing: 0.5,
             ),
           ),
           const SizedBox(height: 2),
@@ -926,12 +904,12 @@ class _MenuModalState extends State<_MenuModal> {
               child: Row(
                 children: [
                   const Icon(Icons.logout_rounded,
-                      color: Colors.white38, size: 20),
+                      color: Color(0xFFEF4444), size: 20),
                   const SizedBox(width: 12),
                   Text(
                     'Cerrar sesión',
                     style: GoogleFonts.inter(
-                      color: Colors.white38,
+                      color: Color(0xFFEF4444),
                       fontSize: 14,
                       fontWeight: FontWeight.w500,
                     ),
