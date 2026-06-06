@@ -40,6 +40,9 @@ class PeriodMetrics {
   // Ventas agrupadas por método de pago (key = payment_method value)
   final Map<String, double> salesByMethod;
 
+  // Productos agrupados por método de pago para filtrado en UI
+  final Map<String, List<ProductSummary>> productsByMethod;
+
   PeriodMetrics({
     required this.totalSales,
     required this.totalOrders,
@@ -59,9 +62,13 @@ class PeriodMetrics {
     this.purchaseCosts = 0,
     this.courtesyTotal = 0,
     this.salesByMethod = const {},
+    this.productsByMethod = const {},
   });
 
-  PeriodMetrics copyWith({Map<String, double>? salesByMethod}) {
+  PeriodMetrics copyWith({
+    Map<String, double>? salesByMethod,
+    Map<String, List<ProductSummary>>? productsByMethod,
+  }) {
     return PeriodMetrics(
       totalSales: totalSales,
       totalOrders: totalOrders,
@@ -81,6 +88,7 @@ class PeriodMetrics {
       purchaseCosts: purchaseCosts,
       courtesyTotal: courtesyTotal,
       salesByMethod: salesByMethod ?? this.salesByMethod,
+      productsByMethod: productsByMethod ?? this.productsByMethod,
     );
   }
 

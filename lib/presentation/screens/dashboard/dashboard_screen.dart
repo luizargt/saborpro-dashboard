@@ -251,6 +251,7 @@ class _DataContent extends StatelessWidget {
           ),
           child: ProductsList(
             products: metrics.topProducts,
+            productsByMethod: metrics.productsByMethod,
             prevLabel: provider.range.prevLabel,
             tips: metrics.tips,
             discounts: metrics.discounts,

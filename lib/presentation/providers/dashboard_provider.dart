@@ -533,6 +533,25 @@ class DashboardProvider extends ChangeNotifier {
     final avg = count > 0 ? total / count : 0.0;
     final prevAvg = prevCount > 0 ? prevTotal / prevCount : 0.0;
 
+    final topProducts = _buildTopProducts(orders, prevOrders, classificationMap, classificationByName, productClassificationMap);
+
+    // Construir lista de productos por método de pago para filtrado en UI
+    final uniqueMethods = <String>{};
+    for (final o in orders) {
+      var m = o['payment_method'] as String? ?? 'cash';
+      if (m == 'mixed') m = 'split';
+      uniqueMethods.add(m);
+    }
+    final productsByMethod = <String, List<ProductSummary>>{};
+    for (final method in uniqueMethods) {
+      final filtered = orders.where((o) {
+        var m = o['payment_method'] as String? ?? 'cash';
+        if (m == 'mixed') m = 'split';
+        return m == method;
+      }).toList();
+      productsByMethod[method] = _buildTopProducts(filtered, prevOrders, classificationMap, classificationByName, productClassificationMap);
+    }
+
     return PeriodMetrics(
       totalSales: total,
       totalOrders: count,
@@ -541,7 +560,7 @@ class DashboardProvider extends ChangeNotifier {
       prevTotalOrders: prevCount,
       prevAvgTicket: prevAvg,
       chartPoints: _buildChartPoints(orders, range),
-      topProducts: _buildTopProducts(orders, prevOrders, classificationMap, classificationByName, productClassificationMap),
+      topProducts: topProducts,
       grossSales: grossSales,
       discounts: discounts,
       taxes: taxes,
@@ -552,6 +571,7 @@ class DashboardProvider extends ChangeNotifier {
       purchaseCosts: purchaseCosts,
       courtesyTotal: courtesyTotal,
       salesByMethod: salesByMethod,
+      productsByMethod: productsByMethod,
     );
   }
 
