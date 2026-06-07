@@ -320,64 +320,63 @@ class _BottomNav extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bottomPadding = MediaQuery.of(context).padding.bottom;
-    return Container(
-      height: 80 + bottomPadding,
-      decoration: BoxDecoration(
-        color: const Color(0xFF070E1A),
-        border: Border(top: BorderSide(color: Colors.white.withOpacity(0.06))),
-      ),
-      child: Padding(
-        padding: EdgeInsets.only(bottom: bottomPadding),
+    return SafeArea(
+      top: false,
+      child: Container(
+        height: 80,
+        decoration: BoxDecoration(
+          color: const Color(0xFF070E1A),
+          border: Border(top: BorderSide(color: Colors.white.withOpacity(0.06))),
+        ),
         child: Row(
-        children: [
-          Expanded(
-            child: NavigationBar(
-              backgroundColor: Colors.transparent,
-              indicatorColor: const Color(0xFF7444fd).withOpacity(0.2),
-              selectedIndex: index,
-              onDestinationSelected: onSelect,
-              labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-              destinations: [
-                NavigationDestination(
-                  icon: const Icon(Icons.bar_chart_outlined, color: Colors.white38),
-                  selectedIcon: const Icon(Icons.bar_chart_rounded, color: Color(0xFF7444fd)),
-                  label: 'Ventas',
-                ),
-                NavigationDestination(
-                  icon: const Icon(Icons.payments_outlined, color: Colors.white38),
-                  selectedIcon: const Icon(Icons.payments_rounded, color: Color(0xFF7444fd)),
-                  label: 'Gastos',
-                ),
-                NavigationDestination(
-                  icon: const Icon(Icons.inventory_2_outlined, color: Colors.white38),
-                  selectedIcon: const Icon(Icons.inventory_2_rounded, color: Color(0xFF7444fd)),
-                  label: 'Inventario',
-                ),
-              ],
-            ),
-          ),
-          // Menú
-          GestureDetector(
-            onTap: () => _showMenuModal(context, onLogout),
-            child: SizedBox(
-              width: 72,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Icon(Icons.menu_rounded, color: Colors.white38, size: 24),
-                  const SizedBox(height: 4),
-                  Text('Más',
-                      style: GoogleFonts.inter(
-                          color: Colors.white38,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w400)),
+          children: [
+            Expanded(
+              child: NavigationBar(
+                backgroundColor: Colors.transparent,
+                indicatorColor: const Color(0xFF7444fd).withOpacity(0.2),
+                selectedIndex: index,
+                onDestinationSelected: onSelect,
+                labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+                destinations: [
+                  NavigationDestination(
+                    icon: const Icon(Icons.bar_chart_outlined, color: Colors.white38),
+                    selectedIcon: const Icon(Icons.bar_chart_rounded, color: Color(0xFF7444fd)),
+                    label: 'Ventas',
+                  ),
+                  NavigationDestination(
+                    icon: const Icon(Icons.payments_outlined, color: Colors.white38),
+                    selectedIcon: const Icon(Icons.payments_rounded, color: Color(0xFF7444fd)),
+                    label: 'Gastos',
+                  ),
+                  NavigationDestination(
+                    icon: const Icon(Icons.inventory_2_outlined, color: Colors.white38),
+                    selectedIcon: const Icon(Icons.inventory_2_rounded, color: Color(0xFF7444fd)),
+                    label: 'Inventario',
+                  ),
                 ],
               ),
             ),
-          ),
-        ],
+            // Menú
+            GestureDetector(
+              onTap: () => _showMenuModal(context, onLogout),
+              child: SizedBox(
+                width: 72,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.menu_rounded, color: Colors.white38, size: 24),
+                    const SizedBox(height: 4),
+                    Text('Más',
+                        style: GoogleFonts.inter(
+                            color: Colors.white38,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w400)),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
