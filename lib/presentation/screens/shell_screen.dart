@@ -407,6 +407,7 @@ class _PageContent extends StatelessWidget {
 
 // ── MENU MODAL ────────────────────────────────────────────────────────────────
 void _showMenuModal(BuildContext context, VoidCallback onLogout) {
+  final navBarHeight = MediaQuery.of(context).padding.bottom;
   showModalBottomSheet(
     context: context,
     backgroundColor: const Color(0xFF1E293B),
@@ -414,8 +415,7 @@ void _showMenuModal(BuildContext context, VoidCallback onLogout) {
       borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
     ),
     isScrollControlled: true,
-    useSafeArea: true,
-    builder: (_) => _MenuModal(onLogout: onLogout),
+    builder: (_) => _MenuModal(onLogout: onLogout, navBarHeight: navBarHeight),
   );
 }
 
@@ -430,7 +430,8 @@ enum _ReportType {
 
 class _MenuModal extends StatefulWidget {
   final VoidCallback onLogout;
-  const _MenuModal({required this.onLogout});
+  final double navBarHeight;
+  const _MenuModal({required this.onLogout, this.navBarHeight = 0});
 
   @override
   State<_MenuModal> createState() => _MenuModalState();
@@ -738,13 +739,12 @@ class _MenuModalState extends State<_MenuModal> {
     final dp = context.watch<DashboardProvider>();
     final ip = context.watch<InventoryProvider>();
     final isLoading = dp.loading || ip.loading || _downloading;
-    final hasNavBar = MediaQuery.of(context).padding.bottom > 0;
     return Padding(
       padding: EdgeInsets.only(
         left: 24,
         right: 24,
         top: 12,
-        bottom: MediaQuery.of(context).viewInsets.bottom + (hasNavBar ? 8 : 20),
+        bottom: MediaQuery.of(context).viewInsets.bottom + widget.navBarHeight + 16,
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
