@@ -157,12 +157,12 @@ class _ProductsListState extends State<ProductsList> {
                         decoration: BoxDecoration(
                           color: _hasActiveFilters
                               ? const Color(0xFF7444fd).withValues(alpha: 0.15)
-                              : const Color(0xFF1E293B),
+                              : const Color(0xFF0F172A),
                           borderRadius: BorderRadius.circular(8),
                           border: Border.all(
                             color: _hasActiveFilters
                                 ? const Color(0xFF7444fd)
-                                : Colors.white12,
+                                : Colors.white24,
                           ),
                         ),
                         child: Row(
@@ -172,7 +172,7 @@ class _ProductsListState extends State<ProductsList> {
                               Icons.tune_rounded,
                               color: _hasActiveFilters
                                   ? const Color(0xFF7444fd)
-                                  : Colors.white54,
+                                  : Colors.white,
                               size: 16,
                             ),
                             if (_hasActiveFilters) ...[

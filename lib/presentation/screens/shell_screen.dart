@@ -320,13 +320,16 @@ class _BottomNav extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final bottomPadding = MediaQuery.of(context).padding.bottom;
     return Container(
-      height: 80,
+      height: 80 + bottomPadding,
       decoration: BoxDecoration(
         color: const Color(0xFF070E1A),
         border: Border(top: BorderSide(color: Colors.white.withOpacity(0.06))),
       ),
-      child: Row(
+      child: Padding(
+        padding: EdgeInsets.only(bottom: bottomPadding),
+        child: Row(
         children: [
           Expanded(
             child: NavigationBar(
@@ -375,6 +378,7 @@ class _BottomNav extends StatelessWidget {
             ),
           ),
         ],
+        ),
       ),
     );
   }
