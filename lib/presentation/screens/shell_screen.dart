@@ -738,7 +738,7 @@ class _MenuModalState extends State<_MenuModal> {
     final dp = context.watch<DashboardProvider>();
     final ip = context.watch<InventoryProvider>();
     final isLoading = dp.loading || ip.loading || _downloading;
-    return Padding(
+    return SingleChildScrollView(
       padding: EdgeInsets.only(
         left: 24,
         right: 24,
