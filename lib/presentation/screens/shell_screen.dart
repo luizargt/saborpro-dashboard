@@ -738,12 +738,13 @@ class _MenuModalState extends State<_MenuModal> {
     final dp = context.watch<DashboardProvider>();
     final ip = context.watch<InventoryProvider>();
     final isLoading = dp.loading || ip.loading || _downloading;
-    return SingleChildScrollView(
+    final hasNavBar = MediaQuery.of(context).padding.bottom > 0;
+    return Padding(
       padding: EdgeInsets.only(
         left: 24,
         right: 24,
         top: 12,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 32,
+        bottom: MediaQuery.of(context).viewInsets.bottom + (hasNavBar ? 8 : 20),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -760,7 +761,7 @@ class _MenuModalState extends State<_MenuModal> {
               ),
             ),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 16),
 
           // Sección Reportes
           Row(
@@ -847,9 +848,9 @@ class _MenuModalState extends State<_MenuModal> {
             ],
           ),
 
-          const SizedBox(height: 28),
+          const SizedBox(height: 16),
           Divider(color: Colors.white.withOpacity(0.06)),
-          const SizedBox(height: 8),
+          const SizedBox(height: 4),
 
           // Biometría (solo Android/iOS con soporte)
           if (_biometricAvailable == true) ...[
@@ -857,7 +858,7 @@ class _MenuModalState extends State<_MenuModal> {
               onTap: () => _toggleBiometric(!_biometricEnabled),
               behavior: HitTestBehavior.opaque,
               child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
+                padding: const EdgeInsets.symmetric(vertical: 6),
                 child: Row(
                   children: [
                     Icon(
@@ -894,7 +895,7 @@ class _MenuModalState extends State<_MenuModal> {
               ),
             ),
             Divider(color: Colors.white.withOpacity(0.06)),
-            const SizedBox(height: 8),
+            const SizedBox(height: 4),
           ],
 
           // Botón Salir
