@@ -78,6 +78,7 @@ class _ProductsListState extends State<ProductsList> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
+      useSafeArea: true,
       builder: (ctx) => _FiltersSheet(
         categories: categories,
         paymentMethods: paymentMethods,

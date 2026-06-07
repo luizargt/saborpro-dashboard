@@ -414,6 +414,7 @@ void _showMenuModal(BuildContext context, VoidCallback onLogout) {
       borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
     ),
     isScrollControlled: true,
+    useSafeArea: true,
     builder: (_) => _MenuModal(onLogout: onLogout),
   );
 }
