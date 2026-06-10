@@ -54,10 +54,10 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
 
-    final error = await AuthService().login(creds.email, creds.password);
+    final result = await AuthService().login(creds.email, creds.password);
     if (!mounted) return;
 
-    if (error != null) {
+    if (!result.success) {
       // Credenciales guardadas ya no son válidas
       await BiometricService().clearCredentials();
       setState(() {
@@ -74,17 +74,119 @@ class _LoginScreenState extends State<LoginScreen> {
     if (!_form.currentState!.validate()) return;
     setState(() { _loading = true; _error = null; });
 
-    final error = await AuthService().login(_emailCtrl.text.trim(), _passCtrl.text);
+    final email = _emailCtrl.text.trim();
+    final password = _passCtrl.text;
+    final result = await AuthService().login(email, password);
     if (!mounted) return;
 
-    if (error != null) {
-      setState(() { _error = error; _loading = false; });
+    if (result.needsTenantSelection) {
+      setState(() => _loading = false);
+      await _showTenantSelectionDialog(result.candidates, email, password);
+      return;
+    }
+
+    if (!result.success) {
+      setState(() { _error = result.error; _loading = false; });
       return;
     }
 
     // Login exitoso — preguntar si quiere activar biometría
     if (_biometricAvailable && !_biometricEnabled) {
-      _offerBiometric(_emailCtrl.text.trim(), _passCtrl.text);
+      _offerBiometric(email, password);
+    } else {
+      _goToDashboard();
+    }
+  }
+
+  Future<void> _showTenantSelectionDialog(
+    List<TenantLoginCandidate> candidates,
+    String email,
+    String password,
+  ) async {
+    final selected = await showDialog<int>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E293B),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(
+          '¿A qué restaurante querés entrar?',
+          style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.w700),
+        ),
+        contentPadding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: List.generate(candidates.length, (i) {
+              final c = candidates[i];
+              final data = c.data;
+              final tenantId = (data['current_tenant_id'] ?? data['tenant_id'] ?? '') as String;
+              final name = (data['name'] ?? tenantId) as String;
+              return GestureDetector(
+                onTap: () => Navigator.pop(ctx, i),
+                child: Container(
+                  margin: const EdgeInsets.only(bottom: 10),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF0F172A),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFF7444fd).withValues(alpha: 0.3)),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 40, height: 40,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF7444fd).withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(Icons.store_rounded, size: 20, color: Color(0xFF7444fd)),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          name,
+                          style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.w600),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const Icon(Icons.chevron_right, color: Colors.white38),
+                    ],
+                  ),
+                ),
+              );
+            }),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, null),
+            child: Text('Cancelar', style: GoogleFonts.inter(color: Colors.white38)),
+          ),
+        ],
+      ),
+    );
+
+    if (selected == null || !mounted) return;
+
+    setState(() => _loading = true);
+    final c = candidates[selected];
+    final result = await AuthService().completeTenantLogin(
+      data: c.data,
+      docId: c.docId,
+      email: email,
+      password: password,
+    );
+    if (!mounted) return;
+
+    if (!result.success) {
+      setState(() { _error = result.error; _loading = false; });
+      return;
+    }
+
+    if (_biometricAvailable && !_biometricEnabled) {
+      _offerBiometric(email, password);
     } else {
       _goToDashboard();
     }

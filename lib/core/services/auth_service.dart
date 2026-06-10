@@ -4,6 +4,31 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+class TenantLoginCandidate {
+  final Map<String, dynamic> data;
+  final String docId;
+  const TenantLoginCandidate(this.data, this.docId);
+}
+
+class LoginResult {
+  final String? error;
+  final bool needsTenantSelection;
+  final List<TenantLoginCandidate> candidates;
+
+  const LoginResult._({
+    this.error,
+    this.needsTenantSelection = false,
+    this.candidates = const [],
+  });
+
+  bool get success => error == null && !needsTenantSelection;
+
+  factory LoginResult.success() => const LoginResult._();
+  factory LoginResult.failure(String msg) => LoginResult._(error: msg);
+  factory LoginResult.tenantSelection(List<TenantLoginCandidate> c) =>
+      LoginResult._(needsTenantSelection: true, candidates: c);
+}
+
 class AuthService {
   static final AuthService _instance = AuthService._internal();
   factory AuthService() => _instance;
@@ -40,64 +65,127 @@ class AuthService {
   String? get sessionEmail => _sessionEmail;
   String? get sessionPassword => _sessionPassword;
 
-  Future<String?> login(String email, String password) async {
+  Future<LoginResult> login(String email, String password) async {
     final normalizedEmail = email.trim().toLowerCase();
 
-    // Buscar usuario en Firestore
+    // Buscar TODOS los docs con este email (puede haber más de uno en multi-tenant)
     final query = await _db
         .collection('users')
         .where('email', isEqualTo: normalizedEmail)
-        .limit(1)
+        .limit(10)
         .get();
 
     if (query.docs.isEmpty) {
       // ignore: avoid_print
       print('[AUTH] Usuario no encontrado en Firestore: $normalizedEmail');
-      return 'Email o contraseña incorrectos';
+      return LoginResult.failure('Email o contraseña incorrectos');
     }
 
-    final data = query.docs.first.data();
-    final isMigrated = data['firebase_auth_migrated'] ?? false;
-    // ignore: avoid_print
-    print('[AUTH] firebase_auth_migrated=$isMigrated');
-    // ignore: avoid_print
-    print('[AUTH] keys en doc: ${data.keys.toList()}');
+    // Caso normal (1 doc): flujo idéntico al anterior
+    if (query.docs.length == 1) {
+      final data = query.docs.first.data();
+      final docId = query.docs.first.id;
+      final isMigrated = data['firebase_auth_migrated'] ?? false;
+      // ignore: avoid_print
+      print('[AUTH] firebase_auth_migrated=$isMigrated');
 
-    if (isMigrated) {
-      // Usuario migrado: usar Firebase Auth
-      try {
-        await _auth.signInWithEmailAndPassword(
-          email: normalizedEmail,
-          password: password,
-        );
-        await _loadUserData(data, query.docs.first.id);
+      if (isMigrated) {
+        try {
+          await _auth.signInWithEmailAndPassword(email: normalizedEmail, password: password);
+          await _loadUserData(data, docId);
+          _sessionEmail = normalizedEmail;
+          _sessionPassword = password;
+          return LoginResult.success();
+        } on FirebaseAuthException catch (e) {
+          return LoginResult.failure(_mapFirebaseError(e.code));
+        }
+      } else {
+        final storedHash = (data['passwordHash'] ?? data['password_hash']) as String?;
+        if (storedHash == null || !_verifyHash(password, storedHash)) {
+          return LoginResult.failure('Email o contraseña incorrectos');
+        }
+        await _loadUserData(data, docId);
         _sessionEmail = normalizedEmail;
         _sessionPassword = password;
-        return null;
-      } on FirebaseAuthException catch (e) {
-        switch (e.code) {
-          case 'wrong-password':
-          case 'user-not-found':
-          case 'invalid-credential':
-            return 'Email o contraseña incorrectos';
-          case 'too-many-requests':
-            return 'Demasiados intentos. Intenta más tarde';
-          default:
-            return 'Error al iniciar sesión (${e.code})';
+        return LoginResult.success();
+      }
+    }
+
+    // Caso multi-tenant: validar la contraseña contra cada documento
+    // ignore: avoid_print
+    print('[AUTH] ${query.docs.length} docs encontrados para $normalizedEmail — validando cada uno');
+
+    final List<TenantLoginCandidate> validCandidates = [];
+    bool firebaseChecked = false;
+    bool firebaseOk = false;
+
+    for (final doc in query.docs) {
+      final data = doc.data();
+      final isMigrated = data['firebase_auth_migrated'] == true;
+
+      if (isMigrated) {
+        if (!firebaseChecked) {
+          firebaseChecked = true;
+          try {
+            await _auth.signInWithEmailAndPassword(email: normalizedEmail, password: password);
+            firebaseOk = true;
+          } on FirebaseAuthException {
+            firebaseOk = false;
+          }
+        }
+        if (firebaseOk) validCandidates.add(TenantLoginCandidate(data, doc.id));
+      } else {
+        final storedHash = (data['passwordHash'] ?? data['password_hash']) as String?;
+        if (storedHash != null && _verifyHash(password, storedHash)) {
+          validCandidates.add(TenantLoginCandidate(data, doc.id));
         }
       }
-    } else {
-      // Usuario no migrado: validar hash en Firestore
-      final storedHash = (data['passwordHash'] ?? data['password_hash']) as String?;
-      // ignore: avoid_print
-      print('[AUTH] passwordHash presente: ${storedHash != null}, valor: $storedHash');
-      if (storedHash == null || !_verifyHash(password, storedHash)) {
-        return 'Email o contraseña incorrectos';
-      }
-      await _loadUserData(data, query.docs.first.id);
+    }
+
+    if (validCandidates.isEmpty) {
+      return LoginResult.failure('Email o contraseña incorrectos');
+    }
+
+    // Solo un doc valida: login directo
+    if (validCandidates.length == 1) {
+      final c = validCandidates.first;
+      await _loadUserData(c.data, c.docId);
       _sessionEmail = normalizedEmail;
       _sessionPassword = password;
-      return null;
+      return LoginResult.success();
+    }
+
+    // Varios docs válidos: pedir selección de restaurante
+    return LoginResult.tenantSelection(validCandidates);
+  }
+
+  /// Completa el login después de que el usuario eligió un restaurante
+  Future<LoginResult> completeTenantLogin({
+    required Map<String, dynamic> data,
+    required String docId,
+    required String email,
+    required String password,
+  }) async {
+    try {
+      await _loadUserData(data, docId);
+      _sessionEmail = email;
+      _sessionPassword = password;
+      return LoginResult.success();
+    } catch (e) {
+      return LoginResult.failure('Error al iniciar sesión');
+    }
+  }
+
+  String _mapFirebaseError(String code) {
+    switch (code) {
+      case 'wrong-password':
+      case 'user-not-found':
+      case 'invalid-credential':
+        return 'Email o contraseña incorrectos';
+      case 'too-many-requests':
+        return 'Demasiados intentos. Intenta más tarde';
+      default:
+        return 'Error al iniciar sesión ($code)';
     }
   }
 
