@@ -126,12 +126,14 @@ class DashboardProvider extends ChangeNotifier {
       final we = DateTime(now.year, now.month, now.day, 23, 59, 59);
       final monthStart = DateTime(now.year, now.month, 1);
 
-      // Etapa 1: período actual — necesario para métricas y top platillos
-      final currentOrders = await _fetchOrders(_range.start, _range.end);
+      // Etapa 1+2 en paralelo: período actual y anterior simultáneamente
+      final orderPair = await Future.wait([
+        _fetchOrders(_range.start, _range.end),
+        _fetchOrders(prev.start, prev.end),
+      ]);
+      final currentOrders = orderPair[0];
+      var prevOrders = orderPair[1];
       _currentOrders = currentOrders;
-
-      // Etapa 2: período anterior — solo para comparación, se descarta al terminar esta etapa
-      var prevOrders = await _fetchOrders(prev.start, prev.end);
 
       // Etapa 0b: cargar clasificaciones: por categoria y por producto
       final categoryIds = _extractCategoryIds(currentOrders);
@@ -142,15 +144,20 @@ class DashboardProvider extends ChangeNotifier {
       _cachedProductClassificationMap ??= await _fetchProductClassifications(classificationMap);
       final productClassificationMap = _cachedProductClassificationMap!;
 
-      // Etapa 3: gastos y costos en paralelo
+      // Etapa 3: gastos, compras, cajas y nombres de métodos — todo en paralelo.
+      // cashRegisters se fetcha una sola vez y se reutiliza para retiros y resumen de cajas.
       final expResults = await Future.wait([
         _fetchExpenses(_range.start, _range.end),
         _fetchPurchaseCosts(_range.start, _range.end),
-        _fetchCashWithdrawals(_range.start, _range.end),
+        _fetchAllCashRegisters(),
+        _fetchCustomMethodNames(),
       ]);
-      // _fetchExpenses = gastos manuales; _fetchCashWithdrawals = retiros de caja
-      _expenseItems = [...expResults[0], ...expResults[2]];
-      _purchaseItems = expResults[1];
+      final rawCashRegisters = expResults[2] as List<Map<String, dynamic>>;
+      final customMethodNames = expResults[3] as Map<String, String>;
+      final withdrawals = _extractWithdrawals(rawCashRegisters, _range.start, _range.end);
+      // _fetchExpenses = gastos manuales; withdrawals = retiros de caja
+      _expenseItems = [...expResults[0] as List<Map<String, dynamic>>, ...withdrawals];
+      _purchaseItems = expResults[1] as List<Map<String, dynamic>>;
       final expenses = _expenseItems.fold<double>(0, (s, e) => s + (e['amount'] as num? ?? 0).toDouble());
       final purchaseCosts = _purchaseItems.fold<double>(0, (s, e) => s + (e['total'] as num? ?? 0).toDouble());
 
@@ -168,15 +175,23 @@ class DashboardProvider extends ChangeNotifier {
       );
       prevOrders = [];
 
-      // Etapa 5: datos del mes actual para la gráfica de barras diarias
-      final monthlyOrders = await _fetchOrders(monthStart, we);
+      // Etapa 5: datos del mes actual para la gráfica de barras diarias.
+      // Si el rango actual ES el mes en curso, reusar currentOrders sin fetch adicional.
+      final isCurrentMonth = _range.mode == PeriodMode.month &&
+          _range.start.year == now.year && _range.start.month == now.month;
+      final List<Map<String, dynamic>> monthlyOrders;
+      if (isCurrentMonth) {
+        monthlyOrders = currentOrders;
+      } else {
+        monthlyOrders = await _fetchOrders(monthStart, we);
+      }
       _monthlyDailyPoints = _groupByDayOfMonth(monthlyOrders, monthStart, now);
 
-      // Opción 2: derivar datos de la semana actual del dataset mensual ya cargado,
+      // Derivar datos de la semana actual del dataset mensual ya cargado,
       // evitando un _fetchOrders extra. Si la semana cruza el inicio del mes (ej: 28 abr–4 may)
       // se carga por separado para no perder datos.
-      final weekCrossesMont = ws.month != monthStart.month || ws.year != monthStart.year;
-      if (weekCrossesMont) {
+      final weekCrossesMonth = ws.month != monthStart.month || ws.year != monthStart.year;
+      if (weekCrossesMonth) {
         final weeklyOrders = await _fetchOrders(ws, we);
         _weeklyHourly = _groupByHourPerDay(weeklyOrders, ws);
       } else {
@@ -187,8 +202,8 @@ class DashboardProvider extends ChangeNotifier {
         _weeklyHourly = _groupByHourPerDay(weeklyOrders, ws);
       }
 
-      // Etapa 6: cajas registradoras
-      await _fetchCashRegisters();
+      // Etapa 6: resumir cajas — sin Firestore adicional, usa datos ya cargados en Etapa 3
+      _buildCashRegisterSummaries(rawCashRegisters, customMethodNames);
     } catch (e, st) {
       _error = 'Error cargando datos: $e';
       Sentry.captureException(e, stackTrace: st, withScope: (scope) {
@@ -205,27 +220,41 @@ class DashboardProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> _fetchCashRegisters() async {
+  /// Fetcha TODOS los documentos de cashRegisters del tenant en una sola query.
+  /// El resultado se reutiliza en _extractWithdrawals y _buildCashRegisterSummaries,
+  /// evitando dos roundtrips a Firestore por separado.
+  Future<List<Map<String, dynamic>>> _fetchAllCashRegisters() async {
     try {
-      // Cargar nombres de métodos personalizados desde location settings
-      final customMethodNames = await _fetchCustomMethodNames();
-
       final snap = await _firestore.instance
           .collection('cashRegisters')
           .where('tenantId', isEqualTo: _tenantId)
           .get();
+      return snap.docs.map((d) {
+        final data = d.data();
+        data['_docId'] = d.id;
+        return data;
+      }).toList();
+    } catch (_) {
+      return [];
+    }
+  }
 
-      final all = snap.docs.map((d) => d.data()).where((d) {
+  /// Construye los resúmenes de cajas abiertas y cerradas a partir de datos ya
+  /// fetchados, sin hacer ninguna query adicional a Firestore.
+  void _buildCashRegisterSummaries(
+      List<Map<String, dynamic>> registers, Map<String, String> customMethodNames) {
+    try {
+      String? locName(String? locId) {
+        if (locId == null) return null;
+        try { return _locations.firstWhere((l) => l.id == locId).name; } catch (_) { return null; }
+      }
+
+      final all = registers.where((d) {
         if (_selectedLocationId != null && _selectedLocationId!.isNotEmpty) {
           return d['locationId'] == _selectedLocationId;
         }
         return true;
       }).toList();
-
-      String? locName(String? locId) {
-        if (locId == null) return null;
-        try { return _locations.firstWhere((l) => l.id == locId).name; } catch (_) { return null; }
-      }
 
       _openRegisters = all
           .where((d) => d['status'] == 'open')
@@ -248,7 +277,6 @@ class DashboardProvider extends ChangeNotifier {
           })
           .toList()
         ..sort((a, b) => (b.closedAt ?? b.openedAt).compareTo(a.closedAt ?? a.openedAt));
-
     } catch (_) {
       _openRegisters = [];
       _closedRegisters = [];
@@ -277,32 +305,45 @@ class DashboardProvider extends ChangeNotifier {
   Future<List<Map<String, dynamic>>> _fetchExpenses(
       DateTime start, DateTime end) async {
     try {
-      final snap = await _firestore.instance
-          .collection('expenses')
-          .where('tenant_id', isEqualTo: _tenantId)
-          .get();
-
-      _expenseRawCount = snap.docs.length;
-      _expenseSampleDate = snap.docs.isNotEmpty
-          ? (snap.docs.first.data()['date']?.toString() ?? 'null')
-          : 'sin docs';
-
       final startDay = DateTime(start.year, start.month, start.day);
       final endDay   = DateTime(end.year, end.month, end.day, 23, 59, 59, 999);
+      final startIso = startDay.toIso8601String().substring(0, 23);
+      final endIso   = endDay.toIso8601String().substring(0, 23);
 
-      return snap.docs.map((d) => d.data()).where((e) {
-        final raw = e['date'];
-        DateTime? dt;
-        if (raw is String) dt = DateTime.tryParse(raw);
-        if (raw is Timestamp) dt = raw.toDate();
-        if (dt == null) return false;
-        if (dt.isUtc) dt = dt.toLocal();
-        if (dt.isBefore(startDay) || dt.isAfter(endDay)) return false;
-        if (_selectedLocationId != null && _selectedLocationId!.isNotEmpty) {
-          return e['location_id'] == _selectedLocationId;
+      // Dos queries en paralelo: Timestamp (gastos normales) + ISO String (gastos offline).
+      // Firestore filtra por tipo de campo, los resultados son mutuamente excluyentes.
+      // Índice requerido: expenses (tenant_id ASC, date ASC) — ya existe en firestore.indexes.json.
+      final snaps = await Future.wait([
+        _firestore.instance
+            .collection('expenses')
+            .where('tenant_id', isEqualTo: _tenantId)
+            .where('date', isGreaterThanOrEqualTo: Timestamp.fromDate(startDay))
+            .where('date', isLessThanOrEqualTo: Timestamp.fromDate(endDay))
+            .get(),
+        _firestore.instance
+            .collection('expenses')
+            .where('tenant_id', isEqualTo: _tenantId)
+            .where('date', isGreaterThanOrEqualTo: startIso)
+            .where('date', isLessThanOrEqualTo: endIso)
+            .get(),
+      ]);
+
+      final all = <Map<String, dynamic>>[];
+      final seen = <String>{};
+      for (final snap in snaps) {
+        for (final doc in snap.docs) {
+          if (!seen.add(doc.id)) continue;
+          final data = doc.data();
+          if (_selectedLocationId != null && _selectedLocationId!.isNotEmpty) {
+            if (data['location_id'] != _selectedLocationId) continue;
+          }
+          all.add(data);
         }
-        return true;
-      }).toList();
+      }
+
+      _expenseRawCount = all.length;
+      _expenseSampleDate = all.isNotEmpty ? (all.first['date']?.toString() ?? 'null') : 'sin docs';
+      return all;
     } catch (e, st) {
       Sentry.captureException(e, stackTrace: st, withScope: (scope) {
         scope.setTag('query', 'fetchExpenses');
@@ -314,88 +355,71 @@ class DashboardProvider extends ChangeNotifier {
     }
   }
 
-  /// Extrae retiros de caja (withdrawal) desde cashRegisters como gastos.
-  /// Los gastos "Caja" en SaborPro no van a la colección `expenses` sino a
-  /// los movimientos dentro de cada cashRegister.
-  Future<List<Map<String, dynamic>>> _fetchCashWithdrawals(
-      DateTime start, DateTime end) async {
-    try {
-      final snap = await _firestore.instance
-          .collection('cashRegisters')
-          .where('tenantId', isEqualTo: _tenantId)
-          .get();
+  /// Extrae retiros de caja (withdrawal) desde datos ya fetchados de cashRegisters.
+  /// Sin ninguna query adicional a Firestore — usa la lista cargada en _fetchAllCashRegisters.
+  List<Map<String, dynamic>> _extractWithdrawals(
+      List<Map<String, dynamic>> registers, DateTime start, DateTime end) {
+    final startDay = DateTime(start.year, start.month, start.day);
+    final endDay   = DateTime(end.year, end.month, end.day, 23, 59, 59, 999);
+    final results  = <Map<String, dynamic>>[];
 
-      final startDay = DateTime(start.year, start.month, start.day);
-      final endDay   = DateTime(end.year, end.month, end.day, 23, 59, 59, 999);
-      final results  = <Map<String, dynamic>>[];
-
-      for (final doc in snap.docs) {
-        final data = doc.data();
-
-        if (_selectedLocationId != null && _selectedLocationId!.isNotEmpty) {
-          if (data['locationId'] != _selectedLocationId) continue;
-        }
-
-        final movementsList = data['movements'] as List<dynamic>? ?? [];
-        for (final raw in movementsList) {
-          if (raw is! Map) continue;
-          final mov = Map<String, dynamic>.from(raw);
-
-          if (mov['type'] != 'withdrawal') continue;
-
-          // Parsear fecha del movimiento
-          final rawDate = mov['createdAt'];
-          DateTime? dt;
-          if (rawDate is String) dt = DateTime.tryParse(rawDate);
-          if (rawDate is Timestamp) dt = rawDate.toDate();
-          if (dt == null) continue;
-          if (dt.isUtc) dt = dt.toLocal();
-          if (dt.isBefore(startDay) || dt.isAfter(endDay)) continue;
-
-          results.add({
-            'amount': (mov['amount'] as num? ?? 0).toDouble(),
-            'date': dt.toIso8601String(),
-            'category_name': mov['expenseCategoryName'] as String? ?? 'Otros Gastos',
-            'description': mov['reason'] as String?,
-            'source': 'cashRegister',
-            'type': 'variable',
-            'assigned_to': mov['assignedTo'],
-            'registered_by': mov['authorizedBy'],
-            'register_id': doc.id,
-            'register_user': data['userName'] as String? ?? '',
-            'register_opened_at': _toDateTime(data['openedAt'])?.toIso8601String(),
-            'register_closed_at': _toDateTime(data['closedAt'])?.toIso8601String(),
-          });
-        }
+    for (final data in registers) {
+      if (_selectedLocationId != null && _selectedLocationId!.isNotEmpty) {
+        if (data['locationId'] != _selectedLocationId) continue;
       }
 
-      return results;
-    } catch (e, st) {
-      Sentry.captureException(e, stackTrace: st, withScope: (scope) {
-        scope.setTag('query', 'fetchCashWithdrawals');
-      });
-      return [];
+      final movementsList = data['movements'] as List<dynamic>? ?? [];
+      for (final raw in movementsList) {
+        if (raw is! Map) continue;
+        final mov = Map<String, dynamic>.from(raw);
+
+        if (mov['type'] != 'withdrawal') continue;
+
+        final rawDate = mov['createdAt'];
+        DateTime? dt;
+        if (rawDate is String) dt = DateTime.tryParse(rawDate);
+        if (rawDate is Timestamp) dt = rawDate.toDate();
+        if (dt == null) continue;
+        if (dt.isUtc) dt = dt.toLocal();
+        if (dt.isBefore(startDay) || dt.isAfter(endDay)) continue;
+
+        results.add({
+          'amount': (mov['amount'] as num? ?? 0).toDouble(),
+          'date': dt.toIso8601String(),
+          'category_name': mov['expenseCategoryName'] as String? ?? 'Otros Gastos',
+          'description': mov['reason'] as String?,
+          'source': 'cashRegister',
+          'type': 'variable',
+          'assigned_to': mov['assignedTo'],
+          'registered_by': mov['authorizedBy'],
+          'register_id': data['_docId'],
+          'register_user': data['userName'] as String? ?? '',
+          'register_opened_at': _toDateTime(data['openedAt'])?.toIso8601String(),
+          'register_closed_at': _toDateTime(data['closedAt'])?.toIso8601String(),
+        });
+      }
     }
+
+    return results;
   }
 
   Future<List<Map<String, dynamic>>> _fetchPurchaseCosts(
       DateTime start, DateTime end) async {
     try {
-      // Igual que expenses: traer por tenant_id y filtrar en memoria para
-      // evitar dependencia de índice compuesto en received_at.
+      final startIso = start.toIso8601String().substring(0, 23);
+      final endIso   = end.toIso8601String().substring(0, 23);
+
+      // Filtro de fecha en Firestore con índice compuesto (tenant_id, status, received_at)
+      // que ya existe en firestore.indexes.json — evita descargar historial completo.
       final snap = await _firestore.instance
           .collection('purchaseOrders')
           .where('tenant_id', isEqualTo: _tenantId)
           .where('status', isEqualTo: 'received')
+          .where('received_at', isGreaterThanOrEqualTo: startIso)
+          .where('received_at', isLessThanOrEqualTo: endIso)
           .get();
 
-      final startIso = start.toIso8601String().substring(0, 23);
-      final endIso   = end.toIso8601String().substring(0, 23);
-
       return snap.docs.map((d) => d.data()).where((e) {
-        final dateStr = e['received_at'] as String? ?? '';
-        if (dateStr.compareTo(startIso) < 0) return false;
-        if (dateStr.compareTo(endIso) > 0) return false;
         if (_selectedLocationId != null && _selectedLocationId!.isNotEmpty) {
           return e['location_id'] == _selectedLocationId;
         }
@@ -412,29 +436,30 @@ class DashboardProvider extends ChangeNotifier {
   Future<List<Map<String, dynamic>>> _fetchOrders(
       DateTime start, DateTime end) async {
     try {
-      // Dos queries secuenciales (no paralelas) para incluir órdenes offline (ISO string)
-      // sin el pico de memoria que causaba OOM al correrlas en paralelo.
+      // Dos queries en paralelo: Timestamp (órdenes normales) + ISO String (órdenes offline).
       // Límite de 5000 como válvula de seguridad anti-OOM; un mes normal tiene < 3000 órdenes.
       const kOrderLimit = 5000;
-      final snapTs = await _firestore.orders
-          .where('tenant_id', isEqualTo: _tenantId)
-          .where('paid_at', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
-          .where('paid_at', isLessThanOrEqualTo: Timestamp.fromDate(end))
-          .limit(kOrderLimit)
-          .get();
-
       final startIso = start.toIso8601String().substring(0, 23);
       final endIso   = end.toIso8601String().substring(0, 23);
-      final snapIso = await _firestore.orders
-          .where('tenant_id', isEqualTo: _tenantId)
-          .where('paid_at', isGreaterThanOrEqualTo: startIso)
-          .where('paid_at', isLessThanOrEqualTo: endIso)
-          .limit(kOrderLimit)
-          .get();
+
+      final snaps = await Future.wait([
+        _firestore.orders
+            .where('tenant_id', isEqualTo: _tenantId)
+            .where('paid_at', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
+            .where('paid_at', isLessThanOrEqualTo: Timestamp.fromDate(end))
+            .limit(kOrderLimit)
+            .get(),
+        _firestore.orders
+            .where('tenant_id', isEqualTo: _tenantId)
+            .where('paid_at', isGreaterThanOrEqualTo: startIso)
+            .where('paid_at', isLessThanOrEqualTo: endIso)
+            .limit(kOrderLimit)
+            .get(),
+      ]);
 
       final seen = <String>{};
       final all  = <Map<String, dynamic>>[];
-      for (final doc in [...snapTs.docs, ...snapIso.docs]) {
+      for (final doc in [...snaps[0].docs, ...snaps[1].docs]) {
         if (seen.add(doc.id)) {
           final data = doc.data();
           data['_docId'] = doc.id;
