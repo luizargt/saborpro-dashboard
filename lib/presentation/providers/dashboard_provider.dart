@@ -119,6 +119,16 @@ class DashboardProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
+      // [PERF] Instrumentación temporal para diagnosticar lentitud de carga.
+      // Revisar la consola por líneas "[PERF]" para ver qué etapa domina.
+      final _swTotal = Stopwatch()..start();
+      final _sw = Stopwatch()..start();
+      void _mark(String stage) {
+        debugPrint('[PERF] $stage: ${_sw.elapsedMilliseconds}ms (total ${_swTotal.elapsedMilliseconds}ms)');
+        _sw.reset();
+        _sw.start();
+      }
+
       final prev = _range.previous();
       final now = DateTime.now();
       final weekStart = now.subtract(Duration(days: now.weekday - 1));
@@ -134,15 +144,19 @@ class DashboardProvider extends ChangeNotifier {
       final currentOrders = orderPair[0];
       var prevOrders = orderPair[1];
       _currentOrders = currentOrders;
+      _mark('orders(actual+anterior) docs=${currentOrders.length}+${prevOrders.length}');
 
       // Etapa 0b: cargar clasificaciones: por categoria y por producto
       final categoryIds = _extractCategoryIds(currentOrders);
       final classMaps = await _fetchCategoryClassifications(categoryIds);
       final classificationMap = classMaps.byId;
       final classificationByName = classMaps.byName;
+      _mark('categoryClassifications');
       // El mapa de productos se cachea: el menú no cambia al cambiar el rango de fechas
+      final _prodWasCached = _cachedProductClassificationMap != null;
       _cachedProductClassificationMap ??= await _fetchProductClassifications(classificationMap);
       final productClassificationMap = _cachedProductClassificationMap!;
+      _mark('productClassifications (cached=$_prodWasCached)');
 
       // Etapa 3: gastos, compras, cajas y nombres de métodos — todo en paralelo.
       // cashRegisters se fetcha una sola vez y se reutiliza para retiros y resumen de cajas.
@@ -152,6 +166,7 @@ class DashboardProvider extends ChangeNotifier {
         _fetchAllCashRegisters(),
         _fetchCustomMethodNames(),
       ]);
+      _mark('expenses+purchases+cashRegisters+methods cajas=${(expResults[2] as List).length}');
       final rawCashRegisters = expResults[2] as List<Map<String, dynamic>>;
       final customMethodNames = expResults[3] as Map<String, String>;
       final withdrawals = _extractWithdrawals(rawCashRegisters, _range.start, _range.end);
@@ -185,6 +200,7 @@ class DashboardProvider extends ChangeNotifier {
       } else {
         monthlyOrders = await _fetchOrders(monthStart, we);
       }
+      _mark('monthlyOrders (reused=$isCurrentMonth) docs=${monthlyOrders.length}');
       _monthlyDailyPoints = _groupByDayOfMonth(monthlyOrders, monthStart, now);
 
       // Derivar datos de la semana actual del dataset mensual ya cargado,
@@ -204,6 +220,8 @@ class DashboardProvider extends ChangeNotifier {
 
       // Etapa 6: resumir cajas — sin Firestore adicional, usa datos ya cargados en Etapa 3
       _buildCashRegisterSummaries(rawCashRegisters, customMethodNames);
+      _mark('weekly+summaries');
+      debugPrint('[PERF] === load() TOTAL: ${_swTotal.elapsedMilliseconds}ms ===');
     } catch (e, st) {
       _error = 'Error cargando datos: $e';
       Sentry.captureException(e, stackTrace: st, withScope: (scope) {
@@ -220,20 +238,64 @@ class DashboardProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Fetcha TODOS los documentos de cashRegisters del tenant en una sola query.
+  /// Fetcha solo los cashRegisters relevantes del tenant, en vez de la colección
+  /// histórica completa (antes esto pulía la colección entera del tenant en cada
+  /// load(), sin importar el rango de fechas — causa raíz de la lentitud reportada
+  /// incluso en días sin ventas).
+  ///
+  /// Dos queries en paralelo:
+  /// - status == 'open': todas las cajas abiertas del tenant, cualquier antigüedad
+  ///   (normalmente solo hay un puñado, una por sucursal activa).
+  /// - status == 'closed' AND closedAt >= _range.start: cajas cerradas cuyo cierre
+  ///   cae dentro o después del inicio del rango. No se acota el límite superior
+  ///   aquí porque _buildCashRegisterSummaries ya filtra closedAt <= _range.end
+  ///   más abajo; esto solo evita descartar cajas que abrieron mucho antes del
+  ///   rango pero siguieron abiertas/cerraron dentro de él (y así perder sus
+  ///   retiros en _extractWithdrawals).
+  /// closedAt puede guardarse como Timestamp o como String ISO (cajas offline),
+  /// por lo que se corre una query extra para el caso String, igual que con
+  /// expenses/orders en este mismo archivo.
+  ///
   /// El resultado se reutiliza en _extractWithdrawals y _buildCashRegisterSummaries,
-  /// evitando dos roundtrips a Firestore por separado.
+  /// evitando roundtrips adicionales a Firestore.
+  /// Índice requerido: cashRegisters (tenantId ASC, status ASC, closedAt ASC) —
+  /// ver nota en firestore.indexes.json del proyecto principal.
   Future<List<Map<String, dynamic>>> _fetchAllCashRegisters() async {
+    if (_tenantId == null) return [];
     try {
-      final snap = await _firestore.instance
-          .collection('cashRegisters')
-          .where('tenantId', isEqualTo: _tenantId)
-          .get();
-      return snap.docs.map((d) {
-        final data = d.data();
-        data['_docId'] = d.id;
-        return data;
-      }).toList();
+      final startIso = _range.start.toIso8601String().substring(0, 23);
+
+      final snaps = await Future.wait([
+        _firestore.instance
+            .collection('cashRegisters')
+            .where('tenantId', isEqualTo: _tenantId)
+            .where('status', isEqualTo: 'open')
+            .get(),
+        _firestore.instance
+            .collection('cashRegisters')
+            .where('tenantId', isEqualTo: _tenantId)
+            .where('status', isEqualTo: 'closed')
+            .where('closedAt', isGreaterThanOrEqualTo: Timestamp.fromDate(_range.start))
+            .get(),
+        _firestore.instance
+            .collection('cashRegisters')
+            .where('tenantId', isEqualTo: _tenantId)
+            .where('status', isEqualTo: 'closed')
+            .where('closedAt', isGreaterThanOrEqualTo: startIso)
+            .get(),
+      ]);
+
+      final seen = <String>{};
+      final all = <Map<String, dynamic>>[];
+      for (final snap in snaps) {
+        for (final d in snap.docs) {
+          if (!seen.add(d.id)) continue;
+          final data = d.data();
+          data['_docId'] = d.id;
+          all.add(data);
+        }
+      }
+      return all;
     } catch (_) {
       return [];
     }
@@ -442,19 +504,27 @@ class DashboardProvider extends ChangeNotifier {
       final startIso = start.toIso8601String().substring(0, 23);
       final endIso   = end.toIso8601String().substring(0, 23);
 
+      // [PERF] Cronometrar cada sub-query por separado para saber cuál se tarda.
+      Future<QuerySnapshot<Map<String, dynamic>>> _timed(String tag, Future<QuerySnapshot<Map<String, dynamic>>> f) async {
+        final sw = Stopwatch()..start();
+        final snap = await f;
+        debugPrint('[PERF] orders.$tag [${start.toIso8601String().substring(0,10)}]: ${sw.elapsedMilliseconds}ms docs=${snap.docs.length}');
+        return snap;
+      }
+
       final snaps = await Future.wait([
-        _firestore.orders
+        _timed('ts', _firestore.orders
             .where('tenant_id', isEqualTo: _tenantId)
             .where('paid_at', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
             .where('paid_at', isLessThanOrEqualTo: Timestamp.fromDate(end))
             .limit(kOrderLimit)
-            .get(),
-        _firestore.orders
+            .get()),
+        _timed('str', _firestore.orders
             .where('tenant_id', isEqualTo: _tenantId)
             .where('paid_at', isGreaterThanOrEqualTo: startIso)
             .where('paid_at', isLessThanOrEqualTo: endIso)
             .limit(kOrderLimit)
-            .get(),
+            .get()),
       ]);
 
       final seen = <String>{};

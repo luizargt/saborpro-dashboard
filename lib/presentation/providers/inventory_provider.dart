@@ -123,11 +123,17 @@ class InventoryProvider extends ChangeNotifier {
       final now = DateTime.now();
       final thirtyDaysAgo = now.subtract(const Duration(days: 30));
 
-      // Solo filtramos por tenantId para evitar índice compuesto en Firestore.
-      // El filtro de fecha y tipo se hace en Dart.
+      // Acotamos por createdAt >= hace 30 días en el servidor para no traer toda
+      // la colección histórica de movimientos (crecía sin límite y hacía lenta la
+      // carga aunque no hubiera consumo reciente). createdAt se guarda como String
+      // ISO, así que el rango lexicográfico coincide con el orden cronológico.
+      // El filtro de tipo (salidaVenta/salidaManual) sigue haciéndose en Dart.
+      // Índice requerido: inventoryMovements (tenantId ASC, createdAt ASC).
+      final thirtyDaysAgoIso = thirtyDaysAgo.toIso8601String();
       final snap = await _firestore.instance
           .collection('inventoryMovements')
           .where('tenantId', isEqualTo: _tenantId)
+          .where('createdAt', isGreaterThanOrEqualTo: thirtyDaysAgoIso)
           .get();
 
       // totals[ingredientId][locationId] = cantidad consumida
