@@ -185,7 +185,7 @@ class _Rail extends StatelessWidget {
           const SizedBox(height: 20),
           // Logo
           Image.asset(
-            'assets/images/logo.png',
+            'assets/images/SaborSuiteLogo.png',
             width: 44,
             height: 44,
             fit: BoxFit.contain,

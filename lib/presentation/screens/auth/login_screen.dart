@@ -262,29 +262,29 @@ class _LoginScreenState extends State<LoginScreen> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Image.asset(
-                    'assets/images/logo.png',
+                    'assets/images/SaborSuiteLogo.png',
                     width: 72,
                     height: 72,
                     fit: BoxFit.contain,
                   ),
                   const SizedBox(height: 12),
                   Text(
-                    'Sabor Manager',
-                    textAlign: TextAlign.center,
-                    style: GoogleFonts.inter(
-                      color: const Color(0xFF7444fd),
-                      fontSize: 32,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  Text(
-                    'de SaborPro',
+                    'Sabor Suite',
                     textAlign: TextAlign.center,
                     style: GoogleFonts.inter(
                       color: Colors.white54,
                       fontSize: 16,
                       fontWeight: FontWeight.w400,
                       letterSpacing: 2,
+                    ),
+                  ),
+                  Text(
+                    'Manager',
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.inter(
+                      color: const Color(0xFF7444fd),
+                      fontSize: 32,
+                      fontWeight: FontWeight.w800,
                     ),
                   ),
                   const SizedBox(height: 48),

@@ -158,15 +158,24 @@ class DashboardProvider extends ChangeNotifier {
       final productClassificationMap = _cachedProductClassificationMap!;
       _mark('productClassifications (cached=$_prodWasCached)');
 
-      // Etapa 3: gastos, compras, cajas y nombres de métodos — todo en paralelo.
-      // cashRegisters se fetcha una sola vez y se reutiliza para retiros y resumen de cajas.
+      // Etapa 3: gastos, compras, cajas, nombres de métodos y — SOLO si el modo actual
+      // lo necesita — órdenes de la semana o del mes para el gráfico secundario, todo
+      // en paralelo. Antes el fetch del mes completo se hacía SIEMPRE sin importar el
+      // modo, incluso en la vista "Hoy" (la que ve el usuario al entrar), lo que
+      // multiplicaba por semanas el volumen de datos leídos en cada carga. SalesChart
+      // solo usa weeklyHourly en modo día y monthlyDailyPoints en modo semana; mes/año/
+      // custom usan metrics.chartPoints, que ya se construye con currentOrders.
+      final needsWeekly = _range.mode == PeriodMode.day;
+      final needsMonthly = _range.mode == PeriodMode.week;
       final expResults = await Future.wait([
         _fetchExpenses(_range.start, _range.end),
         _fetchPurchaseCosts(_range.start, _range.end),
         _fetchAllCashRegisters(),
         _fetchCustomMethodNames(),
+        needsWeekly ? _fetchOrders(ws, we) : Future.value(const <Map<String, dynamic>>[]),
+        needsMonthly ? _fetchOrders(monthStart, we) : Future.value(const <Map<String, dynamic>>[]),
       ]);
-      _mark('expenses+purchases+cashRegisters+methods cajas=${(expResults[2] as List).length}');
+      _mark('expenses+purchases+cashRegisters+methods+chart cajas=${(expResults[2] as List).length}');
       final rawCashRegisters = expResults[2] as List<Map<String, dynamic>>;
       final customMethodNames = expResults[3] as Map<String, String>;
       final withdrawals = _extractWithdrawals(rawCashRegisters, _range.start, _range.end);
@@ -176,8 +185,15 @@ class DashboardProvider extends ChangeNotifier {
       final expenses = _expenseItems.fold<double>(0, (s, e) => s + (e['amount'] as num? ?? 0).toDouble());
       final purchaseCosts = _purchaseItems.fold<double>(0, (s, e) => s + (e['total'] as num? ?? 0).toDouble());
 
-      // Etapa 4: construir métricas — liberar prevOrders después para que el GC
-      // pueda reclamar esa memoria antes del siguiente fetch de monthlyOrders.
+      _weeklyHourly = needsWeekly
+          ? _groupByHourPerDay(expResults[4] as List<Map<String, dynamic>>, ws)
+          : [];
+      _monthlyDailyPoints = needsMonthly
+          ? _groupByDayOfMonth(expResults[5] as List<Map<String, dynamic>>, monthStart, now)
+          : [];
+
+      // Etapa 4: resumir cajas (sin Firestore adicional) y construir métricas finales.
+      _buildCashRegisterSummaries(rawCashRegisters, customMethodNames);
       _metrics = _buildMetrics(
         currentOrders,
         prevOrders,
@@ -189,38 +205,7 @@ class DashboardProvider extends ChangeNotifier {
         productClassificationMap: productClassificationMap,
       );
       prevOrders = [];
-
-      // Etapa 5: datos del mes actual para la gráfica de barras diarias.
-      // Si el rango actual ES el mes en curso, reusar currentOrders sin fetch adicional.
-      final isCurrentMonth = _range.mode == PeriodMode.month &&
-          _range.start.year == now.year && _range.start.month == now.month;
-      final List<Map<String, dynamic>> monthlyOrders;
-      if (isCurrentMonth) {
-        monthlyOrders = currentOrders;
-      } else {
-        monthlyOrders = await _fetchOrders(monthStart, we);
-      }
-      _mark('monthlyOrders (reused=$isCurrentMonth) docs=${monthlyOrders.length}');
-      _monthlyDailyPoints = _groupByDayOfMonth(monthlyOrders, monthStart, now);
-
-      // Derivar datos de la semana actual del dataset mensual ya cargado,
-      // evitando un _fetchOrders extra. Si la semana cruza el inicio del mes (ej: 28 abr–4 may)
-      // se carga por separado para no perder datos.
-      final weekCrossesMonth = ws.month != monthStart.month || ws.year != monthStart.year;
-      if (weekCrossesMonth) {
-        final weeklyOrders = await _fetchOrders(ws, we);
-        _weeklyHourly = _groupByHourPerDay(weeklyOrders, ws);
-      } else {
-        final weeklyOrders = monthlyOrders.where((o) {
-          final dt = _toDateTime(o['paid_at']);
-          return dt != null && !dt.isBefore(ws);
-        }).toList();
-        _weeklyHourly = _groupByHourPerDay(weeklyOrders, ws);
-      }
-
-      // Etapa 6: resumir cajas — sin Firestore adicional, usa datos ya cargados en Etapa 3
-      _buildCashRegisterSummaries(rawCashRegisters, customMethodNames);
-      _mark('weekly+summaries');
+      _mark('metrics+summaries');
       debugPrint('[PERF] === load() TOTAL: ${_swTotal.elapsedMilliseconds}ms ===');
     } catch (e, st) {
       _error = 'Error cargando datos: $e';
