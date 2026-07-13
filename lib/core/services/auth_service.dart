@@ -45,6 +45,7 @@ class AuthService {
   static const _kDisplayName = 'session_display_name';
   static const _kUid         = 'session_firestore_uid';
   static const _kEmail       = 'session_email';
+  static const _kAssignedLocations = 'session_assigned_location_ids';
 
   User? get firebaseUser => _auth.currentUser;
   bool get isLoggedIn => firebaseUser != null || _firestoreUid != null;
@@ -54,6 +55,8 @@ class AuthService {
   String? _locationId;
   String? _displayName;
   String? _firestoreUid;
+  // Sucursales asignadas al usuario (vacío = acceso a todas)
+  List<String> _assignedLocationIds = [];
 
   // Solo en memoria — nunca persisten en disco
   String? _sessionEmail;
@@ -64,6 +67,7 @@ class AuthService {
   String? get displayName => _displayName;
   String? get sessionEmail => _sessionEmail;
   String? get sessionPassword => _sessionPassword;
+  List<String> get assignedLocationIds => _assignedLocationIds;
 
   Future<LoginResult> login(String email, String password) async {
     final normalizedEmail = email.trim().toLowerCase();
@@ -223,8 +227,13 @@ class AuthService {
     _locationId = (data['location_id'] ?? data['current_location_id']) as String?;
     _displayName  = data['name']  as String?;
     _sessionEmail ??= data['email'] as String?;
+    // Sucursales asignadas (vacío = todas)
+    final assigned = data['assigned_location_ids'];
+    _assignedLocationIds = assigned is List
+        ? assigned.map((e) => e.toString()).toList()
+        : <String>[];
     // ignore: avoid_print
-    print('[AUTH] tenantId=$_tenantId locationId=$_locationId name=$_displayName');
+    print('[AUTH] tenantId=$_tenantId locationId=$_locationId name=$_displayName assigned=${_assignedLocationIds.length}');
     // Persistir sesión para sobrevivir proceso killed por Android
     try {
       await Future.wait([
@@ -233,6 +242,7 @@ class AuthService {
         _storage.write(key: _kLocationId,  value: _locationId),
         _storage.write(key: _kDisplayName, value: _displayName),
         _storage.write(key: _kEmail, value: _sessionEmail ?? ''),
+        _storage.write(key: _kAssignedLocations, value: jsonEncode(_assignedLocationIds)),
       ]);
     } catch (_) {}
   }
@@ -261,6 +271,7 @@ class AuthService {
           _locationId     = await _storage.read(key: _kLocationId);
           _displayName    = await _storage.read(key: _kDisplayName);
           _sessionEmail   = await _storage.read(key: _kEmail);
+          _assignedLocationIds = _decodeAssigned(await _storage.read(key: _kAssignedLocations));
           // ignore: avoid_print
           print('[AUTH] Sesión restaurada desde storage: tenantId=$_tenantId');
         }
@@ -268,11 +279,21 @@ class AuthService {
     }
   }
 
+  List<String> _decodeAssigned(String? raw) {
+    if (raw == null || raw.isEmpty) return <String>[];
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is List) return decoded.map((e) => e.toString()).toList();
+    } catch (_) {}
+    return <String>[];
+  }
+
   Future<void> logout() async {
     _tenantId = null;
     _locationId = null;
     _displayName = null;
     _firestoreUid = null;
+    _assignedLocationIds = [];
     _sessionEmail = null;
     _sessionPassword = null;
     try {
@@ -282,6 +303,7 @@ class AuthService {
         _storage.delete(key: _kLocationId),
         _storage.delete(key: _kDisplayName),
         _storage.delete(key: _kEmail),
+        _storage.delete(key: _kAssignedLocations),
       ]);
     } catch (_) {}
     if (firebaseUser != null) {

@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
 import '../../core/services/firestore_service.dart';
 import '../../core/services/location_service.dart';
+import '../../core/services/auth_service.dart';
 import '../../core/utils/date_range.dart';
 import '../../data/models/dashboard_data.dart';
 import '../../data/models/cash_register_summary.dart';
@@ -61,8 +62,24 @@ class DashboardProvider extends ChangeNotifier {
   List<LocationModel> _locations = [];
   List<LocationModel> get locations => _locations;
 
-  String? _selectedLocationId; // null = todas
+  // Sucursales permitidas para el usuario (vacío = todas)
+  Set<String> _allowedLocationIds = {};
+
+  String? _selectedLocationId; // null = todas (dentro de las permitidas)
   String? get selectedLocationId => _selectedLocationId;
+
+  /// Determina si un registro pasa el filtro de sucursal actual.
+  /// - Con sucursal seleccionada: solo esa.
+  /// - "Todas": solo las sucursales permitidas del usuario (vacío = todas).
+  bool _passesLocationFilter(String? rowLocationId) {
+    if (_selectedLocationId != null && _selectedLocationId!.isNotEmpty) {
+      return rowLocationId == _selectedLocationId;
+    }
+    if (_allowedLocationIds.isNotEmpty) {
+      return rowLocationId != null && _allowedLocationIds.contains(rowLocationId);
+    }
+    return true;
+  }
 
   String get selectedLocationName {
     if (_selectedLocationId == null) return 'Todas las sucursales';
@@ -75,6 +92,9 @@ class DashboardProvider extends ChangeNotifier {
   void init(String tenantId, {String? locationId}) {
     _tenantId = tenantId;
     _locationId = locationId;
+    // Fijar sucursales permitidas de forma síncrona (load() corre en paralelo
+    // con _loadLocations, así el filtro aplica desde la primera carga).
+    _allowedLocationIds = AuthService().assignedLocationIds.toSet();
     _loadLocations();
     load();
   }
@@ -82,7 +102,11 @@ class DashboardProvider extends ChangeNotifier {
   Future<void> _loadLocations() async {
     if (_tenantId == null) return;
     try {
-      _locations = await _locationService.getLocations(_tenantId!);
+      final all = await _locationService.getLocations(_tenantId!);
+      // Restringir a las sucursales asignadas al usuario (vacío = todas)
+      _locations = _allowedLocationIds.isNotEmpty
+          ? all.where((l) => _allowedLocationIds.contains(l.id)).toList()
+          : all;
       notifyListeners();
     } catch (_) {}
   }
@@ -297,10 +321,7 @@ class DashboardProvider extends ChangeNotifier {
       }
 
       final all = registers.where((d) {
-        if (_selectedLocationId != null && _selectedLocationId!.isNotEmpty) {
-          return d['locationId'] == _selectedLocationId;
-        }
-        return true;
+        return _passesLocationFilter(d['locationId'] as String?);
       }).toList();
 
       _openRegisters = all
@@ -381,9 +402,7 @@ class DashboardProvider extends ChangeNotifier {
         for (final doc in snap.docs) {
           if (!seen.add(doc.id)) continue;
           final data = doc.data();
-          if (_selectedLocationId != null && _selectedLocationId!.isNotEmpty) {
-            if (data['location_id'] != _selectedLocationId) continue;
-          }
+          if (!_passesLocationFilter(data['location_id'] as String?)) continue;
           all.add(data);
         }
       }
@@ -411,9 +430,7 @@ class DashboardProvider extends ChangeNotifier {
     final results  = <Map<String, dynamic>>[];
 
     for (final data in registers) {
-      if (_selectedLocationId != null && _selectedLocationId!.isNotEmpty) {
-        if (data['locationId'] != _selectedLocationId) continue;
-      }
+      if (!_passesLocationFilter(data['locationId'] as String?)) continue;
 
       final movementsList = data['movements'] as List<dynamic>? ?? [];
       for (final raw in movementsList) {
@@ -467,10 +484,7 @@ class DashboardProvider extends ChangeNotifier {
           .get();
 
       return snap.docs.map((d) => d.data()).where((e) {
-        if (_selectedLocationId != null && _selectedLocationId!.isNotEmpty) {
-          return e['location_id'] == _selectedLocationId;
-        }
-        return true;
+        return _passesLocationFilter(e['location_id'] as String?);
       }).toList();
     } catch (e, st) {
       Sentry.captureException(e, stackTrace: st, withScope: (scope) {
@@ -523,9 +537,7 @@ class DashboardProvider extends ChangeNotifier {
       }
 
       return all.where((o) {
-        if (_selectedLocationId != null && _selectedLocationId!.isNotEmpty) {
-          if (o['location_id'] != _selectedLocationId) return false;
-        }
+        if (!_passesLocationFilter(o['location_id'] as String?)) return false;
         final orderStatus = o['status'] as String? ?? '';
         return orderStatus != 'CANCELLED';
       }).toList();
@@ -1020,9 +1032,7 @@ class DashboardProvider extends ChangeNotifier {
         data['_docId'] = d.id;
         return data;
       }).where((o) {
-        if (_selectedLocationId != null && _selectedLocationId!.isNotEmpty) {
-          if (o['location_id'] != _selectedLocationId) return false;
-        }
+        if (!_passesLocationFilter(o['location_id'] as String?)) return false;
         // Las canceladas usan cancelled_at > updated_at > created_at para la fecha
         final raw = o['cancelled_at'] ?? o['updated_at'] ?? o['created_at'];
         final dt = _toDateTime(raw);

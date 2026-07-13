@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import '../../core/services/firestore_service.dart';
 import '../../core/services/location_service.dart';
+import '../../core/services/auth_service.dart';
 import '../../data/models/inventory_data.dart';
 
 class InventoryProvider extends ChangeNotifier {
@@ -8,6 +9,8 @@ class InventoryProvider extends ChangeNotifier {
   final _locationService = LocationService();
 
   String? _tenantId;
+  // Sucursales permitidas para el usuario (vacío = todas)
+  Set<String> _allowedLocationIds = {};
   List<LocationModel> _locations = [];
   List<IngredientStock> _items = [];
   bool _loading = false;
@@ -29,6 +32,8 @@ class InventoryProvider extends ChangeNotifier {
 
   void init(String tenantId) {
     _tenantId = tenantId;
+    // Fijar sucursales permitidas de forma síncrona (load() corre en paralelo).
+    _allowedLocationIds = AuthService().assignedLocationIds.toSet();
     _loadLocations();
     load();
   }
@@ -36,7 +41,11 @@ class InventoryProvider extends ChangeNotifier {
   Future<void> _loadLocations() async {
     if (_tenantId == null) return;
     try {
-      _locations = await _locationService.getLocations(_tenantId!);
+      final all = await _locationService.getLocations(_tenantId!);
+      // Restringir a las sucursales asignadas al usuario (vacío = todas)
+      _locations = _allowedLocationIds.isNotEmpty
+          ? all.where((l) => _allowedLocationIds.contains(l.id)).toList()
+          : all;
       notifyListeners();
     } catch (_) {}
   }
@@ -103,6 +112,10 @@ class InventoryProvider extends ChangeNotifier {
       final name = (data['name'] as String? ?? '').trim();
       final locationId = data['location_id'] as String? ?? '';
       if (name.isEmpty || locationId.isEmpty) continue;
+      // Restringir a sucursales permitidas (vacío = todas)
+      if (_allowedLocationIds.isNotEmpty && !_allowedLocationIds.contains(locationId)) {
+        continue;
+      }
 
       result.add(_RawIngredient(
         docId: doc.id,
