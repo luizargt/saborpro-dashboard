@@ -559,6 +559,7 @@ class DashboardProvider extends ChangeNotifier {
     double total = 0, prevTotal = 0;
     double grossSales = 0, discounts = 0, taxes = 0, tips = 0, refunds = 0, deliveryFees = 0;
     double courtesyTotal = 0;
+    int tipsCount = 0, deliveryCount = 0, courtesyCount = 0;
     final salesByMethod = <String, double>{};
 
     for (final o in orders) {
@@ -569,18 +570,25 @@ class DashboardProvider extends ChangeNotifier {
       grossSales += (o['subtotal'] as num? ?? t).toDouble();
       discounts += (o['discount_amount'] as num? ?? 0).toDouble();
       taxes += (o['tax_amount'] as num? ?? 0).toDouble();
-      tips += (o['tip_amount'] as num? ?? 0).toDouble();
-      deliveryFees += (o['delivery_fee'] as num? ?? 0).toDouble();
+      final orderTip = (o['tip_amount'] as num? ?? 0).toDouble();
+      tips += orderTip;
+      if (orderTip > 0) tipsCount++;
+      final orderDelivery = (o['delivery_fee'] as num? ?? 0).toDouble();
+      deliveryFees += orderDelivery;
+      if (orderDelivery > 0) deliveryCount++;
       if (o['is_refund'] == true) refunds += t;
       final items = o['items'];
       if (items is List) {
+        var hasCourtesy = false;
         for (final item in items) {
           if (item is Map && item['is_courtesy'] == true && item['is_void'] != true) {
             final price = (item['unit_price'] as num? ?? 0).toDouble();
             final qty   = (item['qty']        as num? ?? 1).toDouble();
             courtesyTotal += price * qty;
+            hasCourtesy = true;
           }
         }
+        if (hasCourtesy) courtesyCount++;
       }
 
       // Desglose por método de pago
@@ -662,6 +670,9 @@ class DashboardProvider extends ChangeNotifier {
       operationalExpenses: expenses,
       purchaseCosts: purchaseCosts,
       courtesyTotal: courtesyTotal,
+      tipsCount: tipsCount,
+      deliveryCount: deliveryCount,
+      courtesyCount: courtesyCount,
       salesByMethod: salesByMethod,
       productsByMethod: productsByMethod,
     );

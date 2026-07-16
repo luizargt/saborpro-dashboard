@@ -421,6 +421,7 @@ void _showMenuModal(BuildContext context, VoidCallback onLogout) {
 
 enum _ReportType {
   caja('Reporte de Caja'),
+  metodoPago('Ventas por Método de Pago'),
   platillos('Platillos vendidos'),
   inventario('Inventario');
 
@@ -719,6 +720,11 @@ class _MenuModalState extends State<_MenuModal> {
             userNamesById,
             dp.range.label,
             cancelledOrders: cancelledOrders,
+          );
+        case _ReportType.metodoPago:
+          ExportService.exportPaymentMethodReport(
+            dp.currentOrders,
+            dp.range.label,
           );
         case _ReportType.platillos:
           ExportService.exportProducts(

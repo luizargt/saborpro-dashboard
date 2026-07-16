@@ -59,6 +59,7 @@ class MetricCards extends StatelessWidget {
                   child: _CompactMetricCard(
                     label: 'Propinas',
                     value: 'Q${fmt.format(metrics.tips)}',
+                    count: metrics.tipsCount,
                     accent: const Color(0xFFF59E0B),
                   ),
                 ),
@@ -67,8 +68,9 @@ class MetricCards extends StatelessWidget {
               if (showDelivery) ...[
                 Expanded(
                   child: _CompactMetricCard(
-                    label: 'Cobros delivery',
+                    label: 'Cobro Envío Domicilio',
                     value: 'Q${fmt.format(metrics.deliveryFees)}',
+                    count: metrics.deliveryCount,
                     accent: const Color(0xFF3B82F6),
                   ),
                 ),
@@ -82,6 +84,7 @@ class MetricCards extends StatelessWidget {
           _CompactMetricCard(
             label: 'Cortesías / Donaciones',
             value: 'Q${fmt.format(metrics.courtesyTotal)}',
+            count: metrics.courtesyCount,
             accent: const Color(0xFF14B8A6),
           ),
         ],
@@ -93,11 +96,13 @@ class MetricCards extends StatelessWidget {
 class _CompactMetricCard extends StatelessWidget {
   final String label;
   final String value;
+  final int count;
   final Color accent;
 
   const _CompactMetricCard({
     required this.label,
     required this.value,
+    this.count = 0,
     required this.accent,
   });
 
@@ -127,16 +132,31 @@ class _CompactMetricCard extends StatelessWidget {
             ),
           ),
           const Spacer(),
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            child: Text(
-              value,
-              style: GoogleFonts.inter(
-                color: accent,
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  value,
+                  style: GoogleFonts.inter(
+                    color: accent,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
               ),
-            ),
+              if (count > 0)
+                Text(
+                  '$count cobro${count == 1 ? '' : 's'}',
+                  style: GoogleFonts.inter(
+                    color: Colors.white38,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+            ],
           ),
         ],
       ),

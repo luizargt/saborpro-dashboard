@@ -290,6 +290,97 @@ class ExportService {
     });
   }
 
+  // ── VENTAS POR MÉTODO DE PAGO ────────────────────────────────────────────
+  static const _metodoPrioridad = [
+    'Efectivo', 'Tarjeta', 'Transferencia', 'PedidosYa', 'UberEats', 'Personalizado',
+  ];
+
+  static void exportPaymentMethodReport(
+    List<Map<String, dynamic>> orders,
+    String periodLabel,
+  ) {
+    final dayFmt = DateFormat('dd/MM/yyyy');
+    final dayKeyFmt = DateFormat('yyyy-MM-dd');
+
+    // dayKey -> método -> total
+    final byDay = <String, Map<String, double>>{};
+    final methodsPresent = <String>{};
+
+    for (final o in orders) {
+      final fecha = _parsePaidAt(o['paid_at']);
+      if (fecha == null) continue;
+      final dayKey = dayKeyFmt.format(fecha.toLocal());
+      final dayMap = byDay.putIfAbsent(dayKey, () => {});
+      final t = (o['payment_amount'] as num?)?.toDouble() ??
+          (o['total_amount'] as num? ?? 0).toDouble();
+
+      var method = o['payment_method'] as String? ?? 'cash';
+      if (method == 'mixed') method = 'split';
+      if (method == 'split') {
+        final rawSplits = o['split_payments'] ?? o['mixed_payments'];
+        final splits = (rawSplits is List ? rawSplits : const [])
+            .whereType<Map>()
+            .map((s) => {
+                  'payment_method': s['payment_method'] ?? s['method'] ?? 'cash',
+                  'amount': s['amount'] ?? 0,
+                })
+            .toList();
+        final splitsSum = splits.fold<double>(
+            0, (s, sp) => s + ((sp['amount'] as num? ?? 0).toDouble()));
+        for (final sp in splits) {
+          final m = _traducirMetodo(sp['payment_method'] as String? ?? 'cash');
+          final amt = (sp['amount'] as num? ?? 0).toDouble();
+          final ratio = splitsSum > 0 ? amt / splitsSum : 0.0;
+          final allocated = amt + (t - splitsSum) * ratio;
+          methodsPresent.add(m);
+          dayMap[m] = (dayMap[m] ?? 0) + allocated;
+        }
+      } else {
+        final m = _traducirMetodo(method);
+        methodsPresent.add(m);
+        dayMap[m] = (dayMap[m] ?? 0) + t;
+      }
+    }
+
+    final ordered = [
+      ..._metodoPrioridad.where(methodsPresent.contains),
+      ...(methodsPresent.difference(_metodoPrioridad.toSet()).toList()..sort()),
+    ];
+
+    final excel = Excel.createExcel();
+    final sheet = excel['Ventas por Metodo de Pago'];
+    excel.setDefaultSheet('Ventas por Metodo de Pago');
+    _header(sheet, ['Fecha', ...ordered, 'Total (Q)']);
+
+    final sortedDays = byDay.keys.toList()..sort();
+    final grandTotals = <String, double>{for (final m in ordered) m: 0};
+    double grandTotal = 0;
+
+    for (final dayKey in sortedDays) {
+      final dayMap = byDay[dayKey]!;
+      double dayTotal = 0;
+      final row = <CellValue>[TextCellValue(dayFmt.format(dayKeyFmt.parse(dayKey)))];
+      for (final m in ordered) {
+        final v = dayMap[m] ?? 0;
+        dayTotal += v;
+        grandTotals[m] = (grandTotals[m] ?? 0) + v;
+        row.add(DoubleCellValue(v));
+      }
+      grandTotal += dayTotal;
+      row.add(DoubleCellValue(dayTotal));
+      sheet.appendRow(row);
+    }
+
+    final totalRow = <CellValue>[TextCellValue('TOTAL')];
+    for (final m in ordered) {
+      totalRow.add(DoubleCellValue(grandTotals[m] ?? 0));
+    }
+    totalRow.add(DoubleCellValue(grandTotal));
+    sheet.appendRow(totalRow);
+
+    _download(excel, 'ventas_metodo_pago_${_slug(periodLabel)}.xlsx');
+  }
+
   static DateTime? _parsePaidAt(dynamic raw) {
     if (raw == null) return null;
     if (raw is Timestamp) return raw.toDate();
