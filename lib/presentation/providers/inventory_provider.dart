@@ -60,10 +60,12 @@ class InventoryProvider extends ChangeNotifier {
       final results = await Future.wait([
         _fetchIngredients(),
         _fetchConsumption(),
+        _fetchConsumptionToday(),
       ]);
 
       final rawItems = results[0] as List<_RawIngredient>;
       final consumption = results[1] as Map<String, Map<String, double>>;
+      final consumptionToday = results[2] as Map<String, Map<String, double>>;
 
       // Agrupar por nombre a través de sucursales
       final map = <String, _AggIngredient>{};
@@ -77,6 +79,11 @@ class InventoryProvider extends ChangeNotifier {
         if (dailyAvg != null && dailyAvg > 0 && raw.stock >= 0) {
           agg.daysRemaining[raw.locationId] = raw.stock / dailyAvg;
         }
+
+        final today = consumptionToday[raw.docId]?[raw.locationId];
+        if (today != null && today > 0) {
+          agg.consumptionToday[raw.locationId] = today;
+        }
       }
 
       _items = map.entries.map((entry) => IngredientStock(
@@ -85,6 +92,7 @@ class InventoryProvider extends ChangeNotifier {
             stockByLocation: Map.from(entry.value.stock),
             minStockByLocation: Map.from(entry.value.minStock),
             daysRemainingByLocation: Map.from(entry.value.daysRemaining),
+            consumptionTodayByLocation: Map.from(entry.value.consumptionToday),
           )).toList()
         ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
 
@@ -210,6 +218,41 @@ class InventoryProvider extends ChangeNotifier {
       return {};
     }
   }
+
+  // Retorna: Map<ingredientDocId, Map<locationId, cantidadConsumidaHoy>>
+  Future<Map<String, Map<String, double>>> _fetchConsumptionToday() async {
+    try {
+      final now = DateTime.now();
+      final startOfDay = DateTime(now.year, now.month, now.day);
+      final startOfDayIso = startOfDay.toIso8601String();
+
+      final snap = await _firestore.instance
+          .collection('inventoryMovements')
+          .where('tenantId', isEqualTo: _tenantId)
+          .where('createdAt', isGreaterThanOrEqualTo: startOfDayIso)
+          .get();
+
+      final totals = <String, Map<String, double>>{};
+      for (final doc in snap.docs) {
+        final data = doc.data();
+        final type = data['type'] as String? ?? '';
+        if (type != 'salidaVenta' && type != 'salidaManual') continue;
+
+        final ingredientId = data['ingredientId'] as String? ?? '';
+        final locationId = data['locationId'] as String? ?? '';
+        final qty = (data['quantity'] as num? ?? 0).toDouble().abs();
+        if (ingredientId.isEmpty || locationId.isEmpty || qty <= 0) continue;
+
+        totals.putIfAbsent(ingredientId, () => {});
+        totals[ingredientId]![locationId] =
+            (totals[ingredientId]![locationId] ?? 0) + qty;
+      }
+      return totals;
+    } catch (e) {
+      debugPrint('[Inventory] Sin datos de consumo de hoy: $e');
+      return {};
+    }
+  }
 }
 
 class _RawIngredient {
@@ -230,5 +273,6 @@ class _AggIngredient {
   final stock = <String, double>{};
   final minStock = <String, double>{};
   final daysRemaining = <String, double>{};
+  final consumptionToday = <String, double>{};
   _AggIngredient({required this.unit});
 }

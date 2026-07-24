@@ -7,6 +7,8 @@ import '../../../presentation/providers/dashboard_provider.dart';
 import '../../../core/services/location_service.dart';
 import '../../../core/services/export_service.dart';
 
+enum _ViewMode { forecast, today }
+
 class InventoryScreen extends StatefulWidget {
   const InventoryScreen({super.key});
 
@@ -24,6 +26,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
 
   String _query = '';
   StockStatus? _filter;
+  _ViewMode _mode = _ViewMode.forecast;
 
   static const _nameColW = 190.0;
   static const _dataColW = 90.0;
@@ -72,6 +75,25 @@ class _InventoryScreenState extends State<InventoryScreen> {
           .where((i) => i.name.toLowerCase().contains(_query.toLowerCase()))
           .toList();
     }
+    if (_mode == _ViewMode.today) {
+      list = list.where((i) {
+        final consumed = locationId != null
+            ? (i.consumptionTodayByLocation[locationId] ?? 0)
+            : i.totalConsumptionToday;
+        return consumed > 0;
+      }).toList();
+      list = List.of(list)
+        ..sort((a, b) {
+          final ca = locationId != null
+              ? (a.consumptionTodayByLocation[locationId] ?? 0)
+              : a.totalConsumptionToday;
+          final cb = locationId != null
+              ? (b.consumptionTodayByLocation[locationId] ?? 0)
+              : b.totalConsumptionToday;
+          return cb.compareTo(ca);
+        });
+      return list;
+    }
     if (_filter != null) {
       list = list.where((i) {
         final s = locationId != null ? i.statusAt(locationId) : i.worstStatus;
@@ -98,20 +120,29 @@ class _InventoryScreenState extends State<InventoryScreen> {
         _SearchAndFilter(
           controller: _searchController,
           filter: _filter,
+          mode: _mode,
           onSearch: (q) => setState(() => _query = q),
           onFilter: (s) => setState(() => _filter = s),
+          onModeChanged: (m) => setState(() => _mode = m),
         ),
         if (prov.loading)
           const Expanded(child: _LoadingState())
         else if (prov.error != null)
           Expanded(child: _ErrorState(error: prov.error!, onRetry: prov.load))
         else if (items.isEmpty)
-          const Expanded(child: _EmptyState())
+          Expanded(
+            child: _EmptyState(
+              message: _mode == _ViewMode.today
+                  ? 'Ningún ingrediente tuvo consumo hoy todavía'
+                  : 'Sin resultados',
+            ),
+          )
         else
           Expanded(
             child: _InventoryTable(
               items: items,
               locations: locs,
+              mode: _mode,
               vDataController: _vDataController,
               vNameController: _vNameController,
               hDataController: _hDataController,
@@ -259,79 +290,283 @@ class _StatusPill extends StatelessWidget {
 class _SearchAndFilter extends StatelessWidget {
   final TextEditingController controller;
   final StockStatus? filter;
+  final _ViewMode mode;
   final ValueChanged<String> onSearch;
   final ValueChanged<StockStatus?> onFilter;
+  final ValueChanged<_ViewMode> onModeChanged;
 
   const _SearchAndFilter({
     required this.controller,
     required this.filter,
+    required this.mode,
     required this.onSearch,
     required this.onFilter,
+    required this.onModeChanged,
   });
+
+  Widget _searchField() {
+    return Container(
+      height: 38,
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E293B),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: TextField(
+        controller: controller,
+        onChanged: onSearch,
+        style: GoogleFonts.inter(color: Colors.white, fontSize: 13),
+        decoration: InputDecoration(
+          hintText: 'Buscar ingrediente...',
+          hintStyle: GoogleFonts.inter(color: Colors.white24, fontSize: 13),
+          prefixIcon:
+              const Icon(Icons.search, color: Colors.white24, size: 18),
+          border: InputBorder.none,
+          contentPadding: const EdgeInsets.symmetric(vertical: 10),
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _filterChips() {
+    final isToday = mode == _ViewMode.today;
+    if (isToday) return const [];
+    return [
+      _FilterChip(
+        label: 'Todos',
+        active: filter == null,
+        onTap: () => onFilter(null),
+      ),
+      const SizedBox(width: 4),
+      _FilterChip(
+        label: '🔴',
+        active: filter == StockStatus.critical,
+        color: const Color(0xFFEF4444),
+        onTap: () => onFilter(
+            filter == StockStatus.critical ? null : StockStatus.critical),
+      ),
+      const SizedBox(width: 4),
+      _FilterChip(
+        label: '🟡',
+        active: filter == StockStatus.low,
+        color: const Color(0xFFF97316),
+        onTap: () =>
+            onFilter(filter == StockStatus.low ? null : StockStatus.low),
+      ),
+      const SizedBox(width: 4),
+      _FilterChip(
+        label: '🟢',
+        active: filter == StockStatus.ok,
+        color: const Color(0xFF22C55E),
+        onTap: () =>
+            onFilter(filter == StockStatus.ok ? null : StockStatus.ok),
+      ),
+    ];
+  }
 
   @override
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-      child: Row(
-        children: [
-          // Search
-          Expanded(
-            child: Container(
-              height: 38,
-              decoration: BoxDecoration(
-                color: const Color(0xFF1E293B),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: TextField(
-                controller: controller,
-                onChanged: onSearch,
-                style: GoogleFonts.inter(color: Colors.white, fontSize: 13),
-                decoration: InputDecoration(
-                  hintText: 'Buscar ingrediente...',
-                  hintStyle:
-                      GoogleFonts.inter(color: Colors.white24, fontSize: 13),
-                  prefixIcon: const Icon(Icons.search,
-                      color: Colors.white24, size: 18),
-                  border: InputBorder.none,
-                  contentPadding:
-                      const EdgeInsets.symmetric(vertical: 10),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          // En pantallas angostas (celular) el buscador + toggle + chips no
+          // caben en una sola fila: se apilan en dos filas para evitar overflow.
+          final narrow = constraints.maxWidth < 520;
+          if (narrow) {
+            final isToday = mode == _ViewMode.today;
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _searchField(),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    _ModeToggle(mode: mode, onChanged: onModeChanged),
+                    if (!isToday) ...[
+                      const SizedBox(width: 8),
+                      _StatusFilterButton(filter: filter, onFilter: onFilter),
+                    ],
+                  ],
                 ),
-              ),
-            ),
+              ],
+            );
+          }
+          return Row(
+            children: [
+              Expanded(child: _searchField()),
+              const SizedBox(width: 8),
+              _ModeToggle(mode: mode, onChanged: onModeChanged),
+              const SizedBox(width: 8),
+              ..._filterChips(),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _ModeToggle extends StatelessWidget {
+  final _ViewMode mode;
+  final ValueChanged<_ViewMode> onChanged;
+
+  const _ModeToggle({required this.mode, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 38,
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E293B),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _ModeSegment(
+            label: 'Pronóstico',
+            active: mode == _ViewMode.forecast,
+            onTap: () => onChanged(_ViewMode.forecast),
           ),
-          const SizedBox(width: 8),
-          // Filter chips
-          _FilterChip(
-            label: 'Todos',
-            active: filter == null,
-            onTap: () => onFilter(null),
-          ),
-          const SizedBox(width: 4),
-          _FilterChip(
-            label: '🔴',
-            active: filter == StockStatus.critical,
-            color: const Color(0xFFEF4444),
-            onTap: () => onFilter(
-                filter == StockStatus.critical ? null : StockStatus.critical),
-          ),
-          const SizedBox(width: 4),
-          _FilterChip(
-            label: '🟡',
-            active: filter == StockStatus.low,
-            color: const Color(0xFFF97316),
-            onTap: () =>
-                onFilter(filter == StockStatus.low ? null : StockStatus.low),
-          ),
-          const SizedBox(width: 4),
-          _FilterChip(
-            label: '🟢',
-            active: filter == StockStatus.ok,
-            color: const Color(0xFF22C55E),
-            onTap: () =>
-                onFilter(filter == StockStatus.ok ? null : StockStatus.ok),
+          _ModeSegment(
+            label: 'Consumo hoy',
+            active: mode == _ViewMode.today,
+            onTap: () => onChanged(_ViewMode.today),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _ModeSegment extends StatelessWidget {
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+
+  const _ModeSegment(
+      {required this.label, required this.active, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        height: 32,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: active ? const Color(0xFF7444fd) : Colors.transparent,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text(
+          label,
+          style: GoogleFonts.inter(
+            color: active ? Colors.white : Colors.white38,
+            fontSize: 12,
+            fontWeight: active ? FontWeight.w600 : FontWeight.w400,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// Botón compacto (dropdown) para el filtro de estado en vista móvil,
+// reemplaza los 4 chips de color que no caben en una pantalla angosta.
+class _StatusFilterButton extends StatelessWidget {
+  final StockStatus? filter;
+  final ValueChanged<StockStatus?> onFilter;
+
+  const _StatusFilterButton({required this.filter, required this.onFilter});
+
+  static const _labels = {
+    null: 'Todos',
+    StockStatus.critical: 'Críticos',
+    StockStatus.low: 'Bajo stock',
+    StockStatus.ok: 'Disponible',
+  };
+
+  static const _colors = {
+    StockStatus.critical: Color(0xFFEF4444),
+    StockStatus.low: Color(0xFFF97316),
+    StockStatus.ok: Color(0xFF22C55E),
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final activeColor =
+        filter != null ? _colors[filter]! : const Color(0xFF7444fd);
+
+    return PopupMenuButton<StockStatus?>(
+      initialValue: filter,
+      onSelected: onFilter,
+      color: const Color(0xFF1E293B),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      itemBuilder: (context) => [
+        null,
+        StockStatus.critical,
+        StockStatus.low,
+        StockStatus.ok,
+      ]
+          .map((s) => PopupMenuItem<StockStatus?>(
+                value: s,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: s == null ? Colors.white38 : _colors[s]!,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Text(_labels[s]!,
+                        style: GoogleFonts.inter(
+                            color: Colors.white, fontSize: 13)),
+                    if (filter == s) ...[
+                      const SizedBox(width: 10),
+                      const Icon(Icons.check,
+                          color: Color(0xFF7444fd), size: 16),
+                    ],
+                  ],
+                ),
+              ))
+          .toList(),
+      child: Container(
+        height: 38,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        decoration: BoxDecoration(
+          color: const Color(0xFF1E293B),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: filter != null ? activeColor.withOpacity(0.5) : Colors.transparent,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(color: activeColor, shape: BoxShape.circle),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              _labels[filter]!,
+              style: GoogleFonts.inter(
+                color: Colors.white70,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const Icon(Icons.arrow_drop_down, color: Colors.white38, size: 18),
+          ],
+        ),
       ),
     );
   }
@@ -381,6 +616,7 @@ class _FilterChip extends StatelessWidget {
 class _InventoryTable extends StatelessWidget {
   final List<IngredientStock> items;
   final List<LocationModel> locations;
+  final _ViewMode mode;
   final ScrollController vDataController;
   final ScrollController vNameController;
   final ScrollController hDataController;
@@ -394,6 +630,7 @@ class _InventoryTable extends StatelessWidget {
   const _InventoryTable({
     required this.items,
     required this.locations,
+    required this.mode,
     required this.vDataController,
     required this.vNameController,
     required this.hDataController,
@@ -498,6 +735,7 @@ class _InventoryTable extends StatelessWidget {
                       itemBuilder: (_, i) => _DataRow(
                         item: items[i],
                         locations: locations,
+                        mode: mode,
                         rowIndex: i,
                         height: rowH,
                         colWidth: dataColW,
@@ -659,6 +897,7 @@ class _NameCell extends StatelessWidget {
 class _DataRow extends StatelessWidget {
   final IngredientStock item;
   final List<LocationModel> locations;
+  final _ViewMode mode;
   final int rowIndex;
   final double height;
   final double colWidth;
@@ -667,6 +906,7 @@ class _DataRow extends StatelessWidget {
   const _DataRow({
     required this.item,
     required this.locations,
+    required this.mode,
     required this.rowIndex,
     required this.height,
     required this.colWidth,
@@ -676,28 +916,83 @@ class _DataRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isEven = rowIndex % 2 == 0;
+    final isToday = mode == _ViewMode.today;
 
     return Container(
       height: height,
       color: isEven ? const Color(0xFF0A1628) : Colors.transparent,
       child: Row(
         children: [
-          ...locations.map((l) => _StockCell(
-                stock: item.stockByLocation[l.id],
-                daysRemaining: item.daysRemainingByLocation[l.id],
-                status: item.statusAt(l.id),
-                width: colWidth,
-                height: height,
-              )),
+          ...locations.map((l) => isToday
+              ? _ConsumptionCell(
+                  qty: item.consumptionTodayByLocation[l.id],
+                  width: colWidth,
+                  height: height,
+                )
+              : _StockCell(
+                  stock: item.stockByLocation[l.id],
+                  daysRemaining: item.daysRemainingByLocation[l.id],
+                  status: item.statusAt(l.id),
+                  width: colWidth,
+                  height: height,
+                )),
           if (showTotal)
             _TotalCell(
-              total: item.totalStock,
+              total: isToday ? item.totalConsumptionToday : item.totalStock,
               width: colWidth,
               height: height,
             ),
         ],
       ),
     );
+  }
+}
+
+class _ConsumptionCell extends StatelessWidget {
+  final double? qty;
+  final double width;
+  final double height;
+
+  const _ConsumptionCell({
+    required this.qty,
+    required this.width,
+    required this.height,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (qty == null || qty == 0) {
+      return SizedBox(
+        width: width,
+        height: height,
+        child: Center(
+          child: Text('—',
+              style: GoogleFonts.inter(color: Colors.white12, fontSize: 13)),
+        ),
+      );
+    }
+
+    return Container(
+      width: width,
+      height: height,
+      color: const Color(0xFF7444fd).withOpacity(0.12),
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      alignment: Alignment.centerRight,
+      child: Text(
+        _fmt(qty!),
+        style: GoogleFonts.inter(
+          color: const Color(0xFFB794F6),
+          fontSize: 14,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+
+  String _fmt(double v) {
+    if (v == v.truncateToDouble()) return v.toInt().toString();
+    final s = v.toStringAsFixed(2);
+    return s.replaceAll(RegExp(r'\.?0+$'), '');
   }
 }
 
@@ -992,10 +1287,11 @@ class _ErrorState extends StatelessWidget {
 }
 
 class _EmptyState extends StatelessWidget {
-  const _EmptyState();
+  final String message;
+  const _EmptyState({this.message = 'Sin resultados'});
   @override
   Widget build(BuildContext context) => Center(
-        child: Text('Sin resultados',
+        child: Text(message,
             style: GoogleFonts.inter(color: Colors.white38, fontSize: 14)),
       );
 }

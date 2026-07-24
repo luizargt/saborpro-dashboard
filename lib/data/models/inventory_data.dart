@@ -6,6 +6,7 @@ class IngredientStock {
   final Map<String, double> stockByLocation;
   final Map<String, double> minStockByLocation;
   final Map<String, double> daysRemainingByLocation;
+  final Map<String, double> consumptionTodayByLocation;
 
   const IngredientStock({
     required this.name,
@@ -13,10 +14,16 @@ class IngredientStock {
     required this.stockByLocation,
     required this.minStockByLocation,
     this.daysRemainingByLocation = const {},
+    this.consumptionTodayByLocation = const {},
   });
 
   double get totalStock =>
       stockByLocation.values.fold(0.0, (a, b) => a + b);
+
+  double get totalConsumptionToday =>
+      consumptionTodayByLocation.values.fold(0.0, (a, b) => a + b);
+
+  bool get hasConsumptionToday => totalConsumptionToday > 0;
 
   StockStatus statusAt(String locationId) {
     final stock = stockByLocation[locationId];
