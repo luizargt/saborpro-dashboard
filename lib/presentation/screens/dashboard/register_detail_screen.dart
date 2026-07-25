@@ -192,39 +192,14 @@ class _RegisterDetailScreenState extends State<RegisterDetailScreen>
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator(color: Color(0xFF7444fd)))
-          : Column(
+          : TabBarView(
+              controller: _tabs,
               children: [
-                Container(
-                  width: double.infinity,
-                  color: const Color(0xFFF59E0B).withOpacity(0.12),
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.construction_rounded, size: 14, color: Color(0xFFF59E0B)),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Esta sección está en desarrollo',
-                        style: GoogleFonts.inter(
-                          color: const Color(0xFFF59E0B),
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
+                _OrdersTab(
+                  orders: _orders,
+                  locationNames: widget.locationNames,
                 ),
-                Expanded(
-                  child: TabBarView(
-                    controller: _tabs,
-                    children: [
-                      _OrdersTab(
-                        orders: _orders,
-                        locationNames: widget.locationNames,
-                      ),
-                      _ExpensesTab(expenses: _expenses),
-                    ],
-                  ),
-                ),
+                _ExpensesTab(expenses: _expenses),
               ],
             ),
     );
