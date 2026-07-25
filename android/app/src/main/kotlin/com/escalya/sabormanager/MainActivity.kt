@@ -1,4 +1,4 @@
-package com.saborpro.saborpro_reports
+package com.escalya.sabormanager
 
 import io.flutter.embedding.android.FlutterFragmentActivity
 

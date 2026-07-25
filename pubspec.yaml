@@ -1,7 +1,7 @@
 name: saborpro_reports
 description: SaborPro Analytics - Dashboard de reportes para gerentes
 publish_to: 'none'
-version: 1.0.3+7
+version: 1.0.3+10
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -46,12 +46,12 @@ dev_dependencies:
 flutter_launcher_icons:
   android: true
   ios: true
-  image_path: "assets/images/Gerencia.png"
+  image_path: "assets/images/SaborManager.png"
   adaptive_icon_background: "#0F172A"
-  adaptive_icon_foreground: "assets/images/Gerencia.png"
+  adaptive_icon_foreground: "assets/images/SaborManager.png"
   web:
     generate: true
-    image_path: "assets/images/Gerencia.png"
+    image_path: "assets/images/SaborManager.png"
 
 flutter:
   uses-material-design: true
