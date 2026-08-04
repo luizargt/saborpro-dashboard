@@ -16,12 +16,15 @@ class InventoryProvider extends ChangeNotifier {
   bool _loading = false;
   String? _error;
   DateTime? _lastUpdated;
+  // Claves (yyyy-MM-dd) de los últimos 7 días, ordenadas de más antigua a más reciente.
+  List<String> _last7DayKeys = [];
 
   List<LocationModel> get locations => _locations;
   List<IngredientStock> get items => _items;
   bool get loading => _loading;
   String? get error => _error;
   DateTime? get lastUpdated => _lastUpdated;
+  List<String> get last7DayKeys => _last7DayKeys;
 
   int get criticalCount =>
       _items.where((i) => i.worstStatus == StockStatus.critical).length;
@@ -60,12 +63,10 @@ class InventoryProvider extends ChangeNotifier {
       final results = await Future.wait([
         _fetchIngredients(),
         _fetchConsumption(),
-        _fetchConsumptionToday(),
       ]);
 
       final rawItems = results[0] as List<_RawIngredient>;
-      final consumption = results[1] as Map<String, Map<String, double>>;
-      final consumptionToday = results[2] as Map<String, Map<String, double>>;
+      final consumption = results[1] as _ConsumptionResult;
 
       // Agrupar por nombre a través de sucursales
       final map = <String, _AggIngredient>{};
@@ -75,14 +76,14 @@ class InventoryProvider extends ChangeNotifier {
         agg.minStock[raw.locationId] = raw.minStock;
 
         // Días de stock = stockActual / consumoDiarioPromedio
-        final dailyAvg = consumption[raw.docId]?[raw.locationId];
+        final dailyAvg = consumption.dailyAvg[raw.docId]?[raw.locationId];
         if (dailyAvg != null && dailyAvg > 0 && raw.stock >= 0) {
           agg.daysRemaining[raw.locationId] = raw.stock / dailyAvg;
         }
 
-        final today = consumptionToday[raw.docId]?[raw.locationId];
-        if (today != null && today > 0) {
-          agg.consumptionToday[raw.locationId] = today;
+        final byDay = consumption.byDay[raw.docId]?[raw.locationId];
+        if (byDay != null && byDay.isNotEmpty) {
+          agg.consumptionByDay[raw.locationId] = Map.from(byDay);
         }
       }
 
@@ -92,10 +93,11 @@ class InventoryProvider extends ChangeNotifier {
             stockByLocation: Map.from(entry.value.stock),
             minStockByLocation: Map.from(entry.value.minStock),
             daysRemainingByLocation: Map.from(entry.value.daysRemaining),
-            consumptionTodayByLocation: Map.from(entry.value.consumptionToday),
+            consumptionByDayByLocation: Map.from(entry.value.consumptionByDay),
           )).toList()
         ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
 
+      _last7DayKeys = consumption.last7DayKeys;
       _lastUpdated = DateTime.now();
     } catch (e) {
       _error = 'Error cargando inventario: $e';
@@ -137,12 +139,19 @@ class InventoryProvider extends ChangeNotifier {
     return result;
   }
 
-  // Retorna: Map<ingredientDocId, Map<locationId, consumoDiarioPromedio>>
-  // El divisor es los días reales con datos (igual que la app principal), no siempre 30.
-  Future<Map<String, Map<String, double>>> _fetchConsumption() async {
+  static String _dayKey(DateTime d) =>
+      '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+  // Calcula, a partir de una única consulta de 30 días:
+  // - el promedio diario de consumo (para "días restantes")
+  // - el desglose de consumo por día para los últimos 7 días (incluye hoy)
+  Future<_ConsumptionResult> _fetchConsumption() async {
     try {
       final now = DateTime.now();
       final thirtyDaysAgo = now.subtract(const Duration(days: 30));
+      final last7DayKeys = List.generate(
+          7, (i) => _dayKey(now.subtract(Duration(days: 6 - i))));
+      final last7Start = _dayKey(now.subtract(const Duration(days: 6)));
 
       // Acotamos por createdAt >= hace 30 días en el servidor para no traer toda
       // la colección histórica de movimientos (crecía sin límite y hacía lenta la
@@ -157,10 +166,12 @@ class InventoryProvider extends ChangeNotifier {
           .where('createdAt', isGreaterThanOrEqualTo: thirtyDaysAgoIso)
           .get();
 
-      // totals[ingredientId][locationId] = cantidad consumida
+      // totals[ingredientId][locationId] = cantidad consumida (30 días)
       final totals = <String, Map<String, double>>{};
       // oldest[ingredientId][locationId] = fecha del movimiento más antiguo
       final oldest = <String, Map<String, DateTime>>{};
+      // byDay[ingredientId][locationId][dayKey] = cantidad consumida ese día
+      final byDay = <String, Map<String, Map<String, double>>>{};
 
       for (final doc in snap.docs) {
         final data = doc.data();
@@ -169,10 +180,8 @@ class InventoryProvider extends ChangeNotifier {
 
         // Filtrar por los últimos 30 días en Dart
         final createdAtRaw = data['createdAt'] as String? ?? '';
-        if (createdAtRaw.isNotEmpty) {
-          final date = DateTime.tryParse(createdAtRaw);
-          if (date == null || date.isBefore(thirtyDaysAgo)) continue;
-        }
+        final date = createdAtRaw.isNotEmpty ? DateTime.tryParse(createdAtRaw) : null;
+        if (date == null || date.isBefore(thirtyDaysAgo)) continue;
 
         final ingredientId = data['ingredientId'] as String? ?? '';
         final locationId = data['locationId'] as String? ?? '';
@@ -185,23 +194,27 @@ class InventoryProvider extends ChangeNotifier {
             (totals[ingredientId]![locationId] ?? 0) + qty;
 
         // Rastrear el movimiento más antiguo para calcular días reales
-        {
-          final date = createdAtRaw.isNotEmpty ? DateTime.tryParse(createdAtRaw) : null;
-          if (date != null) {
-            oldest.putIfAbsent(ingredientId, () => {});
-            final current = oldest[ingredientId]![locationId];
-            if (current == null || date.isBefore(current)) {
-              oldest[ingredientId]![locationId] = date;
-            }
-          }
+        oldest.putIfAbsent(ingredientId, () => {});
+        final current = oldest[ingredientId]![locationId];
+        if (current == null || date.isBefore(current)) {
+          oldest[ingredientId]![locationId] = date;
+        }
+
+        // Desglose por día, solo para los últimos 7 días
+        final dayKey = _dayKey(date);
+        if (dayKey.compareTo(last7Start) >= 0) {
+          byDay.putIfAbsent(ingredientId, () => {});
+          byDay[ingredientId]!.putIfAbsent(locationId, () => {});
+          byDay[ingredientId]![locationId]![dayKey] =
+              (byDay[ingredientId]![locationId]![dayKey] ?? 0) + qty;
         }
       }
 
       // Convertir a promedio diario usando días reales con datos (mínimo 1)
-      final result = <String, Map<String, double>>{};
+      final dailyAvg = <String, Map<String, double>>{};
       for (final entry in totals.entries) {
         final ingredientId = entry.key;
-        result[ingredientId] = {};
+        dailyAvg[ingredientId] = {};
         for (final locEntry in entry.value.entries) {
           final locationId = locEntry.key;
           final totalConsumed = locEntry.value;
@@ -209,50 +222,31 @@ class InventoryProvider extends ChangeNotifier {
           final actualDays = oldestDate != null
               ? now.difference(oldestDate).inDays.clamp(1, 30)
               : 30;
-          result[ingredientId]![locationId] = totalConsumed / actualDays;
+          dailyAvg[ingredientId]![locationId] = totalConsumed / actualDays;
         }
       }
-      return result;
+
+      return _ConsumptionResult(
+        dailyAvg: dailyAvg,
+        byDay: byDay,
+        last7DayKeys: last7DayKeys,
+      );
     } catch (e) {
       debugPrint('[Inventory] Sin datos de consumo: $e');
-      return {};
+      return _ConsumptionResult(dailyAvg: {}, byDay: {}, last7DayKeys: []);
     }
   }
+}
 
-  // Retorna: Map<ingredientDocId, Map<locationId, cantidadConsumidaHoy>>
-  Future<Map<String, Map<String, double>>> _fetchConsumptionToday() async {
-    try {
-      final now = DateTime.now();
-      final startOfDay = DateTime(now.year, now.month, now.day);
-      final startOfDayIso = startOfDay.toIso8601String();
-
-      final snap = await _firestore.instance
-          .collection('inventoryMovements')
-          .where('tenantId', isEqualTo: _tenantId)
-          .where('createdAt', isGreaterThanOrEqualTo: startOfDayIso)
-          .get();
-
-      final totals = <String, Map<String, double>>{};
-      for (final doc in snap.docs) {
-        final data = doc.data();
-        final type = data['type'] as String? ?? '';
-        if (type != 'salidaVenta' && type != 'salidaManual') continue;
-
-        final ingredientId = data['ingredientId'] as String? ?? '';
-        final locationId = data['locationId'] as String? ?? '';
-        final qty = (data['quantity'] as num? ?? 0).toDouble().abs();
-        if (ingredientId.isEmpty || locationId.isEmpty || qty <= 0) continue;
-
-        totals.putIfAbsent(ingredientId, () => {});
-        totals[ingredientId]![locationId] =
-            (totals[ingredientId]![locationId] ?? 0) + qty;
-      }
-      return totals;
-    } catch (e) {
-      debugPrint('[Inventory] Sin datos de consumo de hoy: $e');
-      return {};
-    }
-  }
+class _ConsumptionResult {
+  final Map<String, Map<String, double>> dailyAvg;
+  final Map<String, Map<String, Map<String, double>>> byDay;
+  final List<String> last7DayKeys;
+  const _ConsumptionResult({
+    required this.dailyAvg,
+    required this.byDay,
+    required this.last7DayKeys,
+  });
 }
 
 class _RawIngredient {
@@ -273,6 +267,6 @@ class _AggIngredient {
   final stock = <String, double>{};
   final minStock = <String, double>{};
   final daysRemaining = <String, double>{};
-  final consumptionToday = <String, double>{};
+  final consumptionByDay = <String, Map<String, double>>{};
   _AggIngredient({required this.unit});
 }

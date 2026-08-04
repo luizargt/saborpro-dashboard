@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../../../data/models/inventory_data.dart';
 import '../../../presentation/providers/inventory_provider.dart';
@@ -7,7 +8,7 @@ import '../../../presentation/providers/dashboard_provider.dart';
 import '../../../core/services/location_service.dart';
 import '../../../core/services/export_service.dart';
 
-enum _ViewMode { forecast, today }
+enum _ViewMode { forecast, week }
 
 class InventoryScreen extends StatefulWidget {
   const InventoryScreen({super.key});
@@ -65,7 +66,8 @@ class _InventoryScreenState extends State<InventoryScreen> {
     super.dispose();
   }
 
-  List<IngredientStock> _filtered(List<IngredientStock> all, String? locationId) {
+  List<IngredientStock> _filtered(
+      List<IngredientStock> all, String? locationId, List<String> dayKeys) {
     var list = all;
     if (locationId != null) {
       list = list.where((i) => i.stockByLocation.containsKey(locationId)).toList();
@@ -75,23 +77,15 @@ class _InventoryScreenState extends State<InventoryScreen> {
           .where((i) => i.name.toLowerCase().contains(_query.toLowerCase()))
           .toList();
     }
-    if (_mode == _ViewMode.today) {
-      list = list.where((i) {
-        final consumed = locationId != null
-            ? (i.consumptionTodayByLocation[locationId] ?? 0)
-            : i.totalConsumptionToday;
-        return consumed > 0;
-      }).toList();
+    if (_mode == _ViewMode.week) {
+      final locIds = locationId != null ? [locationId] : null;
+      list = list
+          .where((i) => i.totalConsumptionLast7Days(dayKeys, locIds) > 0)
+          .toList();
       list = List.of(list)
-        ..sort((a, b) {
-          final ca = locationId != null
-              ? (a.consumptionTodayByLocation[locationId] ?? 0)
-              : a.totalConsumptionToday;
-          final cb = locationId != null
-              ? (b.consumptionTodayByLocation[locationId] ?? 0)
-              : b.totalConsumptionToday;
-          return cb.compareTo(ca);
-        });
+        ..sort((a, b) => b
+            .totalConsumptionLast7Days(dayKeys, locIds)
+            .compareTo(a.totalConsumptionLast7Days(dayKeys, locIds)));
       return list;
     }
     if (_filter != null) {
@@ -111,7 +105,8 @@ class _InventoryScreenState extends State<InventoryScreen> {
     final locs = selectedLocationId != null
         ? allLocs.where((l) => l.id == selectedLocationId).toList()
         : allLocs;
-    final items = _filtered(prov.items, selectedLocationId);
+    final dayKeys = prov.last7DayKeys;
+    final items = _filtered(prov.items, selectedLocationId, dayKeys);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -132,9 +127,10 @@ class _InventoryScreenState extends State<InventoryScreen> {
         else if (items.isEmpty)
           Expanded(
             child: _EmptyState(
-              message: _mode == _ViewMode.today
-                  ? 'Ningún ingrediente tuvo consumo hoy todavía'
-                  : 'Sin resultados',
+              message: switch (_mode) {
+                _ViewMode.week => 'Ningún ingrediente tuvo consumo en los últimos 7 días',
+                _ViewMode.forecast => 'Sin resultados',
+              },
             ),
           )
         else
@@ -143,6 +139,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
               items: items,
               locations: locs,
               mode: _mode,
+              dayKeys: dayKeys,
               vDataController: _vDataController,
               vNameController: _vNameController,
               hDataController: _hDataController,
@@ -328,8 +325,7 @@ class _SearchAndFilter extends StatelessWidget {
   }
 
   List<Widget> _filterChips() {
-    final isToday = mode == _ViewMode.today;
-    if (isToday) return const [];
+    if (mode != _ViewMode.forecast) return const [];
     return [
       _FilterChip(
         label: 'Todos',
@@ -373,7 +369,7 @@ class _SearchAndFilter extends StatelessWidget {
           // caben en una sola fila: se apilan en dos filas para evitar overflow.
           final narrow = constraints.maxWidth < 520;
           if (narrow) {
-            final isToday = mode == _ViewMode.today;
+            final isForecast = mode == _ViewMode.forecast;
             return Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -382,7 +378,7 @@ class _SearchAndFilter extends StatelessWidget {
                 Row(
                   children: [
                     _ModeToggle(mode: mode, onChanged: onModeChanged),
-                    if (!isToday) ...[
+                    if (isForecast) ...[
                       const SizedBox(width: 8),
                       _StatusFilterButton(filter: filter, onFilter: onFilter),
                     ],
@@ -430,9 +426,9 @@ class _ModeToggle extends StatelessWidget {
             onTap: () => onChanged(_ViewMode.forecast),
           ),
           _ModeSegment(
-            label: 'Consumo hoy',
-            active: mode == _ViewMode.today,
-            onTap: () => onChanged(_ViewMode.today),
+            label: 'Consumos 7 días',
+            active: mode == _ViewMode.week,
+            onTap: () => onChanged(_ViewMode.week),
           ),
         ],
       ),
@@ -617,6 +613,7 @@ class _InventoryTable extends StatelessWidget {
   final List<IngredientStock> items;
   final List<LocationModel> locations;
   final _ViewMode mode;
+  final List<String> dayKeys;
   final ScrollController vDataController;
   final ScrollController vNameController;
   final ScrollController hDataController;
@@ -631,6 +628,7 @@ class _InventoryTable extends StatelessWidget {
     required this.items,
     required this.locations,
     required this.mode,
+    required this.dayKeys,
     required this.vDataController,
     required this.vNameController,
     required this.hDataController,
@@ -642,10 +640,15 @@ class _InventoryTable extends StatelessWidget {
     required this.headerH,
   });
 
+  static String _dayLabel(String dayKey) =>
+      DateFormat('E d', 'es').format(DateTime.parse(dayKey));
+
   @override
   Widget build(BuildContext context) {
-    final showTotal = locations.length > 1;
-    final totalW = (locations.length + (showTotal ? 1 : 0)) * dataColW;
+    final isWeek = mode == _ViewMode.week;
+    final colCount = isWeek ? dayKeys.length : locations.length;
+    final showTotal = isWeek ? dayKeys.length > 1 : locations.length > 1;
+    final totalW = (colCount + (showTotal ? 1 : 0)) * dataColW;
 
     return Column(
       children: [
@@ -681,10 +684,16 @@ class _InventoryTable extends StatelessWidget {
                     width: totalW,
                     child: Row(
                       children: [
-                        ...locations.map((l) => _HeaderCell(
-                              label: _abbrev(l.name),
-                              width: dataColW,
-                            )),
+                        if (isWeek)
+                          ...dayKeys.map((d) => _HeaderCell(
+                                label: _dayLabel(d),
+                                width: dataColW,
+                              ))
+                        else
+                          ...locations.map((l) => _HeaderCell(
+                                label: _abbrev(l.name),
+                                width: dataColW,
+                              )),
                         if (showTotal)
                           _HeaderCell(
                             label: 'Total',
@@ -736,6 +745,7 @@ class _InventoryTable extends StatelessWidget {
                         item: items[i],
                         locations: locations,
                         mode: mode,
+                        dayKeys: dayKeys,
                         rowIndex: i,
                         height: rowH,
                         colWidth: dataColW,
@@ -898,6 +908,7 @@ class _DataRow extends StatelessWidget {
   final IngredientStock item;
   final List<LocationModel> locations;
   final _ViewMode mode;
+  final List<String> dayKeys;
   final int rowIndex;
   final double height;
   final double colWidth;
@@ -907,6 +918,7 @@ class _DataRow extends StatelessWidget {
     required this.item,
     required this.locations,
     required this.mode,
+    required this.dayKeys,
     required this.rowIndex,
     required this.height,
     required this.colWidth,
@@ -916,20 +928,22 @@ class _DataRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isEven = rowIndex % 2 == 0;
-    final isToday = mode == _ViewMode.today;
+    final isWeek = mode == _ViewMode.week;
+    final locIds = locations.map((l) => l.id);
 
     return Container(
       height: height,
       color: isEven ? const Color(0xFF0A1628) : Colors.transparent,
       child: Row(
         children: [
-          ...locations.map((l) => isToday
-              ? _ConsumptionCell(
-                  qty: item.consumptionTodayByLocation[l.id],
+          if (isWeek)
+            ...dayKeys.map((d) => _ConsumptionCell(
+                  qty: item.consumptionOnDay(d, locIds),
                   width: colWidth,
                   height: height,
-                )
-              : _StockCell(
+                ))
+          else
+            ...locations.map((l) => _StockCell(
                   stock: item.stockByLocation[l.id],
                   daysRemaining: item.daysRemainingByLocation[l.id],
                   status: item.statusAt(l.id),
@@ -938,7 +952,9 @@ class _DataRow extends StatelessWidget {
                 )),
           if (showTotal)
             _TotalCell(
-              total: isToday ? item.totalConsumptionToday : item.totalStock,
+              total: isWeek
+                  ? item.totalConsumptionLast7Days(dayKeys, locIds)
+                  : item.totalStock,
               width: colWidth,
               height: height,
             ),

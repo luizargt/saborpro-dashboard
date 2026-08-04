@@ -6,7 +6,8 @@ class IngredientStock {
   final Map<String, double> stockByLocation;
   final Map<String, double> minStockByLocation;
   final Map<String, double> daysRemainingByLocation;
-  final Map<String, double> consumptionTodayByLocation;
+  // locationId -> dayKey (yyyy-MM-dd) -> cantidad consumida ese día
+  final Map<String, Map<String, double>> consumptionByDayByLocation;
 
   const IngredientStock({
     required this.name,
@@ -14,16 +15,27 @@ class IngredientStock {
     required this.stockByLocation,
     required this.minStockByLocation,
     this.daysRemainingByLocation = const {},
-    this.consumptionTodayByLocation = const {},
+    this.consumptionByDayByLocation = const {},
   });
 
   double get totalStock =>
       stockByLocation.values.fold(0.0, (a, b) => a + b);
 
-  double get totalConsumptionToday =>
-      consumptionTodayByLocation.values.fold(0.0, (a, b) => a + b);
+  // Suma el consumo del día [dayKey] en las sucursales indicadas
+  // (todas las conocidas si [locationIds] es null).
+  double consumptionOnDay(String dayKey, [Iterable<String>? locationIds]) {
+    final ids = locationIds ?? consumptionByDayByLocation.keys;
+    var total = 0.0;
+    for (final id in ids) {
+      total += consumptionByDayByLocation[id]?[dayKey] ?? 0;
+    }
+    return total;
+  }
 
-  bool get hasConsumptionToday => totalConsumptionToday > 0;
+  double totalConsumptionLast7Days(List<String> dayKeys,
+      [Iterable<String>? locationIds]) {
+    return dayKeys.fold(0.0, (sum, d) => sum + consumptionOnDay(d, locationIds));
+  }
 
   StockStatus statusAt(String locationId) {
     final stock = stockByLocation[locationId];
