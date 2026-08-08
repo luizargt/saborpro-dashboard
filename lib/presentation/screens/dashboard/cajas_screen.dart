@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
@@ -12,6 +13,7 @@ class CajasScreen extends StatelessWidget {
   final List<Map<String, dynamic>> expenseItems;
   final Map<String, String> locationNames;
   final String? tenantId;
+  final VoidCallback? onRegisterClosed;
 
   const CajasScreen({
     super.key,
@@ -21,6 +23,7 @@ class CajasScreen extends StatelessWidget {
     required this.expenseItems,
     required this.locationNames,
     this.tenantId,
+    this.onRegisterClosed,
   });
 
   @override
@@ -43,7 +46,7 @@ class CajasScreen extends StatelessWidget {
         if (open.isNotEmpty) ...[
           _sectionLabel('En caja ahora'),
           const SizedBox(height: 8),
-          ...open.map((r) => _OpenRegisterCard(register: r)),
+          ...open.map((r) => _OpenRegisterCard(register: r, onClosed: onRegisterClosed)),
           const SizedBox(height: 20),
         ],
         if (closed.isNotEmpty) ...[
@@ -75,12 +78,85 @@ class CajasScreen extends StatelessWidget {
 }
 
 // ── CAJA ABIERTA ─────────────────────────────────────────────────────────────
-class _OpenRegisterCard extends StatelessWidget {
+class _OpenRegisterCard extends StatefulWidget {
   final CashRegisterSummary register;
-  const _OpenRegisterCard({required this.register});
+  final VoidCallback? onClosed;
+  const _OpenRegisterCard({required this.register, this.onClosed});
+
+  @override
+  State<_OpenRegisterCard> createState() => _OpenRegisterCardState();
+}
+
+class _OpenRegisterCardState extends State<_OpenRegisterCard> {
+  bool _closing = false;
+
+  Future<void> _confirmAndClose() async {
+    final register = widget.register;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E293B),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text('Cerrar caja (debug)', style: GoogleFonts.inter(color: Colors.white)),
+        content: Text(
+          'Se forzará el cierre de la caja de ${register.userName}, igualando los montos '
+          'contados a los esperados (sin diferencia). Solo disponible en modo debug.\n\n'
+          'Esta acción no se puede deshacer.',
+          style: GoogleFonts.inter(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text('Cancelar', style: GoogleFonts.inter(color: Colors.white54)),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(backgroundColor: const Color(0xFFEF4444)),
+            child: const Text('Cerrar caja'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _closing = true);
+    try {
+      final now = Timestamp.now();
+      await FirebaseFirestore.instance.collection('cashRegisters').doc(register.id).set({
+        'status': 'closed',
+        'closedAt': now,
+        'updatedAt': now,
+        'syncedAt': now,
+        'sync_status': 'synced',
+        'actualCash': register.expectedCash,
+        'actualCard': register.expectedCard,
+        'actualTransfer': register.expectedTransfer,
+        'actualPedidosya': register.expectedPedidosya,
+        'actualUbereats': register.expectedUbereats,
+        'differenceCash': 0.0,
+        'differenceCard': 0.0,
+        'differenceTransfer': 0.0,
+        'differencePedidosya': 0.0,
+        'differenceUbereats': 0.0,
+        'closingNotes': 'Cierre forzado (debug) desde Sabor Reports',
+      }, SetOptions(merge: true));
+
+      widget.onClosed?.call();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error al cerrar caja: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _closing = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    final register = widget.register;
     final timeFmt = DateFormat('hh:mm a');
     final durStr = _formatDuration(register.duration);
 
@@ -128,6 +204,29 @@ class _OpenRegisterCard extends StatelessWidget {
               ],
             ),
           ),
+          if (kDebugMode) ...[
+            if (_closing)
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 8),
+                child: SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFEF4444)),
+                ),
+              )
+            else
+              IconButton(
+                onPressed: _confirmAndClose,
+                icon: const Icon(Icons.close_rounded, size: 18),
+                color: const Color(0xFFEF4444),
+                tooltip: 'Cerrar caja (debug)',
+                style: IconButton.styleFrom(
+                  backgroundColor: const Color(0xFFEF4444).withOpacity(0.1),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+              ),
+            const SizedBox(width: 8),
+          ],
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             decoration: BoxDecoration(
