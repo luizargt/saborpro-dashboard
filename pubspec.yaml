@@ -46,9 +46,10 @@ dev_dependencies:
 flutter_launcher_icons:
   android: true
   ios: true
+  # Icono de app: version opaca. iOS rechaza iconos con canal alfa.
   image_path: "assets/images/SaborManager.png"
   adaptive_icon_background: "#0F172A"
-  adaptive_icon_foreground: "assets/images/SaborManager.png"
+  adaptive_icon_foreground: "assets/images/SaborManagerLogo.png"
   web:
     generate: true
     image_path: "assets/images/SaborManager.png"

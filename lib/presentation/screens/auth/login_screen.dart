@@ -262,7 +262,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Image.asset(
-                    'assets/images/SaborSuiteLogo.png',
+                    'assets/images/SaborManagerLogo.png',
                     width: 72,
                     height: 72,
                     fit: BoxFit.contain,
@@ -282,7 +282,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     'Manager',
                     textAlign: TextAlign.center,
                     style: GoogleFonts.inter(
-                      color: const Color(0xFF7444fd),
+                      color: Colors.white,
                       fontSize: 32,
                       fontWeight: FontWeight.w800,
                     ),

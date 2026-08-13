@@ -185,7 +185,7 @@ class _Rail extends StatelessWidget {
           const SizedBox(height: 20),
           // Logo
           Image.asset(
-            'assets/images/SaborSuiteLogo.png',
+            'assets/images/SaborManagerLogo.png',
             width: 44,
             height: 44,
             fit: BoxFit.contain,
@@ -193,8 +193,9 @@ class _Rail extends StatelessWidget {
           const SizedBox(height: 6),
           Text(
             'Sabor Manager',
+            textAlign: TextAlign.center,
             style: GoogleFonts.inter(
-              color: const Color(0xFF7444fd),
+              color: Colors.white,
               fontSize: 9,
               fontWeight: FontWeight.w800,
               letterSpacing: 0.2,
