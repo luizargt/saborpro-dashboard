@@ -13,53 +13,55 @@ class ExpensesScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final provider = context.watch<DashboardProvider>();
 
-    return RefreshIndicator(
-      color: const Color(0xFF7444fd),
-      backgroundColor: const Color(0xFF1E293B),
-      onRefresh: provider.load,
-      child: CustomScrollView(
-        slivers: [
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Builder(builder: (ctx) {
-                    final wide = MediaQuery.of(ctx).size.width >= 600;
-                    if (wide) {
-                      return const Row(
-                        children: [
-                          Expanded(child: DateNavigator()),
-                          SizedBox(width: 8),
-                          LocationSelector(),
-                        ],
-                      );
-                    }
-                    return const DateNavigator();
-                  }),
-                  const SizedBox(height: 16),
-                  if (provider.loading)
-                    const SizedBox(
-                      height: 300,
-                      child: Center(
-                        child: CircularProgressIndicator(color: Color(0xFF7444fd)),
+    return LocationSwipeArea(
+      child: RefreshIndicator(
+        color: const Color(0xFF7444fd),
+        backgroundColor: const Color(0xFF1E293B),
+        onRefresh: provider.load,
+        child: CustomScrollView(
+          slivers: [
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Builder(builder: (ctx) {
+                      final wide = MediaQuery.of(ctx).size.width >= 600;
+                      if (wide) {
+                        return const Row(
+                          children: [
+                            Expanded(child: LocationTabsBar()),
+                            SizedBox(width: 8),
+                            DateSelectorChip(),
+                          ],
+                        );
+                      }
+                      return const LocationTabsBar();
+                    }),
+                    const SizedBox(height: 16),
+                    if (provider.loading)
+                      const SizedBox(
+                        height: 300,
+                        child: Center(
+                          child: CircularProgressIndicator(color: Color(0xFF7444fd)),
+                        ),
+                      )
+                    else if (provider.error != null)
+                      _ErrorView(error: provider.error!, onRetry: provider.load)
+                    else
+                      _ExpensesBody(
+                        expenseItems: provider.expenseItems,
+                        purchaseItems: provider.purchaseItems,
+                        expenseRawCount: provider.expenseRawCount,
+                        expenseSampleDate: provider.expenseSampleDate,
                       ),
-                    )
-                  else if (provider.error != null)
-                    _ErrorView(error: provider.error!, onRetry: provider.load)
-                  else
-                    _ExpensesBody(
-                      expenseItems: provider.expenseItems,
-                      purchaseItems: provider.purchaseItems,
-                      expenseRawCount: provider.expenseRawCount,
-                      expenseSampleDate: provider.expenseSampleDate,
-                    ),
-                ],
+                  ],
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

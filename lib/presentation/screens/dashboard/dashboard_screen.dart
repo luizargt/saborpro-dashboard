@@ -6,14 +6,13 @@ import '../../../presentation/providers/dashboard_provider.dart';
 import '../../../presentation/widgets/period_selector.dart';
 import '../../../presentation/widgets/location_selector.dart';
 import '../../../presentation/widgets/metric_cards.dart';
+import '../../../presentation/widgets/location_sales_breakdown.dart';
 import '../../../presentation/widgets/sales_chart.dart';
 import '../../../presentation/widgets/products_list.dart';
 import '../../../presentation/widgets/summary_table.dart';
 import '../../../presentation/widgets/payment_method_breakdown.dart';
-import 'cajas_screen.dart';
 
 enum DashboardView { chart, table }
-enum DashboardTab { resumen, cajas }
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -24,15 +23,12 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   DashboardView _view = DashboardView.chart;
-  DashboardTab _tab = DashboardTab.resumen;
 
   @override
   Widget build(BuildContext context) {
     return _DashboardBody(
       view: _view,
       onViewChanged: (v) => setState(() => _view = v),
-      tab: _tab,
-      onTabChanged: (t) => setState(() => _tab = t),
     );
   }
 }
@@ -40,129 +36,62 @@ class _DashboardScreenState extends State<DashboardScreen> {
 class _DashboardBody extends StatelessWidget {
   final DashboardView view;
   final ValueChanged<DashboardView> onViewChanged;
-  final DashboardTab tab;
-  final ValueChanged<DashboardTab> onTabChanged;
 
   const _DashboardBody({
     required this.view,
     required this.onViewChanged,
-    required this.tab,
-    required this.onTabChanged,
   });
 
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<DashboardProvider>();
 
-    return RefreshIndicator(
-      color: const Color(0xFF7444fd),
-      backgroundColor: const Color(0xFF1E293B),
-      onRefresh: provider.load,
-      child: CustomScrollView(
-        slivers: [
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  // Fecha: ancho completo en móvil, comparte con sucursal en desktop
-                  Builder(builder: (ctx) {
-                    final wide = MediaQuery.of(ctx).size.width >= 600;
-                    if (wide) {
-                      return Row(
-                        children: [
-                          const Expanded(child: DateNavigator()),
-                          const SizedBox(width: 8),
-                          const LocationSelector(),
-                        ],
-                      );
-                    }
-                    return const DateNavigator();
-                  }),
-                  const SizedBox(height: 12),
-                  // Tab selector
-                  _TabSelector(tab: tab, onChanged: onTabChanged),
-                  const SizedBox(height: 16),
-                  // Contenido
-                  if (provider.loading)
-                    const _LoadingState()
-                  else if (provider.error != null)
-                    _ErrorState(error: provider.error!, onRetry: provider.load)
-                  else if (tab == DashboardTab.resumen)
-                    provider.metrics != null
-                        ? _DataContent(
-                            provider: provider,
-                            view: view,
-                            onViewChanged: onViewChanged,
-                          )
-                        : const _EmptyState()
-                  else
-                    CajasScreen(
-                      open: provider.openRegisters,
-                      closed: provider.closedRegisters,
-                      orders: provider.currentOrders,
-                      expenseItems: provider.expenseItems,
-                      locationNames: {
-                        for (final l in provider.locations) l.id: l.name,
-                      },
-                      tenantId: provider.tenantId,
-                      onRegisterClosed: provider.load,
-                    ),
-                ],
+    return LocationSwipeArea(
+      child: RefreshIndicator(
+        color: const Color(0xFF7444fd),
+        backgroundColor: const Color(0xFF1E293B),
+        onRefresh: provider.load,
+        child: CustomScrollView(
+          slivers: [
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // Sucursales: ancho completo en móvil, comparte con fecha en desktop
+                    Builder(builder: (ctx) {
+                      final wide = MediaQuery.of(ctx).size.width >= 600;
+                      if (wide) {
+                        return Row(
+                          children: [
+                            const Expanded(child: LocationTabsBar()),
+                            const SizedBox(width: 8),
+                            const DateSelectorChip(),
+                          ],
+                        );
+                      }
+                      return const LocationTabsBar();
+                    }),
+                    const SizedBox(height: 16),
+                    // Contenido
+                    if (provider.loading)
+                      const _LoadingState()
+                    else if (provider.error != null)
+                      _ErrorState(error: provider.error!, onRetry: provider.load)
+                    else if (provider.metrics != null)
+                      _DataContent(
+                        provider: provider,
+                        view: view,
+                        onViewChanged: onViewChanged,
+                      )
+                    else
+                      const _EmptyState(),
+                  ],
+                ),
               ),
             ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _TabSelector extends StatelessWidget {
-  final DashboardTab tab;
-  final ValueChanged<DashboardTab> onChanged;
-
-  const _TabSelector({required this.tab, required this.onChanged});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: const Color(0xFF0F172A),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      padding: const EdgeInsets.all(3),
-      child: Row(
-        children: [
-          _tab(DashboardTab.resumen, 'Resumen'),
-          _tab(DashboardTab.cajas, 'Cajas'),
-        ],
-      ),
-    );
-  }
-
-  Widget _tab(DashboardTab t, String label) {
-    final active = tab == t;
-    return Expanded(
-      child: GestureDetector(
-        onTap: () => onChanged(t),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          padding: const EdgeInsets.symmetric(vertical: 9),
-          decoration: BoxDecoration(
-            color: active ? const Color(0xFF7444fd) : Colors.transparent,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          alignment: Alignment.center,
-          child: Text(
-            label,
-            style: GoogleFonts.inter(
-              color: active ? Colors.white : Colors.white54,
-              fontSize: 13,
-              fontWeight: active ? FontWeight.w600 : FontWeight.w400,
-            ),
-          ),
+          ],
         ),
       ),
     );
@@ -187,6 +116,15 @@ class _DataContent extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         MetricCards(metrics: metrics),
+        if (provider.selectedLocationId == null) ...[
+          const SizedBox(height: 20),
+          LocationSalesBreakdown(
+            locations: provider.locations,
+            orders: provider.currentOrders,
+            expenseItems: provider.expenseItems,
+            purchaseItems: provider.purchaseItems,
+          ),
+        ],
         const SizedBox(height: 20),
         // Toggle pegado al contenido de visualización
         Container(
@@ -202,14 +140,17 @@ class _DataContent extends StatelessWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
-                    view == DashboardView.chart ? _chartTitle(provider.range.mode) : 'Resumen financiero',
-                    style: GoogleFonts.inter(
-                      color: Colors.white,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
+                  Expanded(
+                    child: Text(
+                      view == DashboardView.chart ? _chartTitle(provider.range.mode) : 'Resumen financiero',
+                      style: GoogleFonts.inter(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
+                  const SizedBox(width: 8),
                   _ViewToggle(view: view, onChanged: onViewChanged),
                 ],
               ),
@@ -217,6 +158,7 @@ class _DataContent extends StatelessWidget {
               if (view == DashboardView.chart)
                 SalesChart(
                   points: metrics.chartPoints,
+                  prevPoints: metrics.prevChartPoints,
                   mode: provider.range.mode,
                   weeklyHourly: provider.weeklyHourly,
                   monthlyDailyPoints: provider.monthlyDailyPoints,
@@ -267,9 +209,9 @@ class _DataContent extends StatelessWidget {
   String _chartTitle(PeriodMode mode) {
     switch (mode) {
       case PeriodMode.day: return 'Ventas por hora';
-      case PeriodMode.week: return 'Ventas diarias por semana';
-      case PeriodMode.month: return 'Ventas por semana';
-      case PeriodMode.year: return 'Ventas por mes';
+      case PeriodMode.week: return 'Ventas de cada semana del mes';
+      case PeriodMode.month: return 'Ventas de cada semana · vs mes pasado';
+      case PeriodMode.year: return 'Ventas por mes · vs año pasado';
       case PeriodMode.custom: return 'Ventas del período';
     }
   }
@@ -303,9 +245,10 @@ class _ViewToggle extends StatelessWidget {
     final active = view == v;
     return GestureDetector(
       onTap: () => onChanged(v),
+      behavior: HitTestBehavior.opaque,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
         decoration: BoxDecoration(
           color: active ? const Color(0xFF7444fd) : Colors.transparent,
           borderRadius: BorderRadius.circular(6),

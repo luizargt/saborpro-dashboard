@@ -17,6 +17,10 @@ class PeriodMetrics {
   final int prevTotalOrders;
   final double prevAvgTicket;
   final List<PeriodPoint> chartPoints;
+  // Mismos cortes que chartPoints pero del período anterior, para comparar en
+  // la gráfica. Truncado al largo de chartPoints: comparar un mes completo
+  // contra uno a medias haría ver una caída que no existe.
+  final List<PeriodPoint> prevChartPoints;
   final List<ProductSummary> topProducts;
 
   // Campos para vista tabla
@@ -56,6 +60,7 @@ class PeriodMetrics {
     required this.prevTotalOrders,
     required this.prevAvgTicket,
     required this.chartPoints,
+    this.prevChartPoints = const [],
     required this.topProducts,
     this.grossSales = 0,
     this.discounts = 0,
@@ -85,6 +90,7 @@ class PeriodMetrics {
       prevTotalOrders: prevTotalOrders,
       prevAvgTicket: prevAvgTicket,
       chartPoints: chartPoints,
+      prevChartPoints: prevChartPoints,
       topProducts: topProducts,
       grossSales: grossSales,
       discounts: discounts,

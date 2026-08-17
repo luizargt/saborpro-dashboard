@@ -10,9 +10,9 @@ import '../../presentation/providers/dashboard_provider.dart';
 import '../../presentation/providers/inventory_provider.dart';
 import '../../presentation/screens/auth/login_screen.dart';
 import '../../presentation/screens/dashboard/dashboard_screen.dart';
-import '../../presentation/screens/expenses/expenses_screen.dart';
 import '../../presentation/screens/inventory/inventory_screen.dart';
-import '../../presentation/widgets/location_selector.dart';
+import '../../presentation/screens/reports/reports_list_screen.dart';
+import '../../presentation/widgets/period_selector.dart';
 
 class AppShell extends StatefulWidget {
   const AppShell({super.key});
@@ -154,7 +154,7 @@ class _NarrowShell extends StatelessWidget {
         actions: [
           ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 160),
-            child: const LocationSelector(),
+            child: const DateSelectorChip(),
           ),
           const SizedBox(width: 8),
         ],
@@ -223,8 +223,8 @@ class _Rail extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           _RailItem(
-            icon: Icons.payments_outlined,
-            label: 'Gastos',
+            icon: Icons.stacked_bar_chart_rounded,
+            label: 'Reportes',
             active: index == 1,
             onTap: () => onSelect(1),
           ),
@@ -345,9 +345,9 @@ class _BottomNav extends StatelessWidget {
                     label: 'Ventas',
                   ),
                   NavigationDestination(
-                    icon: const Icon(Icons.payments_outlined, color: Colors.white38),
-                    selectedIcon: const Icon(Icons.payments_rounded, color: Color(0xFF7444fd)),
-                    label: 'Gastos',
+                    icon: const Icon(Icons.stacked_bar_chart_outlined, color: Colors.white38),
+                    selectedIcon: const Icon(Icons.stacked_bar_chart_rounded, color: Color(0xFF7444fd)),
+                    label: 'Reportes',
                   ),
                   NavigationDestination(
                     icon: const Icon(Icons.inventory_2_outlined, color: Colors.white38),
@@ -398,7 +398,7 @@ class _PageContent extends StatelessWidget {
         index: index,
         children: const [
           DashboardScreen(),
-          ExpensesScreen(),
+          ReportsListScreen(),
           InventoryScreen(),
         ],
       ),

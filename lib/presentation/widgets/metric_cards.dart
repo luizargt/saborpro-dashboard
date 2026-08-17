@@ -264,7 +264,7 @@ class _MetricCard extends StatelessWidget {
             Text(
               prevLabel,
               style: GoogleFonts.inter(
-                color: Colors.white24,
+                color: Colors.white54,
                 fontSize: 10,
               ),
               maxLines: 1,

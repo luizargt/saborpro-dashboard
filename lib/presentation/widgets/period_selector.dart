@@ -40,7 +40,7 @@ class DateNavigator extends StatelessWidget {
           ),
           Expanded(
             child: GestureDetector(
-              onTap: () => _openPicker(context, provider),
+              onTap: () => _openDateRangePicker(context, provider),
               behavior: HitTestBehavior.opaque,
               child: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 16),
@@ -74,41 +74,86 @@ class DateNavigator extends StatelessWidget {
     );
   }
 
-  void _openPicker(BuildContext context, DashboardProvider provider) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: const Color(0xFF1E293B),
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (_) => _UnifiedPickerSheet(
-        current: provider.range,
-        onSelected: provider.setRange,
-        onOpenCustomPicker: () => _showCustomPicker(context, provider),
+}
+
+// ── DATE SELECTOR CHIP ──────────────────────────────────────────────────────
+// Versión compacta (pastilla con ícono + etiqueta) para espacios reducidos,
+// como la barra superior. Abre el mismo picker unificado que DateNavigator.
+class DateSelectorChip extends StatelessWidget {
+  const DateSelectorChip({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final provider = context.watch<DashboardProvider>();
+
+    return GestureDetector(
+      onTap: () => _openDateRangePicker(context, provider),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        decoration: BoxDecoration(
+          color: const Color(0xFF1E293B),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: const Color(0xFF7444fd)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.calendar_today_rounded, color: Colors.white54, size: 13),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                provider.range.label,
+                style: GoogleFonts.inter(
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const SizedBox(width: 4),
+            const Icon(Icons.keyboard_arrow_down, color: Colors.white38, size: 16),
+          ],
+        ),
       ),
     );
   }
+}
 
-  Future<void> _showCustomPicker(
-      BuildContext context, DashboardProvider provider) async {
-    final now = DateTime.now();
-    final picked = await showDateRangePicker(
-      context: context,
-      firstDate: DateTime(2020),
-      lastDate: DateTime(now.year, now.month, now.day, 23, 59, 59),
-      initialDateRange:
-          DateTimeRange(start: provider.range.start, end: provider.range.end),
-      builder: _darkTheme,
-    );
-    if (picked != null) {
-      provider.setRange(DateRange(
-        start: picked.start,
-        end: DateTime(
-            picked.end.year, picked.end.month, picked.end.day, 23, 59, 59),
-        mode: PeriodMode.custom,
-      ));
-    }
+void _openDateRangePicker(BuildContext context, DashboardProvider provider) {
+  showModalBottomSheet(
+    context: context,
+    backgroundColor: const Color(0xFF1E293B),
+    isScrollControlled: true,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+    ),
+    builder: (_) => _UnifiedPickerSheet(
+      current: provider.range,
+      onSelected: provider.setRange,
+      onOpenCustomPicker: () => _showCustomDateRangePicker(context, provider),
+    ),
+  );
+}
+
+Future<void> _showCustomDateRangePicker(
+    BuildContext context, DashboardProvider provider) async {
+  final now = DateTime.now();
+  final picked = await showDateRangePicker(
+    context: context,
+    firstDate: DateTime(2020),
+    lastDate: DateTime(now.year, now.month, now.day, 23, 59, 59),
+    initialDateRange:
+        DateTimeRange(start: provider.range.start, end: provider.range.end),
+    builder: _darkTheme,
+  );
+  if (picked != null) {
+    provider.setRange(DateRange(
+      start: picked.start,
+      end: DateTime(
+          picked.end.year, picked.end.month, picked.end.day, 23, 59, 59),
+      mode: PeriodMode.custom,
+    ));
   }
 }
 

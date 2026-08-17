@@ -46,9 +46,10 @@ class _ProductsListState extends State<ProductsList> {
   String? _selectedCategory;
   String? _selectedPaymentMethod;
 
-  bool get _hasActiveFilters => _selectedCategory != null || _selectedPaymentMethod != null;
-  int get _activeFilterCount =>
-      (_selectedCategory != null ? 1 : 0) + (_selectedPaymentMethod != null ? 1 : 0);
+  // La clasificación ya no cuenta como "filtro activo" del botón: es una
+  // pestaña visible, no algo escondido en el bottom sheet.
+  bool get _hasActiveFilters => _selectedPaymentMethod != null;
+  int get _activeFilterCount => _selectedPaymentMethod != null ? 1 : 0;
 
   @override
   void didUpdateWidget(ProductsList oldWidget) {
@@ -59,10 +60,54 @@ class _ProductsListState extends State<ProductsList> {
     }
   }
 
+  // Orden canónico de las clasificaciones del menú (COMIDA/BEBIDA/POSTRES/
+  // SERVICIOS/OTRO en Firestore). Se muestran como pestañas, y solo las que
+  // realmente tienen ventas en el período.
+  static const _classificationOrder = [
+    'Comida',
+    'Bebidas',
+    'Postres',
+    'Servicios',
+    'Otros',
+  ];
+
+  /// Etiqueta de la pestaña. El valor guardado es 'Comida' pero en la pestaña
+  /// se lee mejor en plural, igual que las demás.
+  static String _tabLabel(String category) =>
+      category == 'Comida' ? 'Comidas' : category;
+
+  /// Clasificaciones presentes en los datos, en el orden canónico. Las que no
+  /// estén en la lista conocida se agregan al final en vez de descartarse.
+  List<String> _orderedCategories(List<String> present) {
+    final known = _classificationOrder.where(present.contains).toList();
+    final unknown = present.where((c) => !_classificationOrder.contains(c)).toList()..sort();
+    return [...known, ...unknown];
+  }
+
+  /// Mueve la pestaña una posición. `tabs` incluye null ("Todo") al inicio.
+  void _shiftTab(List<String?> tabs, int delta) {
+    final current = tabs.indexOf(_selectedCategory);
+    if (current == -1) return;
+    final next = current + delta;
+    if (next < 0 || next >= tabs.length) return;
+    setState(() => _selectedCategory = tabs[next]);
+  }
+
+  /// Sustantivo para el conteo del pie de tabla, según la pestaña activa.
+  static String _countNoun(String? category) => switch (category) {
+        'Bebidas' => 'bebidas',
+        'Postres' => 'postres',
+        'Servicios' => 'servicios',
+        'Otros' => 'productos',
+        _ => 'platillos',
+      };
+
   String _title(String? category, String? paymentMethod) {
     final base = switch (category) {
       'Bebidas' => 'Bebidas vendidas',
-      'Postres' => 'Postres vendidas',
+      'Postres' => 'Postres vendidos',
+      'Servicios' => 'Servicios vendidos',
+      'Otros' => 'Otros vendidos',
       _ => 'Platillos vendidos',
     };
     if (paymentMethod != null) {
@@ -122,7 +167,24 @@ class _ProductsListState extends State<ProductsList> {
 
     final paymentMethods = widget.productsByMethod.keys.toList()..sort();
 
-    return Column(
+    final orderedCategories = _orderedCategories(categories);
+    // null = "Todo": sin él se perdería la vista completa, que es la que trae
+    // los totales de propinas, descuentos y total cobrado.
+    final tabs = <String?>[null, ...orderedCategories];
+
+    return GestureDetector(
+      // Deslizar sobre la tabla cambia de clasificación. Este gesto queda por
+      // dentro del de sucursales (LocationSwipeArea): Flutter le da prioridad
+      // al detector más interno, así que aquí manda la clasificación.
+      behavior: HitTestBehavior.deferToChild,
+      onHorizontalDragEnd: orderedCategories.length > 1
+          ? (details) {
+              final v = details.primaryVelocity ?? 0;
+              if (v.abs() < 200) return;
+              _shiftTab(tabs, v < 0 ? 1 : -1);
+            }
+          : null,
+      child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
@@ -143,7 +205,7 @@ class _ProductsListState extends State<ProductsList> {
               children: [
                 Text(
                   'vs ${widget.prevLabel}',
-                  style: GoogleFonts.inter(color: Colors.white38, fontSize: 11),
+                  style: GoogleFonts.inter(color: Colors.white60, fontSize: 11),
                 ),
                 const SizedBox(width: 8),
                 // Botón filtro
@@ -209,9 +271,9 @@ class _ProductsListState extends State<ProductsList> {
                         child: const Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.download_rounded, color: Colors.white54, size: 16),
+                            Icon(Icons.download_rounded, color: Colors.white70, size: 16),
                             SizedBox(width: 4),
-                            Text('Excel', style: TextStyle(color: Colors.white54, fontSize: 11)),
+                            Text('Excel', style: TextStyle(color: Colors.white70, fontSize: 11)),
                           ],
                         ),
                       ),
@@ -225,7 +287,18 @@ class _ProductsListState extends State<ProductsList> {
           const SizedBox(height: 4),
           Text(
             'Propinas no incluidas',
-            style: GoogleFonts.inter(color: Colors.white38, fontSize: 11),
+            style: GoogleFonts.inter(color: Colors.white60, fontSize: 11),
+          ),
+        ],
+        // Pestañas por clasificación del menú. Solo aparecen si hay más de una
+        // clasificación con ventas: con una sola no habría nada que elegir.
+        if (orderedCategories.length > 1) ...[
+          const SizedBox(height: 10),
+          _CategoryTabs(
+            tabs: tabs,
+            selected: _selectedCategory,
+            labelFor: (c) => c == null ? 'Todo' : _tabLabel(c),
+            onChanged: (c) => setState(() => _selectedCategory = c),
           ),
         ],
         const SizedBox(height: 4),
@@ -235,19 +308,19 @@ class _ProductsListState extends State<ProductsList> {
           child: Row(
             children: [
               Expanded(
-                child: Text('Nombre', style: GoogleFonts.inter(color: Colors.white38, fontSize: 11)),
+                child: Text('Nombre', style: GoogleFonts.inter(color: Colors.white60, fontSize: 11)),
               ),
               SizedBox(
                 width: 50,
-                child: Text('Cant.', textAlign: TextAlign.center, style: GoogleFonts.inter(color: Colors.white38, fontSize: 11)),
+                child: Text('Cant.', textAlign: TextAlign.center, style: GoogleFonts.inter(color: Colors.white60, fontSize: 11)),
               ),
               SizedBox(
                 width: 80,
-                child: Text('Total', textAlign: TextAlign.right, style: GoogleFonts.inter(color: Colors.white38, fontSize: 11)),
+                child: Text('Total', textAlign: TextAlign.right, style: GoogleFonts.inter(color: Colors.white60, fontSize: 11)),
               ),
               SizedBox(
                 width: 52,
-                child: Text('Var.', textAlign: TextAlign.right, style: GoogleFonts.inter(color: Colors.white38, fontSize: 11)),
+                child: Text('Var.', textAlign: TextAlign.right, style: GoogleFonts.inter(color: Colors.white60, fontSize: 11)),
               ),
             ],
           ),
@@ -261,18 +334,18 @@ class _ProductsListState extends State<ProductsList> {
                 widget.products.isEmpty
                     ? 'Sin ventas en este período'
                     : 'Sin productos con estos filtros',
-                style: GoogleFonts.inter(color: Colors.white38, fontSize: 13),
+                style: GoogleFonts.inter(color: Colors.white60, fontSize: 13),
               ),
             ),
           )
         else ...[
           ...filtered.map((p) => _ProductRow(product: p, fmt: fmt)),
           _FooterRow(
-            label: 'Total (${filtered.length} ${_selectedCategory == 'Bebidas' ? 'bebidas' : _selectedCategory == 'Postres' ? 'postres' : 'platillos'})',
+            label: 'Total (${filtered.length} ${_countNoun(_selectedCategory)})',
             qty: filtered.fold<int>(0, (s, p) => s + p.quantity),
             amount: filtered.fold<double>(0, (s, p) => s + p.total),
             fmt: fmt,
-            labelColor: Colors.white54,
+            labelColor: Colors.white70,
             amountColor: Colors.white70,
           ),
           if (_selectedCategory == null && _selectedPaymentMethod == null) ...[
@@ -305,6 +378,92 @@ class _ProductsListState extends State<ProductsList> {
           ],
         ],
       ],
+      ),
+    );
+  }
+}
+
+// ─── Pestañas por clasificación ───────────────────────────────────────────────
+
+/// Barra de pestañas subrayadas, del mismo estilo que las de sucursal. Es
+/// deslizable en horizontal para que quepan cinco clasificaciones aun en un
+/// teléfono angosto.
+class _CategoryTabs extends StatelessWidget {
+  final List<String?> tabs;
+  final String? selected;
+  final String Function(String?) labelFor;
+  final ValueChanged<String?> onChanged;
+
+  const _CategoryTabs({
+    required this.tabs,
+    required this.selected,
+    required this.labelFor,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 34,
+      child: Stack(
+        children: [
+          const Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: SizedBox(height: 1, child: ColoredBox(color: Colors.white12)),
+          ),
+          // Cada pestaña ocupa una fracción igual del ancho, así el subrayado
+          // abarca todo su segmento y el área táctil es cómoda para el dedo.
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: Row(
+              children: [
+                for (final tab in tabs)
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => onChanged(tab),
+                      behavior: HitTestBehavior.opaque,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 7),
+                            child: Text(
+                              labelFor(tab),
+                              textAlign: TextAlign.center,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: GoogleFonts.inter(
+                                color: selected == tab
+                                    ? Colors.white
+                                    : Colors.white60,
+                                fontSize: 12,
+                                fontWeight: selected == tab
+                                    ? FontWeight.w600
+                                    : FontWeight.w400,
+                              ),
+                            ),
+                          ),
+                          AnimatedContainer(
+                            duration: const Duration(milliseconds: 150),
+                            height: 2,
+                            color: selected == tab
+                                ? const Color(0xFF7444fd)
+                                : Colors.transparent,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -404,46 +563,9 @@ class _FiltersSheetState extends State<_FiltersSheet> {
             ],
           ),
         ),
-        // Sección Categoría
-        if (widget.categories.isNotEmpty) ...[
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
-            child: Text(
-              'Categoría',
-              style: GoogleFonts.inter(
-                color: Colors.white54,
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-                letterSpacing: 0.5,
-              ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                _Chip(
-                  label: 'Todos',
-                  selected: _cat == null,
-                  onTap: () {
-                    setState(() => _cat = null);
-                    widget.onCategoryChanged(null);
-                  },
-                ),
-                ...widget.categories.map((cat) => _Chip(
-                      label: cat,
-                      selected: _cat == cat,
-                      onTap: () {
-                        setState(() => _cat = cat);
-                        widget.onCategoryChanged(cat);
-                      },
-                    )),
-              ],
-            ),
-          ),
-        ],
+        // La clasificación (Comidas/Bebidas/Postres/Servicios) ya no vive aquí:
+        // ahora son las pestañas de la tabla. Tener los dos controles para el
+        // mismo filtro solo confundía.
         // Sección Método de pago
         if (widget.paymentMethods.isNotEmpty) ...[
           Padding(
@@ -451,7 +573,7 @@ class _FiltersSheetState extends State<_FiltersSheet> {
             child: Text(
               'Método de pago',
               style: GoogleFonts.inter(
-                color: Colors.white54,
+                color: Colors.white70,
                 fontSize: 12,
                 fontWeight: FontWeight.w500,
                 letterSpacing: 0.5,
@@ -514,7 +636,7 @@ class _Chip extends StatelessWidget {
         child: Text(
           label,
           style: GoogleFonts.inter(
-            color: selected ? Colors.white : Colors.white54,
+            color: selected ? Colors.white : Colors.white70,
             fontSize: 13,
             fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
           ),
@@ -611,7 +733,7 @@ class _ProductRow extends StatelessWidget {
     final isPositive = change > 0;
     final isNeutral = change == 0;
     final changeColor = isNeutral
-        ? Colors.white38
+        ? Colors.white60
         : isPositive
             ? const Color(0xFF22C55E)
             : const Color(0xFFEF4444);

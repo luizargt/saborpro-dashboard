@@ -59,6 +59,26 @@ class DashboardProvider extends ChangeNotifier {
   // Cache: no cambia con el rango de fechas, solo se fetcha una vez por sesión
   Map<String, String>? _cachedProductClassificationMap;
 
+  // ── CACHE CRUDO POR RANGO ───────────────────────────────────────────────────
+  // Las queries a Firestore NO filtran por sucursal (se filtra en memoria), así
+  // que un mismo fetch sirve para todas las sucursales del rango. Guardamos el
+  // resultado sin filtrar para que cambiar de sucursal solo re-filtre y
+  // recalcule métricas, sin volver a la red.
+  bool _rawCacheValid = false;
+  List<Map<String, dynamic>> _rawCurrentOrders = [];
+  List<Map<String, dynamic>> _rawPrevOrders = [];
+  List<Map<String, dynamic>> _rawExpenses = [];
+  List<Map<String, dynamic>> _rawPurchases = [];
+  List<Map<String, dynamic>> _rawCashRegisters = [];
+  List<Map<String, dynamic>> _rawWeeklyOrders = [];
+  List<Map<String, dynamic>> _rawMonthlyOrders = [];
+  Map<String, String> _rawCategoryClassifications = {};
+  Map<String, String> _rawCategoryClassificationsByName = {};
+  Map<String, Map<String, String>> _customMethodNamesByLocation = {};
+  DateTime _rawWeekStart = DateTime.now();
+  DateTime _rawMonthStart = DateTime.now();
+  DateTime _rawNow = DateTime.now();
+
   List<LocationModel> _locations = [];
   List<LocationModel> get locations => _locations;
 
@@ -92,6 +112,7 @@ class DashboardProvider extends ChangeNotifier {
   void init(String tenantId, {String? locationId}) {
     _tenantId = tenantId;
     _locationId = locationId;
+    _rawCacheValid = false;
     // Fijar sucursales permitidas de forma síncrona (load() corre en paralelo
     // con _loadLocations, así el filtro aplica desde la primera carga).
     _allowedLocationIds = AuthService().assignedLocationIds.toSet();
@@ -108,16 +129,34 @@ class DashboardProvider extends ChangeNotifier {
           ? all.where((l) => _allowedLocationIds.contains(l.id)).toList()
           : all;
       notifyListeners();
+
+      // _fetchCustomMethodNames depende de _locations, que carga en paralelo con
+      // load(): si llegó tarde, los nombres quedaron vacíos. Como ya no se
+      // refetchan al cambiar de sucursal, se completan aquí una sola vez.
+      if (_customMethodNamesByLocation.isEmpty && _locations.isNotEmpty) {
+        _customMethodNamesByLocation = await _fetchCustomMethodNames();
+        if (_rawCacheValid && _customMethodNamesByLocation.isNotEmpty) {
+          _rebuildFromRaw();
+        }
+      }
     } catch (_) {}
   }
 
   void selectLocation(String? locationId) {
+    if (_selectedLocationId == locationId) return;
     _selectedLocationId = locationId;
-    load();
+    // Las queries no filtran por sucursal, así que el fetch del rango actual ya
+    // trae los datos de todas: basta re-filtrar en memoria (instantáneo, sin red).
+    if (_rawCacheValid) {
+      _rebuildFromRaw();
+    } else {
+      load();
+    }
   }
 
   void setRange(DateRange range) {
     _range = range;
+    _rawCacheValid = false;
     load();
   }
 
@@ -166,8 +205,7 @@ class DashboardProvider extends ChangeNotifier {
         _fetchOrders(prev.start, prev.end),
       ]);
       final currentOrders = orderPair[0];
-      var prevOrders = orderPair[1];
-      _currentOrders = currentOrders;
+      final prevOrders = orderPair[1];
       _mark('orders(actual+anterior) docs=${currentOrders.length}+${prevOrders.length}');
 
       // Etapa 0b: cargar clasificaciones: por categoria y por producto
@@ -179,7 +217,6 @@ class DashboardProvider extends ChangeNotifier {
       // El mapa de productos se cachea: el menú no cambia al cambiar el rango de fechas
       final _prodWasCached = _cachedProductClassificationMap != null;
       _cachedProductClassificationMap ??= await _fetchProductClassifications(classificationMap);
-      final productClassificationMap = _cachedProductClassificationMap!;
       _mark('productClassifications (cached=$_prodWasCached)');
 
       // Etapa 3: gastos, compras, cajas, nombres de métodos y — SOLO si el modo actual
@@ -200,38 +237,30 @@ class DashboardProvider extends ChangeNotifier {
         needsMonthly ? _fetchOrders(monthStart, we) : Future.value(const <Map<String, dynamic>>[]),
       ]);
       _mark('expenses+purchases+cashRegisters+methods+chart cajas=${(expResults[2] as List).length}');
-      final rawCashRegisters = expResults[2] as List<Map<String, dynamic>>;
-      final customMethodNames = expResults[3] as Map<String, String>;
-      final withdrawals = _extractWithdrawals(rawCashRegisters, _range.start, _range.end);
-      // _fetchExpenses = gastos manuales; withdrawals = retiros de caja
-      _expenseItems = [...expResults[0] as List<Map<String, dynamic>>, ...withdrawals];
-      _purchaseItems = expResults[1] as List<Map<String, dynamic>>;
-      final expenses = _expenseItems.fold<double>(0, (s, e) => s + (e['amount'] as num? ?? 0).toDouble());
-      final purchaseCosts = _purchaseItems.fold<double>(0, (s, e) => s + (e['total'] as num? ?? 0).toDouble());
 
-      _weeklyHourly = needsWeekly
-          ? _groupByHourPerDay(expResults[4] as List<Map<String, dynamic>>, ws)
-          : [];
-      _monthlyDailyPoints = needsMonthly
-          ? _groupByDayOfMonth(expResults[5] as List<Map<String, dynamic>>, monthStart, now)
-          : [];
+      // Guardar el crudo (sin filtrar por sucursal) para poder recalcular al
+      // cambiar de pestaña de sucursal sin volver a consultar Firestore.
+      _rawCurrentOrders = currentOrders;
+      _rawPrevOrders = prevOrders;
+      _rawExpenses = expResults[0] as List<Map<String, dynamic>>;
+      _rawPurchases = expResults[1] as List<Map<String, dynamic>>;
+      _rawCashRegisters = expResults[2] as List<Map<String, dynamic>>;
+      _customMethodNamesByLocation = expResults[3] as Map<String, Map<String, String>>;
+      _rawWeeklyOrders = expResults[4] as List<Map<String, dynamic>>;
+      _rawMonthlyOrders = expResults[5] as List<Map<String, dynamic>>;
+      _rawCategoryClassifications = classificationMap;
+      _rawCategoryClassificationsByName = classificationByName;
+      _rawWeekStart = ws;
+      _rawMonthStart = monthStart;
+      _rawNow = now;
+      _rawCacheValid = true;
 
-      // Etapa 4: resumir cajas (sin Firestore adicional) y construir métricas finales.
-      _buildCashRegisterSummaries(rawCashRegisters, customMethodNames);
-      _metrics = _buildMetrics(
-        currentOrders,
-        prevOrders,
-        _range,
-        expenses: expenses,
-        purchaseCosts: purchaseCosts,
-        classificationMap: classificationMap,
-        classificationByName: classificationByName,
-        productClassificationMap: productClassificationMap,
-      );
-      prevOrders = [];
+      // Etapa 4: filtrar por sucursal y construir métricas (sin Firestore adicional).
+      _rebuildFromRaw(notify: false);
       _mark('metrics+summaries');
       debugPrint('[PERF] === load() TOTAL: ${_swTotal.elapsedMilliseconds}ms ===');
     } catch (e, st) {
+      _rawCacheValid = false;
       _error = 'Error cargando datos: $e';
       Sentry.captureException(e, stackTrace: st, withScope: (scope) {
         scope.setTag('provider', 'dashboard');
@@ -245,6 +274,60 @@ class DashboardProvider extends ChangeNotifier {
 
     _loading = false;
     notifyListeners();
+  }
+
+  /// Aplica el filtro de sucursal actual sobre el cache crudo y recalcula todo
+  /// lo derivado (órdenes, gastos, cajas, gráficos y métricas). No toca la red:
+  /// es lo que hace que cambiar de pestaña de sucursal sea instantáneo.
+  void _rebuildFromRaw({bool notify = true}) {
+    bool passes(Map<String, dynamic> row, String key) =>
+        _passesLocationFilter(row[key] as String?);
+
+    final currentOrders =
+        _rawCurrentOrders.where((o) => passes(o, 'location_id')).toList();
+    final prevOrders =
+        _rawPrevOrders.where((o) => passes(o, 'location_id')).toList();
+    _currentOrders = currentOrders;
+
+    final withdrawals =
+        _extractWithdrawals(_rawCashRegisters, _range.start, _range.end);
+    // _rawExpenses = gastos manuales; withdrawals = retiros de caja (ya filtrados)
+    _expenseItems = [
+      ..._rawExpenses.where((e) => passes(e, 'location_id')),
+      ...withdrawals,
+    ];
+    _purchaseItems =
+        _rawPurchases.where((p) => passes(p, 'location_id')).toList();
+    final expenses = _expenseItems.fold<double>(
+        0, (s, e) => s + (e['amount'] as num? ?? 0).toDouble());
+    final purchaseCosts = _purchaseItems.fold<double>(
+        0, (s, e) => s + (e['total'] as num? ?? 0).toDouble());
+
+    _weeklyHourly = _range.mode == PeriodMode.day
+        ? _groupByHourPerDay(
+            _rawWeeklyOrders.where((o) => passes(o, 'location_id')).toList(),
+            _rawWeekStart)
+        : [];
+    _monthlyDailyPoints = _range.mode == PeriodMode.week
+        ? _groupByDayOfMonth(
+            _rawMonthlyOrders.where((o) => passes(o, 'location_id')).toList(),
+            _rawMonthStart,
+            _rawNow)
+        : [];
+
+    _buildCashRegisterSummaries(_rawCashRegisters);
+    _metrics = _buildMetrics(
+      currentOrders,
+      prevOrders,
+      _range,
+      expenses: expenses,
+      purchaseCosts: purchaseCosts,
+      classificationMap: _rawCategoryClassifications,
+      classificationByName: _rawCategoryClassificationsByName,
+      productClassificationMap: _cachedProductClassificationMap ?? const {},
+    );
+
+    if (notify) notifyListeners();
   }
 
   /// Fetcha solo los cashRegisters relevantes del tenant, en vez de la colección
@@ -312,13 +395,16 @@ class DashboardProvider extends ChangeNotifier {
 
   /// Construye los resúmenes de cajas abiertas y cerradas a partir de datos ya
   /// fetchados, sin hacer ninguna query adicional a Firestore.
-  void _buildCashRegisterSummaries(
-      List<Map<String, dynamic>> registers, Map<String, String> customMethodNames) {
+  void _buildCashRegisterSummaries(List<Map<String, dynamic>> registers) {
     try {
       String? locName(String? locId) {
         if (locId == null) return null;
         try { return _locations.firstWhere((l) => l.id == locId).name; } catch (_) { return null; }
       }
+
+      // Cada caja usa los métodos de pago personalizados de SU propia sucursal.
+      Map<String, String> methodsFor(String? locId) =>
+          _customMethodNamesByLocation[locId] ?? const {};
 
       final all = registers.where((d) {
         return _passesLocationFilter(d['locationId'] as String?);
@@ -328,7 +414,7 @@ class DashboardProvider extends ChangeNotifier {
           .where((d) => d['status'] == 'open')
           .map((d) {
             final r = CashRegisterSummary.fromMap(d);
-            return r.copyWith(customMethodNames: customMethodNames, locationName: locName(r.locationId));
+            return r.copyWith(customMethodNames: methodsFor(r.locationId), locationName: locName(r.locationId));
           })
           .toList();
 
@@ -341,7 +427,7 @@ class DashboardProvider extends ChangeNotifier {
         return !dt.isBefore(_range.start) && !dt.isAfter(_range.end);
       }).map((d) {
             final r = CashRegisterSummary.fromMap(d);
-            return r.copyWith(customMethodNames: customMethodNames, locationName: locName(r.locationId));
+            return r.copyWith(customMethodNames: methodsFor(r.locationId), locationName: locName(r.locationId));
           })
           .toList()
         ..sort((a, b) => (b.closedAt ?? b.openedAt).compareTo(a.closedAt ?? a.openedAt));
@@ -351,20 +437,29 @@ class DashboardProvider extends ChangeNotifier {
     }
   }
 
-  Future<Map<String, String>> _fetchCustomMethodNames() async {
+  /// Métodos de pago personalizados de TODAS las sucursales visibles, indexados
+  /// por locationId. Se traen todas (son docs pequeños, en paralelo) para que
+  /// cambiar de sucursal no requiera una consulta extra a Firestore.
+  Future<Map<String, Map<String, String>>> _fetchCustomMethodNames() async {
     try {
-      final locationId = _selectedLocationId ?? (_locations.isNotEmpty ? _locations.first.id : null);
-      if (locationId == null) return {};
-      final doc = await _firestore.instance.collection('locations').doc(locationId).get();
-      if (!doc.exists) return {};
-      final settings = (doc.data() as Map<String, dynamic>)['settings'];
-      if (settings == null) return {};
-      final methods = settings['custom_payment_methods'] as List<dynamic>? ?? [];
-      return {
-        for (final m in methods)
-          if (m is Map<String, dynamic> && m['id'] != null && m['name'] != null)
-            m['id'] as String: m['name'] as String,
-      };
+      if (_locations.isEmpty) return {};
+      final docs = await Future.wait(_locations.map(
+        (l) => _firestore.instance.collection('locations').doc(l.id).get(),
+      ));
+
+      final result = <String, Map<String, String>>{};
+      for (final doc in docs) {
+        if (!doc.exists) continue;
+        final settings = (doc.data() as Map<String, dynamic>)['settings'];
+        if (settings == null) continue;
+        final methods = settings['custom_payment_methods'] as List<dynamic>? ?? [];
+        result[doc.id] = {
+          for (final m in methods)
+            if (m is Map<String, dynamic> && m['id'] != null && m['name'] != null)
+              m['id'] as String: m['name'] as String,
+        };
+      }
+      return result;
     } catch (_) {
       return {};
     }
@@ -402,7 +497,6 @@ class DashboardProvider extends ChangeNotifier {
         for (final doc in snap.docs) {
           if (!seen.add(doc.id)) continue;
           final data = doc.data();
-          if (!_passesLocationFilter(data['location_id'] as String?)) continue;
           all.add(data);
         }
       }
@@ -483,9 +577,7 @@ class DashboardProvider extends ChangeNotifier {
           .where('received_at', isLessThanOrEqualTo: endIso)
           .get();
 
-      return snap.docs.map((d) => d.data()).where((e) {
-        return _passesLocationFilter(e['location_id'] as String?);
-      }).toList();
+      return snap.docs.map((d) => d.data()).toList();
     } catch (e, st) {
       Sentry.captureException(e, stackTrace: st, withScope: (scope) {
         scope.setTag('query', 'fetchPurchaseCosts');
@@ -536,8 +628,9 @@ class DashboardProvider extends ChangeNotifier {
         }
       }
 
+      // Sin filtro de sucursal: devolvemos crudo para poder cambiar de sucursal
+      // sin volver a consultar Firestore (ver _rebuildFromRaw).
       return all.where((o) {
-        if (!_passesLocationFilter(o['location_id'] as String?)) return false;
         final orderStatus = o['status'] as String? ?? '';
         return orderStatus != 'CANCELLED';
       }).toList();
@@ -652,6 +745,12 @@ class DashboardProvider extends ChangeNotifier {
       productsByMethod[method] = _buildTopProducts(filtered, prevOrders, classificationMap, classificationByName, productClassificationMap);
     }
 
+    final chartPoints = _buildChartPoints(orders, range);
+    // El período anterior se corta al mismo número de cortes que el actual:
+    // comparar un mes completo contra uno en curso mostraría una caída falsa.
+    final prevChartPoints =
+        _buildChartPoints(prevOrders, range.previous()).take(chartPoints.length).toList();
+
     return PeriodMetrics(
       totalSales: total,
       totalOrders: count,
@@ -659,7 +758,8 @@ class DashboardProvider extends ChangeNotifier {
       prevTotalSales: prevTotal,
       prevTotalOrders: prevCount,
       prevAvgTicket: prevAvg,
-      chartPoints: _buildChartPoints(orders, range),
+      chartPoints: chartPoints,
+      prevChartPoints: prevChartPoints,
       topProducts: topProducts,
       grossSales: grossSales,
       discounts: discounts,
@@ -800,23 +900,43 @@ class DashboardProvider extends ChangeNotifier {
         .toList();
   }
 
+  /// Un punto por semana del mes. Se agrupa por semanas y no por días porque
+  /// cada semana contiene un día de cada tipo: así el efecto "el sábado vende
+  /// el triple que el martes" se cancela solo y la comparación entre meses es
+  /// justa (a nivel diario serían dos serruchos desfasados entre sí).
   List<PeriodPoint> _groupByWeekOfMonth(
       List<Map<String, dynamic>> orders, DateRange range) {
+    // La semana de un día es ((día-1)/7).floor()+1, así que el número de semanas
+    // se deriva del último día del rango con esa MISMA fórmula. Antes se usaba
+    // ceil()+1 sobre el ancho del rango, lo que creaba siempre una semana extra
+    // que ningún día podía llenar: la línea se desplomaba a cero al final.
+    final now = DateTime.now();
+    // Si el mes está en curso, cortar en hoy: dibujar semanas que aún no ocurren
+    // las mostraría como caída de ventas.
+    final lastDay = (range.end.year == now.year &&
+            range.end.month == now.month &&
+            range.end.isAfter(now))
+        ? now.day
+        : range.end.day;
+    final weeksCount = ((lastDay - 1) / 7).floor() + 1;
+
     final map = <int, _Acc>{};
-    final weeksCount = ((range.end.day - range.start.day) / 7).ceil() + 1;
     for (var w = 1; w <= weeksCount; w++) {
       map[w] = _Acc();
     }
     for (final o in orders) {
-      final ts = o['paid_at'];
-      if (ts == null) continue;
-      final dt = _toDateTime(ts);
+      final dt = _toDateTime(o['paid_at']);
       if (dt == null) continue;
+      if (dt.year != range.start.year || dt.month != range.start.month) continue;
       final week = ((dt.day - 1) / 7).floor() + 1;
-      map[week]?.add((o['total_amount'] as num? ?? 0).toDouble());
+      // Mismo monto que usan las tarjetas de arriba, para que no haya dos
+      // verdades distintas en la misma pantalla.
+      map[week]?.add((o['payment_amount'] as num?)?.toDouble() ??
+          (o['total_amount'] as num? ?? 0).toDouble());
     }
     return map.entries
-        .map((e) => PeriodPoint(label: 'Sem ${e.key}', amount: e.value.amount, orders: e.value.count))
+        .map((e) => PeriodPoint(
+            label: 'Sem ${e.key}', amount: e.value.amount, orders: e.value.count))
         .toList();
   }
 
@@ -853,11 +973,17 @@ class DashboardProvider extends ChangeNotifier {
     return ids;
   }
 
+  /// Traduce la classification_key de Firestore (COMIDA/BEBIDA/POSTRES/
+  /// SERVICIOS/OTRO) a la etiqueta que ve el usuario. Sin el caso SERVICIOS
+  /// esos productos quedaban etiquetados en mayúsculas y no calzaban con
+  /// ningún filtro de la UI.
   static String _classificationLabel(String key) {
     switch (key.toUpperCase()) {
       case 'COMIDA': return 'Comida';
       case 'BEBIDA': return 'Bebidas';
       case 'POSTRES': return 'Postres';
+      case 'SERVICIOS': return 'Servicios';
+      case 'OTRO': return 'Otros';
       default: return key;
     }
   }
