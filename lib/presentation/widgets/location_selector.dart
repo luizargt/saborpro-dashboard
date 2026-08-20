@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../providers/dashboard_provider.dart';
+import 'period_selector.dart';
 
 class LocationSelector extends StatelessWidget {
   const LocationSelector({super.key});
@@ -184,6 +185,34 @@ class _LocationTab extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+// ── LOCATION HEADER BAR ──────────────────────────────────────────────────────
+// Encabezado fijo de las pantallas con filtro por sucursal: las pestañas a
+// ancho completo en móvil, y compartiendo fila con el selector de fecha cuando
+// hay espacio. Va fuera del scroll para no perderse al desplazar el contenido.
+class LocationHeaderBar extends StatelessWidget {
+  const LocationHeaderBar({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final provider = context.watch<DashboardProvider>();
+    if (provider.locations.length <= 1) return const SizedBox.shrink();
+
+    final wide = MediaQuery.of(context).size.width >= 600;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      child: wide
+          ? const Row(
+              children: [
+                Expanded(child: LocationTabsBar()),
+                SizedBox(width: 8),
+                DateSelectorChip(),
+              ],
+            )
+          : const LocationTabsBar(),
     );
   }
 }

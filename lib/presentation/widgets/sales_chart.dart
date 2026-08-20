@@ -114,11 +114,18 @@ class SalesChart extends StatelessWidget {
         ? 100.0
         : allAmounts.reduce((a, b) => a > b ? a : b) * 1.2;
 
-    // Con dos barras por grupo hay que repartir el ancho entre ambas.
     final n = points.length;
+
+    return LayoutBuilder(builder: (context, constraints) {
+    // El ancho de barra se deriva del espacio real, no de umbrales fijos: con
+    // pocas semanas en un monitor ancho quedaban barras diminutas rodeadas de
+    // aire. Se reparte el espacio del grupo entre sus barras y se acota para
+    // que no se vuelvan bloques en pantallas enormes.
+    const leftAxisWidth = 44.0;
+    final slot = ((constraints.maxWidth - leftAxisWidth) / n).clamp(1.0, 400.0);
     final barWidth = showCompare
-        ? (n <= 6 ? 14.0 : n <= 12 ? 8.0 : 5.0)
-        : (n <= 6 ? 22.0 : n <= 12 ? 14.0 : 8.0);
+        ? (slot * 0.26).clamp(4.0, 30.0)
+        : (slot * 0.45).clamp(6.0, 48.0);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -248,6 +255,7 @@ class SalesChart extends StatelessWidget {
         ],
       ],
     );
+    });
   }
 
   Widget _legendSwatch({required Color color, required String label}) {

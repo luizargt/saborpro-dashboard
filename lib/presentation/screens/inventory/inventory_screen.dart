@@ -365,25 +365,25 @@ class _SearchAndFilter extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          // En pantallas angostas (celular) el buscador + toggle + chips no
-          // caben en una sola fila: se apilan en dos filas para evitar overflow.
+          // En pantallas angostas todo va en una sola fila. Para que quepa, el
+          // toggle de vista pasa a solo íconos (con tooltip): con sus etiquetas
+          // completas el buscador quedaba reducido a la lupa.
           final narrow = constraints.maxWidth < 520;
           if (narrow) {
             final isForecast = mode == _ViewMode.forecast;
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+            return Row(
               children: [
-                _searchField(),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    _ModeToggle(mode: mode, onChanged: onModeChanged),
-                    if (isForecast) ...[
-                      const SizedBox(width: 8),
-                      _StatusFilterButton(filter: filter, onFilter: onFilter),
-                    ],
-                  ],
+                Expanded(child: _searchField()),
+                const SizedBox(width: 8),
+                _ModeToggle(
+                  mode: mode,
+                  onChanged: onModeChanged,
+                  iconOnly: true,
                 ),
+                if (isForecast) ...[
+                  const SizedBox(width: 8),
+                  _StatusFilterButton(filter: filter, onFilter: onFilter),
+                ],
               ],
             );
           }
@@ -405,8 +405,13 @@ class _SearchAndFilter extends StatelessWidget {
 class _ModeToggle extends StatelessWidget {
   final _ViewMode mode;
   final ValueChanged<_ViewMode> onChanged;
+  final bool iconOnly;
 
-  const _ModeToggle({required this.mode, required this.onChanged});
+  const _ModeToggle({
+    required this.mode,
+    required this.onChanged,
+    this.iconOnly = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -422,10 +427,14 @@ class _ModeToggle extends StatelessWidget {
         children: [
           _ModeSegment(
             label: 'Pronóstico',
+            icon: Icons.trending_up_rounded,
+            iconOnly: iconOnly,
             active: mode == _ViewMode.forecast,
             onTap: () => onChanged(_ViewMode.forecast),
           ),
           _ModeSegment(
+            icon: Icons.history_rounded,
+            iconOnly: iconOnly,
             label: 'Consumos 7 días',
             active: mode == _ViewMode.week,
             onTap: () => onChanged(_ViewMode.week),
@@ -438,35 +447,51 @@ class _ModeToggle extends StatelessWidget {
 
 class _ModeSegment extends StatelessWidget {
   final String label;
+  final IconData icon;
+  final bool iconOnly;
   final bool active;
   final VoidCallback onTap;
 
-  const _ModeSegment(
-      {required this.label, required this.active, required this.onTap});
+  const _ModeSegment({
+    required this.label,
+    required this.icon,
+    required this.active,
+    required this.onTap,
+    this.iconOnly = false,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    final segment = GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.symmetric(horizontal: 12),
+        padding: EdgeInsets.symmetric(horizontal: iconOnly ? 14 : 12),
         height: 32,
         alignment: Alignment.center,
         decoration: BoxDecoration(
           color: active ? const Color(0xFF7444fd) : Colors.transparent,
           borderRadius: BorderRadius.circular(8),
         ),
-        child: Text(
-          label,
-          style: GoogleFonts.inter(
-            color: active ? Colors.white : Colors.white38,
-            fontSize: 12,
-            fontWeight: active ? FontWeight.w600 : FontWeight.w400,
-          ),
-        ),
+        child: iconOnly
+            ? Icon(
+                icon,
+                size: 17,
+                color: active ? Colors.white : Colors.white38,
+              )
+            : Text(
+                label,
+                style: GoogleFonts.inter(
+                  color: active ? Colors.white : Colors.white38,
+                  fontSize: 12,
+                  fontWeight: active ? FontWeight.w600 : FontWeight.w400,
+                ),
+              ),
       ),
     );
+
+    // Sin la etiqueta visible, el tooltip es lo único que explica el ícono.
+    return iconOnly ? Tooltip(message: label, child: segment) : segment;
   }
 }
 

@@ -22,6 +22,9 @@ class PeriodMetrics {
   // contra uno a medias haría ver una caída que no existe.
   final List<PeriodPoint> prevChartPoints;
   final List<ProductSummary> topProducts;
+  /// Categorías del menú agrupadas por clasificación, ordenadas de mayor a
+  /// menor venta. Clave = clasificación ('Comida', 'Bebidas', ...).
+  final Map<String, List<CategorySummary>> categoriesByClassification;
 
   // Campos para vista tabla
   final double grossSales;
@@ -62,6 +65,7 @@ class PeriodMetrics {
     required this.chartPoints,
     this.prevChartPoints = const [],
     required this.topProducts,
+    this.categoriesByClassification = const {},
     this.grossSales = 0,
     this.discounts = 0,
     this.taxes = 0,
@@ -92,6 +96,7 @@ class PeriodMetrics {
       chartPoints: chartPoints,
       prevChartPoints: prevChartPoints,
       topProducts: topProducts,
+      categoriesByClassification: categoriesByClassification,
       grossSales: grossSales,
       discounts: discounts,
       taxes: taxes,
@@ -154,4 +159,20 @@ class ProductSummary {
     if (prevTotal == 0) return 0;
     return ((total - prevTotal) / prevTotal) * 100;
   }
+}
+
+/// Ventas acumuladas de una categoría del menú ("Tacos", "Cervezas"), dentro
+/// de su clasificación (Comida, Bebidas, Postres, Servicios).
+class CategorySummary {
+  final String name;
+  final String classification;
+  final int quantity;
+  final double total;
+
+  const CategorySummary({
+    required this.name,
+    required this.classification,
+    required this.quantity,
+    required this.total,
+  });
 }

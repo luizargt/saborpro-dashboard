@@ -129,6 +129,10 @@ class _NarrowShell extends StatelessWidget {
       appBar: AppBar(
         backgroundColor: const Color(0xFF0A1020),
         elevation: 0,
+        // En iOS/macOS AppBar centra el título cuando hay menos de 2 actions.
+        // Al ocultar el selector de fecha en Despensa la lista queda vacía y el
+        // título se corría al centro; se fija a la izquierda siempre.
+        centerTitle: false,
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
@@ -152,11 +156,15 @@ class _NarrowShell extends StatelessWidget {
           ],
         ),
         actions: [
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 160),
-            child: const DateSelectorChip(),
-          ),
-          const SizedBox(width: 8),
+          // Despensa muestra existencias al día de hoy, no un rango de fechas:
+          // ahí el selector no tendría efecto y solo confundiría.
+          if (index != 2) ...[
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 160),
+              child: const DateSelectorChip(),
+            ),
+            const SizedBox(width: 8),
+          ],
         ],
       ),
       body: _PageContent(index: index),
@@ -216,8 +224,8 @@ class _Rail extends StatelessWidget {
           const SizedBox(height: 20),
           // Nav items
           _RailItem(
-            icon: Icons.bar_chart_rounded,
-            label: 'Ventas',
+            icon: Icons.home_rounded,
+            label: 'Inicio',
             active: index == 0,
             onTap: () => onSelect(0),
           ),
@@ -231,7 +239,7 @@ class _Rail extends StatelessWidget {
           const SizedBox(height: 6),
           _RailItem(
             icon: Icons.inventory_2_rounded,
-            label: 'Inventario',
+            label: 'Despensa',
             active: index == 2,
             onTap: () => onSelect(2),
           ),
@@ -340,9 +348,9 @@ class _BottomNav extends StatelessWidget {
                 labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
                 destinations: [
                   NavigationDestination(
-                    icon: const Icon(Icons.bar_chart_outlined, color: Colors.white38),
-                    selectedIcon: const Icon(Icons.bar_chart_rounded, color: Color(0xFF7444fd)),
-                    label: 'Ventas',
+                    icon: const Icon(Icons.home_outlined, color: Colors.white38),
+                    selectedIcon: const Icon(Icons.home_rounded, color: Color(0xFF7444fd)),
+                    label: 'Inicio',
                   ),
                   NavigationDestination(
                     icon: const Icon(Icons.stacked_bar_chart_outlined, color: Colors.white38),
@@ -352,7 +360,7 @@ class _BottomNav extends StatelessWidget {
                   NavigationDestination(
                     icon: const Icon(Icons.inventory_2_outlined, color: Colors.white38),
                     selectedIcon: const Icon(Icons.inventory_2_rounded, color: Color(0xFF7444fd)),
-                    label: 'Inventario',
+                    label: 'Despensa',
                   ),
                 ],
               ),

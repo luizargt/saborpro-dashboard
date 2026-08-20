@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../presentation/providers/dashboard_provider.dart';
-import '../../../presentation/widgets/period_selector.dart';
 import '../../../presentation/widgets/location_selector.dart';
+import '../../../presentation/widgets/max_content_width.dart';
 import '../dashboard/cajas_screen.dart';
 
 class CashClosuresReportScreen extends StatelessWidget {
@@ -20,7 +20,14 @@ class CashClosuresReportScreen extends StatelessWidget {
         title: const Text('Cierres de Caja'),
       ),
       body: LocationSwipeArea(
-        child: RefreshIndicator(
+        child: MaxContentWidth(
+          child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Barra de sucursales fija, fuera del scroll.
+            const LocationHeaderBar(),
+            Expanded(
+              child: RefreshIndicator(
           color: const Color(0xFF7444fd),
           backgroundColor: const Color(0xFF1E293B),
           onRefresh: provider.load,
@@ -28,24 +35,10 @@ class CashClosuresReportScreen extends StatelessWidget {
             slivers: [
               SliverToBoxAdapter(
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Builder(builder: (ctx) {
-                        final wide = MediaQuery.of(ctx).size.width >= 600;
-                        if (wide) {
-                          return const Row(
-                            children: [
-                              Expanded(child: LocationTabsBar()),
-                              SizedBox(width: 8),
-                              DateSelectorChip(),
-                            ],
-                          );
-                        }
-                        return const LocationTabsBar();
-                      }),
-                      const SizedBox(height: 16),
                       if (provider.loading)
                         const SizedBox(
                           height: 300,
@@ -75,6 +68,10 @@ class CashClosuresReportScreen extends StatelessWidget {
                 ),
               ),
             ],
+          ),
+              ),
+            ),
+          ],
           ),
         ),
       ),

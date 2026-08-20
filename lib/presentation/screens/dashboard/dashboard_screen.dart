@@ -3,10 +3,11 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../../../core/utils/date_range.dart';
 import '../../../presentation/providers/dashboard_provider.dart';
-import '../../../presentation/widgets/period_selector.dart';
 import '../../../presentation/widgets/location_selector.dart';
 import '../../../presentation/widgets/metric_cards.dart';
 import '../../../presentation/widgets/location_sales_breakdown.dart';
+import '../../../presentation/widgets/top_categories_carousel.dart';
+import '../../../presentation/widgets/max_content_width.dart';
 import '../../../presentation/widgets/sales_chart.dart';
 import '../../../presentation/widgets/products_list.dart';
 import '../../../presentation/widgets/summary_table.dart';
@@ -47,51 +48,47 @@ class _DashboardBody extends StatelessWidget {
     final provider = context.watch<DashboardProvider>();
 
     return LocationSwipeArea(
-      child: RefreshIndicator(
-        color: const Color(0xFF7444fd),
-        backgroundColor: const Color(0xFF1E293B),
-        onRefresh: provider.load,
-        child: CustomScrollView(
-          slivers: [
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    // Sucursales: ancho completo en móvil, comparte con fecha en desktop
-                    Builder(builder: (ctx) {
-                      final wide = MediaQuery.of(ctx).size.width >= 600;
-                      if (wide) {
-                        return Row(
-                          children: [
-                            const Expanded(child: LocationTabsBar()),
-                            const SizedBox(width: 8),
-                            const DateSelectorChip(),
-                          ],
-                        );
-                      }
-                      return const LocationTabsBar();
-                    }),
-                    const SizedBox(height: 16),
-                    // Contenido
-                    if (provider.loading)
-                      const _LoadingState()
-                    else if (provider.error != null)
-                      _ErrorState(error: provider.error!, onRetry: provider.load)
-                    else if (provider.metrics != null)
-                      _DataContent(
-                        provider: provider,
-                        view: view,
-                        onViewChanged: onViewChanged,
-                      )
-                    else
-                      const _EmptyState(),
-                  ],
-                ),
+      child: MaxContentWidth(
+        child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Barra de sucursales fija: queda fuera del scroll para seguir
+          // visible mientras se recorre el contenido.
+          const LocationHeaderBar(),
+          Expanded(
+            child: RefreshIndicator(
+              color: const Color(0xFF7444fd),
+              backgroundColor: const Color(0xFF1E293B),
+              onRefresh: provider.load,
+              child: CustomScrollView(
+                slivers: [
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          if (provider.loading)
+                            const _LoadingState()
+                          else if (provider.error != null)
+                            _ErrorState(error: provider.error!, onRetry: provider.load)
+                          else if (provider.metrics != null)
+                            _DataContent(
+                              provider: provider,
+                              view: view,
+                              onViewChanged: onViewChanged,
+                            )
+                          else
+                            const _EmptyState(),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
-          ],
+          ),
+        ],
         ),
       ),
     );
@@ -112,18 +109,59 @@ class _DataContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final metrics = provider.metrics!;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        MetricCards(metrics: metrics),
-        if (provider.selectedLocationId == null) ...[
-          const SizedBox(height: 20),
-          LocationSalesBreakdown(
+    final wide = MediaQuery.of(context).size.width >= 900;
+
+    final paymentCard = metrics.salesByMethod.isEmpty
+        ? null
+        : Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1E293B),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: PaymentMethodBreakdown(
+              salesByMethod: metrics.salesByMethod,
+              customMethodNames: {
+                for (final r in provider.openRegisters) ...r.customMethodNames,
+                for (final r in provider.closedRegisters) ...r.customMethodNames,
+              },
+            ),
+          );
+
+    final locationsCard = provider.selectedLocationId != null
+        ? null
+        : LocationSalesBreakdown(
             locations: provider.locations,
             orders: provider.currentOrders,
             expenseItems: provider.expenseItems,
             purchaseItems: provider.purchaseItems,
-          ),
+          );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        MetricCards(metrics: metrics),
+        // Método de pago y sucursales: apilados en móvil, lado a lado en
+        // pantalla ancha para no dejar barras de un extremo al otro.
+        if (paymentCard != null || locationsCard != null) ...[
+          const SizedBox(height: 20),
+          if (wide && paymentCard != null && locationsCard != null)
+            IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(child: paymentCard),
+                  const SizedBox(width: 20),
+                  Expanded(child: locationsCard),
+                ],
+              ),
+            )
+          else ...[
+            if (paymentCard != null) paymentCard,
+            if (paymentCard != null && locationsCard != null)
+              const SizedBox(height: 20),
+            if (locationsCard != null) locationsCard,
+          ],
         ],
         const SizedBox(height: 20),
         // Toggle pegado al contenido de visualización
@@ -168,23 +206,12 @@ class _DataContent extends StatelessWidget {
             ],
           ),
         ),
-        const SizedBox(height: 20),
-        // Desglose por método de pago
-        if (metrics.salesByMethod.isNotEmpty)
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: const Color(0xFF1E293B),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: PaymentMethodBreakdown(
-              salesByMethod: metrics.salesByMethod,
-              customMethodNames: {
-                for (final r in provider.openRegisters) ...r.customMethodNames,
-                for (final r in provider.closedRegisters) ...r.customMethodNames,
-              },
-            ),
+        if (metrics.categoriesByClassification.isNotEmpty) ...[
+          const SizedBox(height: 20),
+          TopCategoriesCarousel(
+            categoriesByClassification: metrics.categoriesByClassification,
           ),
+        ],
         const SizedBox(height: 20),
         Container(
           padding: const EdgeInsets.all(16),

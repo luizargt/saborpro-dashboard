@@ -84,11 +84,16 @@ class _ProductsListState extends State<ProductsList> {
     return [...known, ...unknown];
   }
 
-  /// Mueve la pestaña una posición. `tabs` incluye null ("Todo") al inicio.
-  void _shiftTab(List<String?> tabs, int delta) {
-    final current = tabs.indexOf(_selectedCategory);
-    if (current == -1) return;
-    final next = current + delta;
+  /// Clasificación de un producto. Los que vienen sin clasificar caen en
+  /// "Otros": sin la pestaña "Todo" desaparecerían de la tabla por completo.
+  static String _catOf(ProductSummary p) =>
+      p.category.isEmpty ? 'Otros' : p.category;
+
+  /// Mueve la pestaña una posición dentro de las clasificaciones disponibles.
+  void _shiftTab(List<String> tabs, String? current, int delta) {
+    final index = current == null ? -1 : tabs.indexOf(current);
+    if (index == -1) return;
+    final next = index + delta;
     if (next < 0 || next >= tabs.length) return;
     setState(() => _selectedCategory = tabs[next]);
   }
@@ -116,7 +121,7 @@ class _ProductsListState extends State<ProductsList> {
     return base;
   }
 
-  void _showFiltersSheet(List<String> categories, List<String> paymentMethods) {
+  void _showFiltersSheet(List<String> paymentMethods) {
     showModalBottomSheet(
       context: context,
       backgroundColor: const Color(0xFF1E293B),
@@ -125,16 +130,10 @@ class _ProductsListState extends State<ProductsList> {
       ),
       useSafeArea: true,
       builder: (ctx) => _FiltersSheet(
-        categories: categories,
         paymentMethods: paymentMethods,
-        selectedCategory: _selectedCategory,
         selectedPaymentMethod: _selectedPaymentMethod,
-        onCategoryChanged: (val) => setState(() => _selectedCategory = val),
         onPaymentMethodChanged: (val) => setState(() => _selectedPaymentMethod = val),
-        onClear: () => setState(() {
-          _selectedCategory = null;
-          _selectedPaymentMethod = null;
-        }),
+        onClear: () => setState(() => _selectedPaymentMethod = null),
       ),
     );
   }
@@ -147,41 +146,33 @@ class _ProductsListState extends State<ProductsList> {
         ? (widget.productsByMethod[_selectedPaymentMethod] ?? widget.products)
         : widget.products;
 
-    final categories = baseProducts
-        .map((p) => p.category)
-        .where((c) => c.isNotEmpty)
-        .toSet()
-        .toList()
-      ..sort();
+    final categories = baseProducts.map(_catOf).toSet().toList()..sort();
+    final orderedCategories = _orderedCategories(categories);
 
-    // Si la categoría seleccionada ya no existe en la lista filtrada, la limpiamos
-    if (_selectedCategory != null && !categories.contains(_selectedCategory)) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) setState(() => _selectedCategory = null);
-      });
-    }
+    // Sin pestaña "Todo", siempre hay una clasificación activa. Si la guardada
+    // ya no existe en el período actual se cae a la primera, sin dejar la
+    // tabla vacía. Queda null solo si el menú no tiene ninguna clasificación.
+    final tabs = orderedCategories;
+    final active = (_selectedCategory != null && tabs.contains(_selectedCategory))
+        ? _selectedCategory
+        : (tabs.isNotEmpty ? tabs.first : null);
 
-    final filtered = _selectedCategory == null
+    final filtered = active == null
         ? baseProducts
-        : baseProducts.where((p) => p.category == _selectedCategory).toList();
+        : baseProducts.where((p) => _catOf(p) == active).toList();
 
     final paymentMethods = widget.productsByMethod.keys.toList()..sort();
-
-    final orderedCategories = _orderedCategories(categories);
-    // null = "Todo": sin él se perdería la vista completa, que es la que trae
-    // los totales de propinas, descuentos y total cobrado.
-    final tabs = <String?>[null, ...orderedCategories];
 
     return GestureDetector(
       // Deslizar sobre la tabla cambia de clasificación. Este gesto queda por
       // dentro del de sucursales (LocationSwipeArea): Flutter le da prioridad
       // al detector más interno, así que aquí manda la clasificación.
       behavior: HitTestBehavior.deferToChild,
-      onHorizontalDragEnd: orderedCategories.length > 1
+      onHorizontalDragEnd: tabs.length > 1
           ? (details) {
               final v = details.primaryVelocity ?? 0;
               if (v.abs() < 200) return;
-              _shiftTab(tabs, v < 0 ? 1 : -1);
+              _shiftTab(tabs, active, v < 0 ? 1 : -1);
             }
           : null,
       child: Column(
@@ -192,7 +183,7 @@ class _ProductsListState extends State<ProductsList> {
           children: [
             Expanded(
               child: Text(
-                _title(_selectedCategory, _selectedPaymentMethod),
+                _title(active, _selectedPaymentMethod),
                 style: GoogleFonts.inter(
                   color: Colors.white,
                   fontSize: 14,
@@ -213,10 +204,10 @@ class _ProductsListState extends State<ProductsList> {
                   Tooltip(
                     message: 'Filtrar',
                     child: InkWell(
-                      onTap: () => _showFiltersSheet(categories, paymentMethods),
+                      onTap: () => _showFiltersSheet(paymentMethods),
                       borderRadius: BorderRadius.circular(8),
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
                         decoration: BoxDecoration(
                           color: _hasActiveFilters
                               ? const Color(0xFF7444fd).withValues(alpha: 0.15)
@@ -262,7 +253,7 @@ class _ProductsListState extends State<ProductsList> {
                       onTap: () => ExportService.exportProducts(widget.products, widget.prevLabel),
                       borderRadius: BorderRadius.circular(8),
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
                         decoration: BoxDecoration(
                           color: const Color(0xFF1E293B),
                           borderRadius: BorderRadius.circular(8),
@@ -292,12 +283,12 @@ class _ProductsListState extends State<ProductsList> {
         ],
         // Pestañas por clasificación del menú. Solo aparecen si hay más de una
         // clasificación con ventas: con una sola no habría nada que elegir.
-        if (orderedCategories.length > 1) ...[
+        if (tabs.length > 1) ...[
           const SizedBox(height: 10),
           _CategoryTabs(
             tabs: tabs,
-            selected: _selectedCategory,
-            labelFor: (c) => c == null ? 'Todo' : _tabLabel(c),
+            selected: active,
+            labelFor: _tabLabel,
             onChanged: (c) => setState(() => _selectedCategory = c),
           ),
         ],
@@ -341,14 +332,16 @@ class _ProductsListState extends State<ProductsList> {
         else ...[
           ...filtered.map((p) => _ProductRow(product: p, fmt: fmt)),
           _FooterRow(
-            label: 'Total (${filtered.length} ${_countNoun(_selectedCategory)})',
+            label: 'Total (${filtered.length} ${_countNoun(active)})',
             qty: filtered.fold<int>(0, (s, p) => s + p.quantity),
             amount: filtered.fold<double>(0, (s, p) => s + p.total),
             fmt: fmt,
             labelColor: Colors.white70,
             amountColor: Colors.white70,
           ),
-          if (_selectedCategory == null && _selectedPaymentMethod == null) ...[
+          // Estos totales son del período completo, no de una clasificación. Solo
+          // aplican cuando el menú no tiene clasificaciones (sin pestañas).
+          if (active == null && _selectedPaymentMethod == null) ...[
             if (widget.tips > 0)
               _FooterRow(
                 label: '+ Propinas',
@@ -389,10 +382,10 @@ class _ProductsListState extends State<ProductsList> {
 /// deslizable en horizontal para que quepan cinco clasificaciones aun en un
 /// teléfono angosto.
 class _CategoryTabs extends StatelessWidget {
-  final List<String?> tabs;
+  final List<String> tabs;
   final String? selected;
-  final String Function(String?) labelFor;
-  final ValueChanged<String?> onChanged;
+  final String Function(String) labelFor;
+  final ValueChanged<String> onChanged;
 
   const _CategoryTabs({
     required this.tabs,
@@ -471,20 +464,14 @@ class _CategoryTabs extends StatelessWidget {
 // ─── Bottom Sheet de Filtros ──────────────────────────────────────────────────
 
 class _FiltersSheet extends StatefulWidget {
-  final List<String> categories;
   final List<String> paymentMethods;
-  final String? selectedCategory;
   final String? selectedPaymentMethod;
-  final ValueChanged<String?> onCategoryChanged;
   final ValueChanged<String?> onPaymentMethodChanged;
   final VoidCallback onClear;
 
   const _FiltersSheet({
-    required this.categories,
     required this.paymentMethods,
-    required this.selectedCategory,
     required this.selectedPaymentMethod,
-    required this.onCategoryChanged,
     required this.onPaymentMethodChanged,
     required this.onClear,
   });
@@ -494,17 +481,15 @@ class _FiltersSheet extends StatefulWidget {
 }
 
 class _FiltersSheetState extends State<_FiltersSheet> {
-  late String? _cat;
   late String? _pm;
 
   @override
   void initState() {
     super.initState();
-    _cat = widget.selectedCategory;
     _pm = widget.selectedPaymentMethod;
   }
 
-  bool get _hasFilters => _cat != null || _pm != null;
+  bool get _hasFilters => _pm != null;
 
   @override
   Widget build(BuildContext context) {
@@ -542,7 +527,6 @@ class _FiltersSheetState extends State<_FiltersSheet> {
                 TextButton(
                   onPressed: () {
                     setState(() {
-                      _cat = null;
                       _pm = null;
                     });
                     widget.onClear();
