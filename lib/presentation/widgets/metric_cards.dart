@@ -123,15 +123,19 @@ class _CompactMetricCard extends StatelessWidget {
             decoration: BoxDecoration(color: accent, shape: BoxShape.circle),
           ),
           const SizedBox(width: 8),
-          Text(
-            label,
-            style: GoogleFonts.inter(
-              color: Colors.white54,
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
+          Expanded(
+            child: Text(
+              label,
+              overflow: TextOverflow.ellipsis,
+              maxLines: 1,
+              style: GoogleFonts.inter(
+                color: Colors.white54,
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+              ),
             ),
           ),
-          const Spacer(),
+          const SizedBox(width: 8),
           Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             mainAxisSize: MainAxisSize.min,
