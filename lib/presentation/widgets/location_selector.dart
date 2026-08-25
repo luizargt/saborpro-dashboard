@@ -199,20 +199,32 @@ class LocationHeaderBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<DashboardProvider>();
-    if (provider.locations.length <= 1) return const SizedBox.shrink();
-
+    final hasTabs = provider.locations.length > 1;
     final wide = MediaQuery.of(context).size.width >= 600;
+
+    // En pantalla ancha el selector de fecha vive solo aquí (el shell ancho
+    // no tiene AppBar propio), así que debe verse aunque no haya pestañas
+    // de sucursal que mostrar.
+    if (!wide) {
+      if (!hasTabs) return const SizedBox.shrink();
+      return const Padding(
+        padding: EdgeInsets.fromLTRB(16, 8, 16, 0),
+        child: LocationTabsBar(),
+      );
+    }
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-      child: wide
-          ? const Row(
-              children: [
-                Expanded(child: LocationTabsBar()),
-                SizedBox(width: 8),
-                DateSelectorChip(),
-              ],
-            )
-          : const LocationTabsBar(),
+      child: Row(
+        children: [
+          if (hasTabs) ...[
+            const Expanded(child: LocationTabsBar()),
+            const SizedBox(width: 8),
+          ] else
+            const Spacer(),
+          const DateSelectorChip(),
+        ],
+      ),
     );
   }
 }
