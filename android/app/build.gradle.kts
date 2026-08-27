@@ -3,6 +3,9 @@ import java.io.FileInputStream
 
 plugins {
     id("com.android.application")
+    // START: FlutterFire Configuration
+    id("com.google.gms.google-services")
+    // END: FlutterFire Configuration
     id("kotlin-android")
     id("dev.flutter.flutter-gradle-plugin")
 }
@@ -19,6 +22,9 @@ android {
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
+        // flutter_local_notifications 19.x usa java.time: sin desugaring el
+        // build de Android falla con "requires core library desugaring".
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
@@ -64,4 +70,9 @@ android {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    // Misma versión que usa Sabor Suite.
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }

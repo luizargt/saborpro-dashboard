@@ -65,6 +65,9 @@ class AuthService {
   String? get tenantId => _tenantId;
   String? get locationId => _locationId;
   String? get displayName => _displayName;
+  // Id del doc de users/ con el que se inició sesión. Es la llave con la que se
+  // guardan el token FCM y las preferencias de notificaciones.
+  String? get firestoreUid => _firestoreUid;
   String? get sessionEmail => _sessionEmail;
   String? get sessionPassword => _sessionPassword;
   List<String> get assignedLocationIds => _assignedLocationIds;
@@ -276,6 +279,22 @@ class AuthService {
           print('[AUTH] Sesión restaurada desde storage: tenantId=$_tenantId');
         }
       } catch (_) {}
+    }
+  }
+
+  /// Uid de `users/` que quedó persistido en el almacenamiento seguro.
+  ///
+  /// `restoreSession()` puede dejar `_firestoreUid` en null aunque haya sesión:
+  /// con usuario de Firebase Auth vivo, la consulta por `firebase_uid` puede
+  /// expirar (timeout de 10s) o fallar, y el catch se la come sin rastro —
+  /// `isLoggedIn` sigue devolviendo true porque le basta el usuario de Firebase.
+  /// Quien necesite el uid para escribir en `users/{uid}` (token FCM,
+  /// preferencias de notificaciones) puede caer aquí antes de rendirse.
+  Future<String?> readPersistedUid() async {
+    try {
+      return await _storage.read(key: _kUid);
+    } catch (_) {
+      return null;
     }
   }
 

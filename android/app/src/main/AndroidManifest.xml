@@ -2,6 +2,9 @@
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.USE_BIOMETRIC"/>
     <uses-permission android:name="android.permission.USE_FINGERPRINT"/>
+
+    <!-- Permiso para notificaciones push (Android 13+) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <application
         android:label="Sabor Manager"
         android:name="${applicationName}"
@@ -29,6 +32,24 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <!-- Canal por defecto de FCM. Tiene que ser el mismo id que crea
+             NotificationService; si no, los avisos que llegan con la app
+             cerrada caen en un canal que Android inventa con importancia baja
+             y no suenan ni muestran banner. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="avisos_channel" />
+
+        <!-- Ícono por defecto de las notificaciones FCM.
+             Tiene que ser un drawable monocromo (silueta blanca sobre fondo
+             transparente): de Android 5 en adelante el sistema descarta el
+             color del ícono de la barra de estado y solo usa el canal alfa.
+             Con @mipmap/ic_launcher, que es opaco y a color, el aviso salía
+             como un cuadro blanco sólido. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_notification" />
+
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

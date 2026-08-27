@@ -1,17 +1,21 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'package:shorebird_code_push/shorebird_code_push.dart';
 import '../../core/services/auth_service.dart';
 import '../../core/services/biometric_service.dart';
 import '../../core/services/export_service.dart';
+import '../../core/services/notification_service.dart';
 import '../../presentation/providers/dashboard_provider.dart';
 import '../../presentation/providers/inventory_provider.dart';
+import '../../presentation/providers/notification_settings_provider.dart';
 import '../../presentation/screens/auth/login_screen.dart';
 import '../../presentation/screens/dashboard/dashboard_screen.dart';
 import '../../presentation/screens/inventory/inventory_screen.dart';
 import '../../presentation/screens/reports/reports_list_screen.dart';
+import '../../presentation/screens/settings/notification_settings_screen.dart';
 import '../../presentation/widgets/period_selector.dart';
 
 class AppShell extends StatefulWidget {
@@ -21,13 +25,26 @@ class AppShell extends StatefulWidget {
   State<AppShell> createState() => _AppShellState();
 }
 
-class _AppShellState extends State<AppShell> {
+class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   int _index = 0;
   int? _patchNumber;
+
+  // El último intento de activar el push se quedó sin permiso. Sirve para
+  // reintentar al volver de los Ajustes del sistema (ver
+  // didChangeAppLifecycleState); si no, el token no se guardaría hasta el
+  // siguiente arranque de la app.
+  bool _pushSinPermiso = false;
+  bool _reintentandoPush = false;
+
+  // Cerrar sesión no es instantáneo (hay que desvincular el token FCM antes) y
+  // no muestra spinner: sin esta guarda, el segundo toque abriría un logout en
+  // paralelo. Ver _logout.
+  bool _cerrandoSesion = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadPatchNumber();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final id = AuthService().tenantId;
@@ -35,7 +52,154 @@ class _AppShellState extends State<AppShell> {
         context.read<DashboardProvider>().init(id);
         context.read<InventoryProvider>().init(id);
       }
+      _setupNotificaciones();
     });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  /// El usuario vuelve a la app. Si dejamos el push a medias por falta de
+  /// permiso, puede que venga justo de activarlo en los Ajustes del sistema:
+  /// hay que RELEER el estado y guardar el token en vez de esperar al próximo
+  /// arranque. Releer, no pedir: ver `_reintentarPush`.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state != AppLifecycleState.resumed) return;
+    if (!_pushSinPermiso) return;
+    _reintentarPush();
+  }
+
+  /// uid con el que se guardan el token FCM y las preferencias.
+  ///
+  /// `firestoreUid` puede venir null con la sesión viva: al restaurar, la
+  /// consulta por `firebase_uid` puede expirar y el error se traga en silencio.
+  /// Si nos rindiéramos ahí, el push quedaría muerto sin ninguna señal.
+  Future<String?> _uidDeSesion() async =>
+      AuthService().firestoreUid ?? await AuthService().readPersistedUid();
+
+  /// Prende el push y deja el token guardado en users/{uid}.
+  ///
+  /// Corre en CADA entrada a AppShell, o sea en cada inicio de sesión, y eso es
+  /// a propósito: quien no dio permiso vuelve a ver el recordatorio cada vez
+  /// que entra. No hay flag de "no volver a preguntar" — sin permiso la app no
+  /// avisa de nada y deja de servir para lo que se instaló.
+  Future<void> _setupNotificaciones() async {
+    final uid = await _uidDeSesion();
+    if (uid == null || !mounted) return;
+
+    await NotificationService().initialize();
+    if (!mounted) return;
+
+    // Las preferencias se cargan aunque falte el permiso: la pantalla de
+    // ajustes tiene que poder abrirse y mostrar los switches igual.
+    await context.read<NotificationSettingsProvider>().init(uid);
+
+    final resultado = await NotificationService().ensurePermissionAndToken(uid);
+    _pushSinPermiso = resultado == ResultadoPush.permisoDenegado;
+    if (!mounted) return;
+
+    // Solo se manda a Ajustes cuando FALTA el permiso. Si el permiso está dado
+    // y lo que falló fue el token (en iOS, apns-token-not-set en el primer
+    // arranque), mandarlo a activar algo ya activado solo lo confunde: el
+    // listener de onTokenRefresh guarda el token en cuanto FCM entregue uno.
+    if (resultado != ResultadoPush.permisoDenegado) return;
+
+    await _mostrarDialogoPermisos();
+  }
+
+  /// Reintento silencioso tras volver a la app: SOLO relee el estado del
+  /// permiso y, si ya está concedido, guarda el token. No pide nada.
+  ///
+  /// `pedirSiHaceFalta: false` es lo que lo hace silencioso de verdad. Sin eso,
+  /// el usuario que dijo "Ahora no" recibiría el diálogo NATIVO del sistema al
+  /// volver de WhatsApp o de cualquier otra app, sin haber pedido nada; y en
+  /// Android ese sería el segundo y último diálogo que el sistema muestra en
+  /// toda la vida de la instalación: tras rechazarlo, el permiso queda denegado
+  /// para siempre y solo se recupera a mano desde Ajustes. El diálogo nativo
+  /// sale una sola vez, al entrar (`_setupNotificaciones`), que es cuando el
+  /// usuario tiene el contexto de qué se le está preguntando.
+  ///
+  /// Lo que este reintento sí resuelve: quien fue a los Ajustes del sistema y
+  /// activó el permiso a mano vuelve con el estado ya concedido, y aquí se le
+  /// guarda el token sin esperar al próximo arranque.
+  Future<void> _reintentarPush() async {
+    if (_reintentandoPush) return; // varios `resumed` seguidos son normales
+    _reintentandoPush = true;
+    try {
+      final uid = await _uidDeSesion();
+      if (uid == null) return;
+      final resultado = await NotificationService()
+          .ensurePermissionAndToken(uid, pedirSiHaceFalta: false);
+      if (resultado != ResultadoPush.permisoDenegado) _pushSinPermiso = false;
+    } finally {
+      _reintentandoPush = false;
+    }
+  }
+
+  Future<void> _mostrarDialogoPermisos() async {
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E293B),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            const Icon(Icons.notifications_active_rounded,
+                color: Color(0xFF7444fd), size: 22),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text('Activa las notificaciones',
+                  style: GoogleFonts.inter(
+                      color: Colors.white,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600)),
+            ),
+          ],
+        ),
+        content: Text(
+          'Sin permiso de notificaciones no te vas a enterar de las aperturas '
+          'y cierres de caja, los gastos ni los movimientos de inventario de '
+          'tus sucursales. Solo lo sabrías entrando a revisar a mano.\n\n'
+          'Toca "Abrir Ajustes" y activa las notificaciones de Sabor Manager.',
+          style: GoogleFonts.inter(
+              color: Colors.white70, fontSize: 14, height: 1.5),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text('Ahora no',
+                style: GoogleFonts.inter(color: Colors.white38)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF7444fd),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () async {
+              // Se cierra antes de salir de la app: al volver de Ajustes el
+              // diálogo colgado tapando la pantalla se vería como un bug.
+              Navigator.pop(ctx);
+              try {
+                await openAppSettings();
+              } catch (e) {
+                // permission_handler solo trae implementación de Android e
+                // iOS. En macOS reventaría con MissingPluginException y se
+                // llevaría la app por delante por un botón secundario.
+                debugPrint('[PUSH] No se pudieron abrir los Ajustes: $e');
+              }
+            },
+            child: Text('Abrir Ajustes', style: GoogleFonts.inter()),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _loadPatchNumber() async {
@@ -61,12 +225,39 @@ class _AppShellState extends State<AppShell> {
   }
 
   Future<void> _logout() async {
-    await AuthService().logout();
-    await BiometricService().clearCredentials();
-    if (!mounted) return;
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => const LoginScreen()),
-    );
+    // Sin red el borrado del token tarda lo que dure su timeout (2s) y en ese
+    // rato la pantalla no cambia: la hoja del menú ya se cerró y sigue el
+    // dashboard. El usuario, sin ninguna señal, vuelve a abrir el menú y toca
+    // "Cerrar sesión" otra vez; sin esta guarda eso dispara un segundo logout
+    // en paralelo y un segundo pushReplacement al login.
+    if (_cerrandoSesion) return;
+    _cerrandoSesion = true;
+    try {
+      // El token se desvincula ANTES del logout, mientras el uid sigue vivo:
+      // después AuthService lo borra de memoria y del storage y ya no habría a
+      // qué doc de users/ apuntar. Sin esto, en multi-tenant el teléfono
+      // seguiría recibiendo avisos de caja, gastos e inventario del tenant que
+      // abandonó.
+      final uid = await _uidDeSesion();
+      if (uid != null) {
+        // Un fallo de red no puede impedir cerrar sesión:
+        // removeCurrentDeviceToken se traga sus errores y corta a los 2s.
+        await NotificationService().removeCurrentDeviceToken(uid);
+      }
+      _pushSinPermiso = false;
+
+      await AuthService().logout();
+      await BiometricService().clearCredentials();
+      if (!mounted) return;
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+      );
+    } finally {
+      // Se libera siempre: si algo de la cadena lanzara, dejar la guarda puesta
+      // significaría un usuario que ya no puede cerrar sesión hasta reiniciar la
+      // app. Tras el pushReplacement este State ya está muerto y da igual.
+      _cerrandoSesion = false;
+    }
   }
 
   @override
@@ -912,6 +1103,45 @@ class _MenuModalState extends State<_MenuModal> {
             Divider(color: Colors.white.withOpacity(0.06)),
             const SizedBox(height: 4),
           ],
+
+          // Notificaciones
+          GestureDetector(
+            onTap: () {
+              // El Navigator se toma ANTES del pop: después de cerrar la hoja,
+              // este context ya está muerto y el push explotaría.
+              final navigator = Navigator.of(context);
+              navigator.pop();
+              navigator.push(
+                MaterialPageRoute(
+                    builder: (_) => const NotificationSettingsScreen()),
+              );
+            },
+            behavior: HitTestBehavior.opaque,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              child: Row(
+                children: [
+                  const Icon(Icons.notifications_outlined,
+                      color: Colors.white38, size: 20),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'Notificaciones',
+                      style: GoogleFonts.inter(
+                        color: Colors.white70,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                  const Icon(Icons.chevron_right_rounded,
+                      color: Colors.white38, size: 20),
+                ],
+              ),
+            ),
+          ),
+          Divider(color: Colors.white.withOpacity(0.06)),
+          const SizedBox(height: 4),
 
           // Botón Salir
           GestureDetector(

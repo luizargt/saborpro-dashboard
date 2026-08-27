@@ -1,7 +1,7 @@
 name: saborpro_reports
 description: SaborPro Analytics - Dashboard de reportes para gerentes
 publish_to: 'none'
-version: 1.0.3+10
+version: 1.1.0+12
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -16,6 +16,10 @@ dependencies:
   firebase_core: ^4.2.1
   firebase_auth: ^6.1.2
   cloud_firestore: ^6.1.0
+  # Mismas restricciones que Sabor Suite: ese set ya está probado contra estas
+  # versiones de firebase_core/auth/firestore.
+  firebase_messaging: ^16.0.4
+  flutter_local_notifications: ^19.5.0
 
   # State Management
   provider: ^6.1.1
@@ -32,6 +36,9 @@ dependencies:
   crypto: ^3.0.3
   local_auth: ^2.3.0
   flutter_secure_storage: ^9.2.2
+  # Solo por openAppSettings(): es el paquete que Sabor Suite ya usa, así que no
+  # se mete una dependencia distinta (app_settings) al ecosistema.
+  permission_handler: ^11.3.1
   excel: ^4.0.6
   sentry_flutter: ^8.14.2
   shorebird_code_push: ^2.0.2
