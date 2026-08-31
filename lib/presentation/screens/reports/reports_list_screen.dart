@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../widgets/max_content_width.dart';
+import 'cancelled_orders_report_screen.dart';
 import 'cash_closures_report_screen.dart';
 import 'expenses_report_screen.dart';
 
@@ -57,6 +58,14 @@ class _ReportsListScreenState extends State<ReportsListScreen> {
       icon: Icons.receipt_long_rounded,
       label: 'Gastos',
       builder: (_) => const ExpensesReportScreen(),
+    ),
+    // Va en Bodega y no en Ventas: lo que se revisa aquí es producto perdido,
+    // no dinero no vendido.
+    _Report(
+      group: _Group.bodega,
+      icon: Icons.remove_shopping_cart_rounded,
+      label: 'Pedidos cancelados',
+      builder: (_) => const CancelledOrdersReportScreen(),
     ),
   ];
 
