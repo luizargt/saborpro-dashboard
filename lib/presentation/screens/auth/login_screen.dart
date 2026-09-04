@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/services/biometric_service.dart';
 import '../shell_screen.dart';
+import 'biometric_login_button.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -21,6 +22,8 @@ class _LoginScreenState extends State<LoginScreen> {
 
   bool _biometricAvailable = false;
   bool _biometricEnabled = false;
+  BiometricKind _biometricKind = BiometricKind.fingerprint;
+  String? _biometricAccount;
 
   @override
   void initState() {
@@ -29,46 +32,132 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _checkBiometric() async {
-    final available = await BiometricService().isAvailable();
+    // isHardwarePresent y no isAvailable: el botón se muestra también en un
+    // teléfono con sensor pero sin huellas registradas todavía, para que quien
+    // nunca lo configuró vea que la opción existe en vez de un login pelado.
+    final available = await BiometricService().isHardwarePresent();
     final enabled = await BiometricService().isEnabled();
-    if (mounted) {
-      setState(() {
-        _biometricAvailable = available;
-        _biometricEnabled = enabled;
-      });
-      // Si ya está habilitado, intenta autenticar automáticamente al abrir
-      if (available && enabled) {
-        _loginWithBiometric();
-      }
+    final kind = await BiometricService().detectKind();
+    final account = await BiometricService().getStoredEmail();
+    if (!mounted) return;
+
+    setState(() {
+      _biometricAvailable = available;
+      _biometricEnabled = enabled;
+      _biometricKind = kind;
+      _biometricAccount = account;
+    });
+
+    // Si ya está habilitado, intenta autenticar automáticamente al abrir
+    if (available && enabled) {
+      _loginWithBiometric(auto: true);
     }
   }
 
-  Future<void> _loginWithBiometric() async {
-    setState(() { _loading = true; _error = null; });
-
-    final creds = await BiometricService().authenticate();
-    if (!mounted) return;
-
-    if (creds == null) {
-      setState(() { _loading = false; });
+  /// Toque en el botón biométrico. Si todavía no está configurado no puede
+  /// entrar, pero tampoco puede quedarse mudo: explica en un paso qué hacer.
+  Future<void> _onBiometricTap() async {
+    if (_biometricEnabled) {
+      await _loginWithBiometric();
       return;
     }
+    await _showActivationHelp();
+  }
 
-    final result = await AuthService().login(creds.email, creds.password);
+  Future<void> _loginWithBiometric({bool auto = false}) async {
+    setState(() { _loading = true; _error = null; });
+
+    final result = await BiometricService().authenticate(
+      reason: 'Verifica tu identidad para entrar a Sabor Manager',
+    );
     if (!mounted) return;
 
     if (!result.success) {
+      setState(() {
+        _loading = false;
+        // Cancelar a propósito no es un error: el usuario solo quiere teclear
+        // su contraseña. En el intento automático de arranque tampoco se
+        // muestra nada, para no recibir a nadie con un letrero rojo.
+        _error = (result.cancelled || auto) ? null : result.error;
+        if (result.needsSetup) _biometricEnabled = false;
+      });
+      if (result.needsSetup) await BiometricService().clearCredentials();
+      return;
+    }
+
+    final login = await AuthService().login(result.email!, result.password!);
+    if (!mounted) return;
+
+    if (!login.success) {
       // Credenciales guardadas ya no son válidas
       await BiometricService().clearCredentials();
+      if (!mounted) return;
       setState(() {
-        _error = 'Sesión expirada. Ingresa con tu contraseña.';
+        _error = 'Tu contraseña cambió. Ingresa con tu correo y contraseña '
+            'para volver a activar el acceso rápido.';
         _biometricEnabled = false;
+        _biometricAccount = null;
         _loading = false;
       });
     } else {
       _goToDashboard();
     }
   }
+
+  Future<void> _showActivationHelp() async {
+    final hasEnrolled = await BiometricService().isAvailable();
+    if (!mounted) return;
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E293B),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Icon(_biometricIcon, color: const Color(0xFF7444fd), size: 22),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                hasEnrolled
+                    ? 'Activa el acceso rápido'
+                    : 'Sin ${_biometricKind.label} registrada',
+                style: GoogleFonts.inter(
+                  color: Colors.white,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          hasEnrolled
+              ? 'Ingresa esta vez con tu correo y contraseña. Al terminar te '
+                  'preguntamos si quieres activar el acceso con '
+                  '${_biometricKind.label}, y la próxima vez entras con un toque.'
+              : 'Tu dispositivo todavía no tiene ${_biometricKind.label} '
+                  'registrada.\n\n${_biometricKind.enrollHint}',
+          style: GoogleFonts.inter(
+              color: Colors.white70, fontSize: 14, height: 1.5),
+        ),
+        actions: [
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF7444fd),
+              foregroundColor: Colors.white,
+              shape:
+                  RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () => Navigator.pop(ctx),
+            child: Text('Entendido', style: GoogleFonts.inter()),
+          ),
+        ],
+      ),
+    );
+  }
+
+  IconData get _biometricIcon => BiometricLoginButton.iconFor(_biometricKind);
 
   Future<void> _login() async {
     if (!_form.currentState!.validate()) return;
@@ -116,7 +205,12 @@ class _LoginScreenState extends State<LoginScreen> {
         contentPadding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
         content: SizedBox(
           width: double.maxFinite,
-          child: Column(
+          // AlertDialog no desplaza su contenido por su cuenta: mete el content
+          // en un Flexible y lo recorta. Con una Column pelada, un admin con
+          // muchos restaurantes veía la lista cortada y sin forma de llegar a
+          // los de abajo — o sea sin poder entrar a esos negocios.
+          child: SingleChildScrollView(
+            child: Column(
             mainAxisSize: MainAxisSize.min,
             children: List.generate(candidates.length, (i) {
               final c = candidates[i];
@@ -158,6 +252,7 @@ class _LoginScreenState extends State<LoginScreen> {
               );
             }),
           ),
+          ),
         ),
         actions: [
           TextButton(
@@ -192,18 +287,29 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  void _offerBiometric(String email, String password) {
+  Future<void> _offerBiometric(String email, String password) async {
+    // _biometricAvailable solo dice que hay sensor. Ofrecer activar la huella
+    // a quien no tiene ninguna registrada es prometer algo que va a fallar.
+    final hasEnrolled = await BiometricService().isAvailable();
+    if (!mounted) return;
+    if (!hasEnrolled) {
+      _goToDashboard();
+      return;
+    }
+
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (_) => AlertDialog(
         backgroundColor: const Color(0xFF1E293B),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Text(
           '¿Activar acceso rápido?',
           style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.w700),
         ),
         content: Text(
-          'La próxima vez podrás ingresar con tu huella o Face ID.',
+          'La próxima vez entras con tu ${_biometricKind.label}, sin escribir '
+          'tu contraseña.',
           style: GoogleFonts.inter(color: Colors.white70),
         ),
         actions: [
@@ -216,7 +322,15 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
           ElevatedButton(
             onPressed: () async {
+              // Se guarda y se pide la biometría en el acto: si el sensor no
+              // responde, el usuario se entera ahora y no la próxima vez que
+              // llegue al login confiando en algo que nunca funcionó.
               await BiometricService().saveCredentials(email, password);
+              final check = await BiometricService().authenticate(
+                reason: 'Confirma tu ${_biometricKind.label} para activar el '
+                    'acceso rápido',
+              );
+              if (!check.success) await BiometricService().clearCredentials();
               if (!mounted) return;
               Navigator.pop(context);
               _goToDashboard();
@@ -250,7 +364,12 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFF0F172A),
-      body: Center(
+      // Sin AppBar ni bottomNavigationBar, el Scaffold dibuja el body hasta el
+      // último píxel de la pantalla: el logo se metía bajo el reloj y el botón
+      // "Ingresar" quedaba contra la barra de navegación. Y es la primera
+      // pantalla que ve un cliente nuevo.
+      body: SafeArea(
+        child: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: ConstrainedBox(
@@ -352,47 +471,23 @@ class _LoginScreenState extends State<LoginScreen> {
                             ),
                     ),
                   ),
-                  // Botón biométrico (solo si está disponible y activado)
-                  if (_biometricAvailable && _biometricEnabled) ...[
-                    const SizedBox(height: 16),
-                    GestureDetector(
-                      onTap: _loading ? null : _loginWithBiometric,
-                      child: Column(
-                        children: [
-                          Container(
-                            width: 64,
-                            height: 64,
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF1E293B),
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: const Color(0xFF7444fd).withOpacity(0.4),
-                                width: 1.5,
-                              ),
-                            ),
-                            child: const Icon(
-                              Icons.fingerprint,
-                              color: Color(0xFF7444fd),
-                              size: 36,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'Usar huella / Face ID',
-                            style: GoogleFonts.inter(
-                              color: Colors.white38,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ],
-                      ),
+                  // Acceso biométrico. Se muestra siempre que el dispositivo
+                  // tenga sensor: apagado invita a activarlo, encendido entra
+                  // de un toque. Antes solo aparecía ya activado, y como
+                  // cerrar sesión borraba las credenciales, no aparecía nunca.
+                  if (_biometricAvailable)
+                    BiometricLoginButton(
+                      kind: _biometricKind,
+                      enabled: _biometricEnabled,
+                      account: _biometricAccount,
+                      onTap: _loading ? null : _onBiometricTap,
                     ),
-                  ],
                 ],
               ),
             ),
           ),
         ),
+      ),
       ),
     );
   }

@@ -60,7 +60,12 @@ class _CancelledOrdersReportScreenState
           elevation: 0,
           title: const Text('Pedidos Cancelados'),
         ),
-        body: LocationSwipeArea(
+        // top: false — el AppBar ya reservó arriba. Los 32px de colchón del
+        // listado aguantan la barra de gestos, pero no los 48dp de la de tres
+        // botones, y esta pantalla se abre con push (sin bottom nav debajo).
+        body: SafeArea(
+          top: false,
+          child: LocationSwipeArea(
           child: MaxContentWidth(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -93,6 +98,7 @@ class _CancelledOrdersReportScreenState
               ],
             ),
           ),
+        ),
         ),
       ),
     );

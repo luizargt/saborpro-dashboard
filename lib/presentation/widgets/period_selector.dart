@@ -125,6 +125,10 @@ void _openDateRangePicker(BuildContext context, DashboardProvider provider) {
     context: context,
     backgroundColor: const Color(0xFF1E293B),
     isScrollControlled: true,
+    // Con isScrollControlled la hoja puede crecer hasta el borde superior y el
+    // calendario se metía bajo el reloj en teléfonos chicos. El bottom ya lo
+    // resuelve el padding de más abajo (useSafeArea solo cubre arriba).
+    useSafeArea: true,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
     ),

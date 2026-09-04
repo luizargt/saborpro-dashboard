@@ -306,7 +306,13 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
           : MaxContentWidth(
               maxWidth: 720,
               child: ListView(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+                // El 32 fijo aguanta la barra de gestos pero no los 48dp de la
+                // de tres botones, y esta pantalla se abre con push (sin la
+                // bottom nav de la app debajo, que es la que normalmente
+                // reserva ese borde). Sumar el inset deja el último interruptor
+                // alcanzable en cualquier teléfono.
+                padding: EdgeInsets.fromLTRB(
+                    16, 16, 16, 32 + MediaQuery.of(context).padding.bottom),
                 children: [
                   // Solo si de verdad está bloqueado: si todo está bien, no
                   // ocupa ni un píxel.

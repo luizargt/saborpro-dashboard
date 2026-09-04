@@ -190,18 +190,24 @@ class _RegisterDetailScreenState extends State<RegisterDetailScreen>
           ],
         ),
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator(color: Color(0xFF7444fd)))
-          : TabBarView(
-              controller: _tabs,
-              children: [
-                _OrdersTab(
-                  orders: _orders,
-                  locationNames: widget.locationNames,
-                ),
-                _ExpensesTab(expenses: _expenses),
-              ],
-            ),
+      // top: false — el AppBar ya reservó arriba. Abajo las dos listas van sin
+      // colchón alguno, así que la última fila de pedidos y el último gasto
+      // quedaban íntegros debajo de la barra de navegación.
+      body: SafeArea(
+        top: false,
+        child: _loading
+            ? const Center(child: CircularProgressIndicator(color: Color(0xFF7444fd)))
+            : TabBarView(
+                controller: _tabs,
+                children: [
+                  _OrdersTab(
+                    orders: _orders,
+                    locationNames: widget.locationNames,
+                  ),
+                  _ExpensesTab(expenses: _expenses),
+                ],
+              ),
+      ),
     );
   }
 }

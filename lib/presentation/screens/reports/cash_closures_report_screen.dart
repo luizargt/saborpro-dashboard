@@ -19,7 +19,13 @@ class CashClosuresReportScreen extends StatelessWidget {
         elevation: 0,
         title: const Text('Cierres de Caja'),
       ),
-      body: LocationSwipeArea(
+      // top: false — el AppBar ya reservó arriba. Abajo hace falta: la
+      // pantalla se abre con push, sin la barra de navegación de la app
+      // debajo, y los 16px de colchón no alcanzan contra los 48dp de la barra
+      // de tres botones.
+      body: SafeArea(
+        top: false,
+        child: LocationSwipeArea(
         child: MaxContentWidth(
           child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -73,6 +79,7 @@ class CashClosuresReportScreen extends StatelessWidget {
             ),
           ],
           ),
+        ),
         ),
       ),
     );

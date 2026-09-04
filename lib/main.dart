@@ -4,7 +4,9 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
+import 'core/services/app_lock_policy.dart';
 import 'core/services/auth_service.dart';
+import 'core/services/biometric_service.dart';
 import 'core/services/firestore_service.dart';
 import 'core/services/notification_service.dart';
 import 'firebase_options.dart';
@@ -13,6 +15,8 @@ import 'presentation/providers/inventory_provider.dart';
 import 'presentation/providers/notification_settings_provider.dart';
 import 'presentation/screens/auth/login_screen.dart';
 import 'presentation/screens/shell_screen.dart';
+import 'presentation/widgets/app_lock_gate.dart';
+import 'presentation/widgets/forced_update_gate.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -27,18 +31,34 @@ void main() async {
   await FirestoreService().initialize();
   await AuthService().restoreSession();
 
+  // Se resuelve ANTES de pintar: si se decidiera dentro del primer build, el
+  // dashboard con las ventas del día alcanzaría a verse un frame antes de que
+  // baje el bloqueo.
+  final lockedAtStart = AppLockPolicy.shouldLockOnStart(
+    loggedIn: AuthService().isLoggedIn,
+    biometricEnabled: await BiometricService().isEnabled(),
+  );
+
   await SentryFlutter.init(
     (options) {
       options.dsn = 'https://80d27298109d32411a1d331095af590b@o4510177128677376.ingest.us.sentry.io/4511282065178624';
       options.tracesSampleRate = 0.2;
       options.environment = 'production';
     },
-    appRunner: () => runApp(const SaborProAnalyticsApp()),
+    appRunner: () =>
+        runApp(SaborProAnalyticsApp(lockedAtStart: lockedAtStart)),
   );
 }
 
 class SaborProAnalyticsApp extends StatelessWidget {
-  const SaborProAnalyticsApp({super.key});
+  /// Si al arrancar hay que pedir la biometría antes de mostrar nada.
+  final bool lockedAtStart;
+
+  SaborProAnalyticsApp({super.key, this.lockedAtStart = false});
+
+  /// El gate vive por encima del Navigator y necesita esta llave para poder
+  /// mandar al login cuando alguien usa la salida por contraseña.
+  final _navigatorKey = GlobalKey<NavigatorState>();
 
   @override
   Widget build(BuildContext context) {
@@ -52,6 +72,19 @@ class SaborProAnalyticsApp extends StatelessWidget {
       child: MaterialApp(
         title: 'Sabor Manager',
         debugShowCheckedModeBanner: false,
+        navigatorKey: _navigatorKey,
+        // En builder y no en home: así el bloqueo queda por encima del
+        // Navigator y sigue vigilando aunque el usuario navegue. Como home se
+        // desmontaría en el primer pushReplacement.
+        // El aviso de actualización va por fuera del bloqueo biométrico: si la
+        // app quedó vieja, da igual quién sea el que la abre.
+        builder: (context, child) => ForcedUpdateGate(
+          child: AppLockGate(
+            navigatorKey: _navigatorKey,
+            lockedAtStart: lockedAtStart,
+            child: child ?? const SizedBox.shrink(),
+          ),
+        ),
         theme: ThemeData(
           brightness: Brightness.dark,
           scaffoldBackgroundColor: const Color(0xFF0F172A),

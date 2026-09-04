@@ -247,7 +247,12 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       _pushSinPermiso = false;
 
       await AuthService().logout();
-      await BiometricService().clearCredentials();
+      // Las credenciales biométricas sobreviven al logout a propósito.
+      // Borrarlas aquí dejaba el acceso con huella inservible: la pantalla de
+      // login solo se ve después de cerrar sesión (con sesión viva, main.dart
+      // va directo al dashboard), o sea justo cuando la huella acababa de ser
+      // borrada. El botón existía únicamente en un estado inalcanzable.
+      // Quien quiera desvincular la cuenta tiene el interruptor en el menú.
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (_) => const LoginScreen()),
@@ -290,12 +295,25 @@ class _WideShell extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFF0F172A),
+      // Sin AppBar que reserve el hueco de arriba (como sí hace _NarrowShell),
+      // este layout arrancaba en el píxel 0: el reloj y la batería se comían
+      // las pestañas de sucursal y el selector de fecha, y abajo la barra de
+      // navegación (o la taskbar de las tablets Samsung) cortaba las gráficas.
+      //
+      // El SafeArea no envuelve al Row entero a propósito: eso encogería
+      // también los fondos y dejaría franjas del color del Scaffold detrás de
+      // las barras del sistema. Cada columna pinta hasta el borde y mete el
+      // hueco puertas adentro.
       body: Row(
         children: [
           _Rail(index: index, onSelect: onSelect, onLogout: onLogout, versionLabel: versionLabel),
           Container(width: 1, color: Colors.white.withOpacity(0.05)),
           Expanded(
-            child: _PageContent(index: index),
+            // left: false — el hueco lateral izquierdo ya lo absorbió el rail.
+            child: SafeArea(
+              left: false,
+              child: _PageContent(index: index),
+            ),
           ),
         ],
       ),
@@ -377,9 +395,17 @@ class _Rail extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 76,
+      // El ancho incluye el hueco lateral: si el sistema reserva borde
+      // izquierdo (gestos, notch en horizontal), los íconos se corrían fuera
+      // de los 76px y quedaban cortados contra el separador.
+      width: 76 + MediaQuery.of(context).padding.left,
       color: const Color(0xFF070E1A),
-      child: Column(
+      // El color llega hasta arriba y abajo; lo que se aparta de las barras
+      // del sistema es el contenido. right: false porque de ese lado no hay
+      // borde de pantalla, hay más app.
+      child: SafeArea(
+        right: false,
+        child: Column(
         children: [
           const SizedBox(height: 20),
           // Logo
@@ -451,6 +477,7 @@ class _Rail extends StatelessWidget {
             ),
           ),
         ],
+        ),
       ),
     );
   }
@@ -615,6 +642,12 @@ void _showMenuModal(BuildContext context, VoidCallback onLogout) {
       borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
     ),
     isScrollControlled: true,
+    // El menú es alto (tipos de reporte + biometría + notificaciones + cerrar
+    // sesión) y con isScrollControlled podía trepar hasta el reloj. El borde
+    // de abajo ya lo cubre navBarHeight, que se midió arriba con el context
+    // del rail — a propósito, porque ahí todavía no lo consumió ningún
+    // SafeArea; useSafeArea solo agrega el de arriba.
+    useSafeArea: true,
     builder: (_) => _MenuModal(onLogout: onLogout, navBarHeight: navBarHeight),
   );
 }
@@ -646,6 +679,7 @@ class _MenuModalState extends State<_MenuModal> {
   bool?  _biometricAvailable;
   bool   _biometricEnabled = false;
   String? _biometricError;
+  BiometricKind _biometricKind = BiometricKind.fingerprint;
 
   @override
   void initState() {
@@ -656,13 +690,22 @@ class _MenuModalState extends State<_MenuModal> {
   Future<void> _loadBiometricState() async {
     final available = await BiometricService().isHardwarePresent();
     final enabled   = await BiometricService().isEnabled();
+    final kind      = await BiometricService().detectKind();
     if (mounted) {
       setState(() {
         _biometricAvailable = available;
         _biometricEnabled   = enabled;
+        _biometricKind      = kind;
       });
     }
   }
+
+  IconData get _biometricIcon => switch (_biometricKind) {
+        BiometricKind.faceId ||
+        BiometricKind.faceAndroid =>
+          Icons.face_retouching_natural,
+        _ => Icons.fingerprint,
+      };
 
   Future<void> _toggleBiometric(bool enable) async {
     if (enable) {
@@ -696,11 +739,10 @@ class _MenuModalState extends State<_MenuModal> {
             shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16)),
             title: Row(children: [
-              const Icon(Icons.fingerprint,
-                  color: Color(0xFF7444fd), size: 22),
+              Icon(_biometricIcon, color: const Color(0xFF7444fd), size: 22),
               const SizedBox(width: 10),
               Expanded(
-                child: Text('Sin huella registrada',
+                child: Text('Sin ${_biometricKind.label} registrada',
                     style: GoogleFonts.inter(
                         color: Colors.white,
                         fontSize: 15,
@@ -708,9 +750,8 @@ class _MenuModalState extends State<_MenuModal> {
               ),
             ]),
             content: Text(
-              'Este dispositivo no tiene huellas registradas.\n\n'
-              'Ve a Configuración → Seguridad → Huella digital '
-              'para registrar una y luego vuelve aquí.',
+              'Este dispositivo no tiene ${_biometricKind.label} registrada.'
+              '\n\n${_biometricKind.enrollHint}',
               style: GoogleFonts.inter(
                   color: Colors.white70, fontSize: 14, height: 1.5),
             ),
@@ -732,11 +773,18 @@ class _MenuModalState extends State<_MenuModal> {
       return;
     }
     await BiometricService().saveCredentials(email, password);
-    final auth = await BiometricService().authenticate();
-    if (auth != null) {
+    final auth = await BiometricService().authenticate(
+      reason: 'Confirma tu ${_biometricKind.label} para activar el acceso rápido',
+    );
+    if (auth.success) {
       if (mounted) setState(() => _biometricEnabled = true);
     } else {
       await BiometricService().clearCredentials();
+      // Si el sensor falló de verdad (no fue el usuario cancelando), decirlo:
+      // el interruptor volviendo solo a "apagado" no explica nada.
+      if (mounted && auth.error != null) {
+        setState(() => _biometricError = auth.error);
+      }
     }
   }
 
@@ -862,13 +910,16 @@ class _MenuModalState extends State<_MenuModal> {
                 }
                 await BiometricService()
                     .saveCredentials(resolvedEmail, pwCtrl.text);
-                final auth = await BiometricService().authenticate();
-                if (auth != null) {
+                final auth = await BiometricService().authenticate(
+                  reason: 'Confirma tu ${_biometricKind.label} para activar '
+                      'el acceso rápido',
+                );
+                if (auth.success) {
                   if (ctx.mounted) Navigator.pop(ctx, true);
                 } else {
                   await BiometricService().clearCredentials();
-                  setStateDialog(
-                      () => errorMsg = 'No se pudo verificar la huella.');
+                  setStateDialog(() => errorMsg = auth.error ??
+                      'No se pudo verificar tu ${_biometricKind.label}.');
                 }
               },
               child: Text('Activar', style: GoogleFonts.inter()),
@@ -1068,7 +1119,7 @@ class _MenuModalState extends State<_MenuModal> {
                 child: Row(
                   children: [
                     Icon(
-                      Icons.fingerprint,
+                      _biometricIcon,
                       color: _biometricEnabled
                           ? const Color(0xFF7444fd)
                           : Colors.white38,
@@ -1077,7 +1128,7 @@ class _MenuModalState extends State<_MenuModal> {
                     const SizedBox(width: 12),
                     Expanded(
                       child: Text(
-                        'Inicio con huella / Face ID',
+                        _biometricKind.settingsLabel,
                         style: GoogleFonts.inter(
                           color: _biometricEnabled
                               ? Colors.white70
@@ -1100,6 +1151,17 @@ class _MenuModalState extends State<_MenuModal> {
                 ),
               ),
             ),
+            // _biometricError se venía asignando sin pintarse en ningún lado:
+            // el interruptor rebotaba a apagado y el usuario no sabía por qué.
+            if (_biometricError != null)
+              Padding(
+                padding: const EdgeInsets.only(left: 32, bottom: 8),
+                child: Text(
+                  _biometricError!,
+                  style: GoogleFonts.inter(
+                      color: const Color(0xFFEF4444), fontSize: 12, height: 1.4),
+                ),
+              ),
             Divider(color: Colors.white.withOpacity(0.06)),
             const SizedBox(height: 4),
           ],

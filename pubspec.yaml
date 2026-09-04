@@ -43,6 +43,15 @@ dependencies:
   sentry_flutter: ^8.14.2
   shorebird_code_push: ^2.0.2
 
+  # Aviso de actualización contra las tiendas. Mismas versiones que Sabor
+  # Suite, que ya las tiene probadas en producción.
+  package_info_plus: ^9.0.0
+  url_launcher: ^6.3.2
+  # Play Core: es la única forma oficial de preguntarle a Google Play si hay
+  # una versión más nueva. Android no expone una API pública de versiones, y
+  # raspar el HTML de la ficha se rompe cada vez que Google la cambia.
+  in_app_update: ^4.2.5
+
   flutter_launcher_icons: ^0.14.4
 
 dev_dependencies:
