@@ -4,6 +4,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
+import 'core/navigation/app_navigator.dart';
 import 'core/services/app_lock_policy.dart';
 import 'core/services/auth_service.dart';
 import 'core/services/biometric_service.dart';
@@ -13,6 +14,7 @@ import 'firebase_options.dart';
 import 'presentation/providers/dashboard_provider.dart';
 import 'presentation/providers/inventory_provider.dart';
 import 'presentation/providers/notification_settings_provider.dart';
+import 'presentation/providers/notifications_provider.dart';
 import 'presentation/screens/auth/login_screen.dart';
 import 'presentation/screens/shell_screen.dart';
 import 'presentation/widgets/app_lock_gate.dart';
@@ -54,11 +56,7 @@ class SaborProAnalyticsApp extends StatelessWidget {
   /// Si al arrancar hay que pedir la biometría antes de mostrar nada.
   final bool lockedAtStart;
 
-  SaborProAnalyticsApp({super.key, this.lockedAtStart = false});
-
-  /// El gate vive por encima del Navigator y necesita esta llave para poder
-  /// mandar al login cuando alguien usa la salida por contraseña.
-  final _navigatorKey = GlobalKey<NavigatorState>();
+  const SaborProAnalyticsApp({super.key, this.lockedAtStart = false});
 
   @override
   Widget build(BuildContext context) {
@@ -68,11 +66,14 @@ class SaborProAnalyticsApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => InventoryProvider()),
         // Se crea vacío; AppShell le pasa el uid con init() al arrancar.
         ChangeNotifierProvider(create: (_) => NotificationSettingsProvider()),
+        // La bandeja de avisos. Igual que la de arriba, nace vacía y AppShell
+        // le pasa el uid al arrancar.
+        ChangeNotifierProvider(create: (_) => NotificationsProvider()),
       ],
       child: MaterialApp(
         title: 'Sabor Manager',
         debugShowCheckedModeBanner: false,
-        navigatorKey: _navigatorKey,
+        navigatorKey: navigatorKey,
         // En builder y no en home: así el bloqueo queda por encima del
         // Navigator y sigue vigilando aunque el usuario navegue. Como home se
         // desmontaría en el primer pushReplacement.
@@ -80,7 +81,7 @@ class SaborProAnalyticsApp extends StatelessWidget {
         // app quedó vieja, da igual quién sea el que la abre.
         builder: (context, child) => ForcedUpdateGate(
           child: AppLockGate(
-            navigatorKey: _navigatorKey,
+            navigatorKey: navigatorKey,
             lockedAtStart: lockedAtStart,
             child: child ?? const SizedBox.shrink(),
           ),

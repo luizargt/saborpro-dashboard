@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'package:shorebird_code_push/shorebird_code_push.dart';
+import '../../core/navigation/app_navigator.dart';
 import '../../core/services/auth_service.dart';
 import '../../core/services/biometric_service.dart';
 import '../../core/services/export_service.dart';
@@ -14,6 +15,8 @@ import '../../presentation/providers/notification_settings_provider.dart';
 import '../../presentation/screens/auth/login_screen.dart';
 import '../../presentation/screens/dashboard/dashboard_screen.dart';
 import '../../presentation/screens/inventory/inventory_screen.dart';
+import '../../presentation/screens/notifications/notifications_screen.dart';
+import '../../presentation/providers/notifications_provider.dart';
 import '../../presentation/screens/reports/reports_list_screen.dart';
 import '../../presentation/screens/settings/notification_settings_screen.dart';
 import '../../presentation/widgets/period_selector.dart';
@@ -45,6 +48,11 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // Alguien puede haber tocado una notificación con la app cerrada: el pedido
+    // quedó en el buzón antes de que este shell existiera, así que se atiende
+    // el valor actual además de escuchar los que vengan.
+    pestanaSolicitada.addListener(_atenderPestanaSolicitada);
+    _atenderPestanaSolicitada();
     _loadPatchNumber();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final id = AuthService().tenantId;
@@ -58,8 +66,25 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    pestanaSolicitada.removeListener(_atenderPestanaSolicitada);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  /// Atiende el pedido de abrir una pestaña que dejó una notificación tocada.
+  ///
+  /// El buzón se limpia después de atenderlo: si quedara puesto, el usuario que
+  /// se mueve a Reportes volvería a Avisos en el siguiente rebuild.
+  void _atenderPestanaSolicitada() {
+    final pedida = pestanaSolicitada.value;
+    if (pedida == null) return;
+    // Puede llegar durante el build (el listener se dispara desde el handler de
+    // FCM); el post-frame evita un setState en pleno frame.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      setState(() => _index = pedida);
+      limpiarPestanaSolicitada();
+    });
   }
 
   /// El usuario vuelve a la app. Si dejamos el push a medias por falta de
@@ -91,6 +116,11 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   Future<void> _setupNotificaciones() async {
     final uid = await _uidDeSesion();
     if (uid == null || !mounted) return;
+
+    // La bandeja se engancha primero y sin await: no depende del permiso de
+    // push ni de que haya token. Aunque el usuario haya dicho que no a las
+    // notificaciones del sistema, los avisos igual se acumulan acá dentro.
+    context.read<NotificationsProvider>().init(uid);
 
     await NotificationService().initialize();
     if (!mounted) return;
@@ -460,6 +490,14 @@ class _Rail extends StatelessWidget {
             active: index == 2,
             onTap: () => onSelect(2),
           ),
+          const SizedBox(height: 6),
+          _RailItem(
+            icon: Icons.notifications_rounded,
+            label: 'Avisos',
+            active: index == 3,
+            onTap: () => onSelect(3),
+            badge: context.watch<NotificationsProvider>().sinLeer,
+          ),
           const Spacer(),
           // Menu
           GestureDetector(
@@ -489,11 +527,15 @@ class _RailItem extends StatelessWidget {
   final bool active;
   final VoidCallback onTap;
 
+  /// Cuántos sin leer. 0 no dibuja nada.
+  final int badge;
+
   const _RailItem(
       {required this.icon,
       required this.label,
       required this.active,
-      required this.onTap});
+      required this.onTap,
+      this.badge = 0});
 
   @override
   Widget build(BuildContext context) {
@@ -516,10 +558,20 @@ class _RailItem extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon,
-                color:
-                    active ? const Color(0xFF7444fd) : Colors.white38,
-                size: 22),
+            // El contador se pinta sobre el ícono sin agrandar la fila: el
+            // rail mide 76px y una insignia que empuje el layout descoloca los
+            // otros tres botones cada vez que entra un aviso.
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Icon(icon,
+                    color:
+                        active ? const Color(0xFF7444fd) : Colors.white38,
+                    size: 22),
+                if (badge > 0)
+                  Positioned(right: -7, top: -5, child: _Badge(count: badge)),
+              ],
+            ),
             const SizedBox(height: 4),
             Text(
               label,
@@ -531,6 +583,62 @@ class _RailItem extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Envuelve un ícono y le encima el contador. Para la barra inferior, donde el
+/// ícono lo construye NavigationDestination y no se puede meter un Stack dentro.
+class _ConBadge extends StatelessWidget {
+  final int count;
+  final Widget child;
+  const _ConBadge({required this.count, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    if (count == 0) return child;
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        child,
+        Positioned(right: -7, top: -5, child: _Badge(count: count)),
+      ],
+    );
+  }
+}
+
+/// Contador de avisos sin leer.
+///
+/// Se corta en 99+: más allá de eso el número deja de informar y solo estira la
+/// insignia hasta deformar el ícono que lleva debajo.
+class _Badge extends StatelessWidget {
+  final int count;
+  const _Badge({required this.count});
+
+  @override
+  Widget build(BuildContext context) {
+    final texto = count > 99 ? '99+' : '$count';
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: count > 9 ? 4.5 : 0),
+      constraints: const BoxConstraints(minWidth: 17),
+      height: 17,
+      decoration: BoxDecoration(
+        color: const Color(0xFFEF4444),
+        borderRadius: BorderRadius.circular(9),
+        // El borde del color del fondo despega la insignia del ícono cuando
+        // los dos quedan encimados; sin él se leen como una sola mancha.
+        border: Border.all(color: const Color(0xFF070E1A), width: 2),
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        texto,
+        style: GoogleFonts.inter(
+          color: Colors.white,
+          fontSize: 9.5,
+          fontWeight: FontWeight.w800,
+          height: 1,
         ),
       ),
     );
@@ -580,6 +688,19 @@ class _BottomNav extends StatelessWidget {
                     selectedIcon: const Icon(Icons.inventory_2_rounded, color: Color(0xFF7444fd)),
                     label: 'Despensa',
                   ),
+                  NavigationDestination(
+                    icon: _ConBadge(
+                      count: context.watch<NotificationsProvider>().sinLeer,
+                      child: const Icon(Icons.notifications_none_rounded,
+                          color: Colors.white38),
+                    ),
+                    selectedIcon: _ConBadge(
+                      count: context.watch<NotificationsProvider>().sinLeer,
+                      child: const Icon(Icons.notifications_rounded,
+                          color: Color(0xFF7444fd)),
+                    ),
+                    label: 'Avisos',
+                  ),
                 ],
               ),
             ),
@@ -626,6 +747,7 @@ class _PageContent extends StatelessWidget {
           DashboardScreen(),
           ReportsListScreen(),
           InventoryScreen(),
+          NotificationsScreen(),
         ],
       ),
     );

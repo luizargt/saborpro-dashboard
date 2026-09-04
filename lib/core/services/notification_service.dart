@@ -7,6 +7,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
+import '../navigation/app_navigator.dart';
 import 'auth_service.dart';
 
 /// Handler de mensajes cuando la app está en segundo plano o cerrada.
@@ -536,12 +537,17 @@ class NotificationService {
   void _onNotificationTapped(NotificationResponse response) {
     // ignore: avoid_print
     print('[PUSH] Notificación local tocada: ${response.payload}');
-    // Por ahora solo abre la app; la navegación por tipo queda pendiente.
+    solicitarPestanaAvisos();
   }
 
   void _handleMessageOpenedApp(RemoteMessage message) {
     // ignore: avoid_print
     print('[PUSH] App abierta desde notificación: ${message.data}');
-    // Por ahora solo abre la app; la navegación por tipo queda pendiente.
+    // Todos los avisos llevan al mismo lugar: la bandeja. Saltar directo al
+    // gasto o al cierre concreto suena mejor de lo que es —hay que decidir qué
+    // pantalla abre cada uno de los siete tipos, y varios no tienen pantalla
+    // propia— y dejaría al usuario sin el contexto de qué más pasó mientras no
+    // miraba, que es justo lo que la bandeja resuelve.
+    solicitarPestanaAvisos();
   }
 }
