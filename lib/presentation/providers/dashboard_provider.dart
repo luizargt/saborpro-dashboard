@@ -555,6 +555,12 @@ class DashboardProvider extends ChangeNotifier {
 
         results.add({
           'amount': (mov['amount'] as num? ?? 0).toDouble(),
+          // La sucursal viene del documento de caja (ahí es `locationId`), pero
+          // se guarda con el nombre que usan los gastos normales para que
+          // ambos se agrupen igual. Sin esta clave, quien reparte por sucursal
+          // descartaba los retiros: se restaban en la utilidad global pero en
+          // ninguna sucursal, y la suma de las partes daba más que el total.
+          'location_id': data['locationId'] as String?,
           'date': dt.toIso8601String(),
           'category_name': mov['expenseCategoryName'] as String? ?? 'Otros Gastos',
           'description': mov['reason'] as String?,
@@ -732,7 +738,13 @@ class DashboardProvider extends ChangeNotifier {
       }
     }
     for (final o in prevOrders) {
-      prevTotal += (o['total_amount'] as num? ?? 0).toDouble();
+      // La MISMA fórmula que el período actual (ver arriba: payment_amount con
+      // fallback a total_amount). Antes acá se sumaba solo total_amount, que va
+      // sin propina, mientras el período actual la incluía: se comparaban dos
+      // magnitudes distintas y el "vs anterior" salía inflado a favor del
+      // presente en exactamente el monto de las propinas.
+      prevTotal += (o['payment_amount'] as num?)?.toDouble() ??
+          (o['total_amount'] as num? ?? 0).toDouble();
     }
 
     final count = orders.length;
