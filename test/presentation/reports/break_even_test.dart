@@ -26,7 +26,7 @@ ProfitabilityData datos({
             categoryId: 'luz', label: 'Luz', amount: variables, esFijo: false),
       ],
       payroll: 0,
-      ownerWithdrawals: 0,
+      paidFromCash: 0,
       purchases: 0,
       inventoryValue: 0,
       ingredientesSinPrecio: 0,

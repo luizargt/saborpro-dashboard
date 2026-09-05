@@ -17,9 +17,13 @@ const _verde = Color(0xFF22C55E);
 const _rojo = Color(0xFFEF4444);
 const _ambar = Color(0xFFFBBF24);
 
-final _q = NumberFormat.currency(locale: 'es_GT', symbol: 'Q', decimalDigits: 2);
+// El mismo patrón que el resto de la app (cajas, gastos, detalle de caja):
+// coma para los miles, punto para los decimales y la Q adelante. El locale
+// es_GT haría lo contrario —"64.733,00 Q"—, que no es como se escribe el
+// quetzal ni como se ve en las demás pantallas.
+final _q = NumberFormat('#,##0.00', 'en_US');
 
-String _money(double v) => _q.format(v);
+String _money(double v) => 'Q${_q.format(v)}';
 String _pct(double? v) => v == null ? '—' : '${v.toStringAsFixed(1)}%';
 
 Color _colorDe(Salud s) => switch (s) {
@@ -79,7 +83,12 @@ class _ProfitabilityReportScreenState extends State<ProfitabilityReportScreen> {
                           await dash.load();
                           await p.load(dash);
                         },
-                        child: _Cuerpo(provider: p),
+                        // dash.loading cuenta como cargando: las ventas salen
+                        // de ahí, y mientras no lleguen no hay reporte que
+                        // mostrar. Sin esto quedaban en pantalla los números
+                        // del mes anterior, sin ninguna señal de que ya no
+                        // correspondían.
+                        child: _Cuerpo(provider: p, cargandoVentas: dash.loading),
                       ),
                     ),
                   ),
@@ -95,11 +104,12 @@ class _ProfitabilityReportScreenState extends State<ProfitabilityReportScreen> {
 
 class _Cuerpo extends StatelessWidget {
   final ProfitabilityProvider provider;
-  const _Cuerpo({required this.provider});
+  final bool cargandoVentas;
+  const _Cuerpo({required this.provider, this.cargandoVentas = false});
 
   @override
   Widget build(BuildContext context) {
-    if (provider.loading) {
+    if (provider.loading || cargandoVentas) {
       return ListView(children: const [
         SizedBox(
           height: 320,
@@ -140,7 +150,7 @@ class _Cuerpo extends StatelessWidget {
         _PuntoDeEquilibrio(d: d),
         const SizedBox(height: 14),
         _FueraDeLaCuenta(d: d),
-        if (!d.costoConfiable && d.itemsSinCosto > 0) ...[
+        if (!d.costoConfiable && d.itemsTotales > 0) ...[
           const SizedBox(height: 14),
           _AvisoCobertura(d: d),
         ],
@@ -643,15 +653,22 @@ class _FueraDeLaCuenta extends StatelessWidget {
                   fontWeight: FontWeight.w700,
                   letterSpacing: 0.8)),
           const SizedBox(height: 10),
-          _Dato(
-            label: 'Retiros del dueño',
-            monto: d.ownerWithdrawals,
-            nota: 'No es un gasto: es reparto de la ganancia',
-          ),
+          // Ya está sumado arriba, en los gastos. Se muestra solo para saber
+          // cuánto de la operación se está pagando con el efectivo de la caja
+          // en vez de por otra vía.
+          if (d.paidFromCash > 0)
+            _Dato(
+              label: 'Pagado en efectivo desde caja',
+              monto: d.paidFromCash,
+              nota: 'Ya contado arriba en los gastos',
+            ),
           _Dato(
             label: 'Invertido en compras',
             monto: d.purchases,
-            nota: 'Comprar no es gastar; el gasto se cuenta al vender',
+            nota: d.entradasSinCosto > 0
+                ? 'Mercadería que entró a la despensa · '
+                    '${d.entradasSinCosto} entrada(s) sin costo quedan fuera'
+                : 'Mercadería que entró a la despensa; el gasto se cuenta al vender',
           ),
           _Dato(
             label: 'Valor de tu despensa hoy',
@@ -754,7 +771,9 @@ class _AvisoCobertura extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Tu ganancia real puede ser menor',
+                  d.costoMayormenteEstimado
+                      ? 'El costo es una estimación'
+                      : 'Tu ganancia real puede ser menor',
                   style: GoogleFonts.inter(
                       color: _ambar,
                       fontSize: 12.5,
@@ -762,12 +781,31 @@ class _AvisoCobertura extends StatelessWidget {
                 ),
                 const SizedBox(height: 3),
                 Text(
-                  'Solo ${_pct(d.coberturaCosto)} de lo que vendiste tiene el '
-                  'costo cargado. Los ingredientes sin precio de compra cuentan '
-                  'como costo cero, así que el margen de arriba sale optimista.',
+                  d.costoMayormenteEstimado
+                      // Caso típico al mirar meses anteriores: el POS no
+                      // guardó el costo de esas ventas, así que se valorizan
+                      // con el precio de compra de hoy.
+                      ? '${_pct(d.porcentajeEstimado)} del costo se calculó con '
+                          'los precios de compra de hoy, porque esas ventas no '
+                          'guardaron el costo del momento. Sirve para orientarte, '
+                          'pero si los precios cambiaron desde entonces, el '
+                          'margen real es distinto.'
+                      : 'Solo ${_pct(d.coberturaCosto)} de lo que vendiste tiene '
+                          'costo. Los ingredientes sin precio de compra cuentan '
+                          'como costo cero, así que el margen de arriba sale '
+                          'optimista.',
                   style: GoogleFonts.inter(
                       color: Colors.white60, fontSize: 11.5, height: 1.45),
                 ),
+                if (d.itemsSinCosto > 0 && d.costoMayormenteEstimado) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    'Otro ${_pct(100 - (d.coberturaCosto ?? 0))} no tiene ni '
+                    'precio actual: esos cuentan como cero.',
+                    style: GoogleFonts.inter(
+                        color: Colors.white38, fontSize: 11, height: 1.4),
+                  ),
+                ],
               ],
             ),
           ),

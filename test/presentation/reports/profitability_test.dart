@@ -11,17 +11,19 @@ ProfitabilityData datos({
   double cogs = 32000,
   double sueldos = 28000,
   List<ExpenseLine>? gastos,
-  double retiros = 0,
+  double efectivo = 0,
   double compras = 0,
   double inventario = 0,
   int conCosto = 100,
   int sinCosto = 0,
+  int estimados = 0,
   int sinPrecio = 0,
 }) =>
     ProfitabilityData(
       netSales: ventas,
       cogs: cogs,
       itemsConCosto: conCosto,
+      itemsEstimados: estimados,
       itemsSinCosto: sinCosto,
       expenses: gastos ??
           [
@@ -31,7 +33,7 @@ ProfitabilityData datos({
                 categoryId: 'renta', label: 'Renta', amount: 8000),
           ],
       payroll: sueldos,
-      ownerWithdrawals: retiros,
+      paidFromCash: efectivo,
       purchases: compras,
       inventoryValue: inventario,
       ingredientesSinPrecio: sinPrecio,
@@ -50,11 +52,14 @@ void main() {
       expect(d.operatingProfit, 32000);
     });
 
-    test('los retiros del dueño NO bajan la utilidad', () {
-      // Sacar plata no es un costo del negocio: es repartir la ganancia.
-      final sin = datos(retiros: 0);
-      final con = datos(retiros: 15000);
+    test('lo pagado en efectivo ya está dentro de los gastos', () {
+      // Los retiros de caja son insumos, proveedores, sueldos y gasolina: son
+      // gasto de operación, no reparto de ganancia. El campo es informativo y
+      // NO se resta aparte, porque eso lo contaría dos veces.
+      final sin = datos(efectivo: 0);
+      final con = datos(efectivo: 15000);
       expect(con.operatingProfit, sin.operatingProfit);
+      expect(con.paidFromCash, 15000);
     });
 
     test('las compras NO bajan la utilidad', () {
@@ -143,6 +148,30 @@ void main() {
       final d = datos(conCosto: 0, sinCosto: 0);
       expect(d.coberturaCosto, isNull);
     });
+
+    test('lo estimado cuenta como cubierto pero no como exacto', () {
+      // El caso real de julio 2026: ninguna venta guardó su costo, así que
+      // todas se valorizan con el precio de hoy. Está cubierto al 100% y aun
+      // así NO es confiable — son precios de hoy sobre ventas de hace meses.
+      final d = datos(conCosto: 0, estimados: 100, sinCosto: 0);
+      expect(d.coberturaCosto, 100);
+      expect(d.porcentajeEstimado, 100);
+      expect(d.costoConfiable, isFalse);
+      expect(d.costoMayormenteEstimado, isTrue);
+    });
+
+    test('una pizca de estimación no descalifica el número', () {
+      final d = datos(conCosto: 95, estimados: 5, sinCosto: 0);
+      expect(d.costoConfiable, isTrue);
+      expect(d.costoMayormenteEstimado, isFalse);
+    });
+
+    test('estimado y sin datos se cuentan por separado', () {
+      final d = datos(conCosto: 50, estimados: 30, sinCosto: 20);
+      expect(d.itemsTotales, 100);
+      expect(d.coberturaCosto, 80); // exactos + estimados
+      expect(d.porcentajeEstimado, 30);
+    });
   });
 
   group('inventario', () {
@@ -173,12 +202,47 @@ void main() {
     });
   });
 
+  group('la caché no puede congelar un cálculo a medias', () {
+    // El bug real: el reporte calculaba apenas se abría la pantalla, con el
+    // dashboard todavía cargando y sus listas vacías. Daba ventas en cero, y
+    // como la clave de caché solo miraba período y sucursal, cuando los datos
+    // llegaban un instante después ya no recalculaba. Resultado: Q0.00 en
+    // Rentabilidad mientras el dashboard mostraba Q67,537.
+    //
+    // La clave ahora incluye cuánto dato tenía el dashboard, así que "vacío" y
+    // "cargado" son cálculos distintos.
+
+    String clave({
+      required int ordenes,
+      required int gastos,
+      required int compras,
+      String loc = 'L1',
+    }) =>
+        '2026-08-01|2026-08-31|$loc|$ordenes|$gastos|$compras';
+
+    test('el mismo período con y sin datos son claves distintas', () {
+      final vacio = clave(ordenes: 0, gastos: 0, compras: 0);
+      final cargado = clave(ordenes: 519, gastos: 12, compras: 3);
+      expect(vacio, isNot(cargado));
+    });
+
+    test('cambiar de sucursal cambia la clave', () {
+      expect(clave(ordenes: 519, gastos: 1, compras: 1, loc: 'L1'),
+          isNot(clave(ordenes: 519, gastos: 1, compras: 1, loc: 'L2')));
+    });
+
+    test('sin cambios, la clave se repite y no se recalcula', () {
+      expect(clave(ordenes: 519, gastos: 12, compras: 3),
+          clave(ordenes: 519, gastos: 12, compras: 3));
+    });
+  });
+
   test('caso completo: los números cierran entre sí', () {
     final d = datos(
       ventas: 100000,
       cogs: 32000,
       sueldos: 28000,
-      retiros: 5000,
+      efectivo: 5000,
       compras: 35000,
       inventario: 22000,
     );
@@ -189,7 +253,7 @@ void main() {
     expect(d.operatingProfit, 32000);
 
     // Y lo que queda fuera no la toca.
-    expect(d.ownerWithdrawals, 5000);
+    expect(d.paidFromCash, 5000);
     expect(d.purchases, 35000);
     expect(d.inventoryValue, 22000);
     expect(evaluarPrimeCost(d.primeCostPct), Salud.bien);

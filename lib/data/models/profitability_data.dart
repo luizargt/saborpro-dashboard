@@ -34,11 +34,18 @@ class ProfitabilityData {
   /// congelado al momento de vender.
   final double cogs;
 
-  /// Movimientos de venta sin costo cargado. No se rellenan con cero: se
-  /// cuentan y se muestran, porque un COGS bajo por falta de datos se ve
-  /// idéntico a un COGS bajo por buena gestión.
+  /// Movimientos de venta sin costo ni forma de estimarlo. No se rellenan con
+  /// cero: se cuentan y se muestran, porque un costo bajo por falta de datos se
+  /// ve idéntico a uno bajo por buena gestión.
   final int itemsSinCosto;
+
+  /// Con el costo sellado al momento de vender. El dato bueno.
   final int itemsConCosto;
+
+  /// Valorizados con el precio de compra de HOY porque el histórico no quedó
+  /// grabado. Sirven —es mucho mejor que contarlos en cero— pero el número
+  /// deja de ser exacto y la pantalla tiene que decirlo.
+  final int itemsEstimados;
 
   /// Gastos operativos por categoría, de mayor a menor.
   final List<ExpenseLine> expenses;
@@ -46,13 +53,22 @@ class ProfitabilityData {
   /// Sueldos, separado porque entra en el costo primo.
   final double payroll;
 
-  /// Retiros de efectivo del dueño. NO son gasto del negocio: son reparto de
-  /// utilidad. Van fuera de la cascada.
-  final double ownerWithdrawals;
+  /// Cuánto de los gastos salió en efectivo desde la caja.
+  ///
+  /// Es informativo y ya está DENTRO de [expenses]: en los datos reales estos
+  /// retiros son insumos, pago a proveedores, sueldos y gasolina — operación,
+  /// no reparto de utilidad. Antes se restaban aparte y eso inflaba la
+  /// ganancia y dejaba fuera del costo primo los sueldos pagados así.
+  final double paidFromCash;
 
-  /// Compras del período. Tampoco son gasto: son inversión en despensa. El
-  /// gasto ya está contado en [cogs] cuando esa mercadería se vende.
+  /// Mercadería que entró a la despensa en el período. Tampoco es gasto: es
+  /// inversión. El gasto ya está contado en [cogs] cuando esa mercadería se
+  /// vende.
   final double purchases;
+
+  /// Entradas de mercadería sin costo cargado. Lo invertido queda corto en
+  /// exactamente esas, y callarlo haría parecer que se compró menos.
+  final int entradasSinCosto;
 
   /// Valor de la despensa hoy, a precio de compra. Es una foto del momento,
   /// no del período.
@@ -64,10 +80,12 @@ class ProfitabilityData {
     required this.cogs,
     required this.itemsSinCosto,
     required this.itemsConCosto,
+    this.itemsEstimados = 0,
     required this.expenses,
     required this.payroll,
-    required this.ownerWithdrawals,
+    required this.paidFromCash,
     required this.purchases,
+    this.entradasSinCosto = 0,
     required this.inventoryValue,
     required this.ingredientesSinPrecio,
   });
@@ -77,10 +95,12 @@ class ProfitabilityData {
     cogs: 0,
     itemsSinCosto: 0,
     itemsConCosto: 0,
+    itemsEstimados: 0,
     expenses: [],
     payroll: 0,
-    ownerWithdrawals: 0,
+    paidFromCash: 0,
     purchases: 0,
+    entradasSinCosto: 0,
     inventoryValue: 0,
     ingredientesSinPrecio: 0,
   );
@@ -104,15 +124,29 @@ class ProfitabilityData {
   /// no alcanza por más que se venda.
   double? get primeCostPct => pct(cogs + payroll);
 
-  /// Qué parte de lo vendido tiene costo conocido. Por debajo de ~90% el
-  /// margen bruto es una estimación optimista y hay que decirlo.
+  int get itemsTotales => itemsConCosto + itemsEstimados + itemsSinCosto;
+
+  /// Qué parte de lo vendido tiene algún costo detrás — sellado o estimado.
+  /// Lo que queda fuera cuenta como cero y regala margen.
   double? get coberturaCosto {
-    final total = itemsConCosto + itemsSinCosto;
-    if (total == 0) return null;
-    return itemsConCosto / total * 100;
+    if (itemsTotales == 0) return null;
+    return (itemsConCosto + itemsEstimados) / itemsTotales * 100;
   }
 
-  bool get costoConfiable => (coberturaCosto ?? 0) >= 90;
+  /// Qué parte del costo se apoya en precios de hoy en vez del histórico.
+  double? get porcentajeEstimado {
+    if (itemsTotales == 0) return null;
+    return itemsEstimados / itemsTotales * 100;
+  }
+
+  /// Confiable = casi todo cubierto Y casi nada estimado. Un costo cubierto al
+  /// 100% pero estimado al 100% no es exacto: usa los precios de hoy para
+  /// valorizar ventas de hace meses.
+  bool get costoConfiable =>
+      (coberturaCosto ?? 0) >= 90 && (porcentajeEstimado ?? 100) <= 10;
+
+  /// El costo se armó sobre todo con precios actuales.
+  bool get costoMayormenteEstimado => (porcentajeEstimado ?? 0) > 10;
 
   /// Cuántas veces se renovó la despensa en el período. Inventario que no rota
   /// es plata parada que además se echa a perder.

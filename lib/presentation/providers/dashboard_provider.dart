@@ -562,6 +562,10 @@ class DashboardProvider extends ChangeNotifier {
           // ninguna sucursal, y la suma de las partes daba más que el total.
           'location_id': data['locationId'] as String?,
           'date': dt.toIso8601String(),
+          // La categoría del retiro se conserva con las dos llaves que usan
+          // los gastos normales. Sin el id no se puede saber si ese retiro fue
+          // de sueldos —y hay bastantes— ni si el gasto es fijo o variable.
+          'category_id': mov['expenseCategoryId'] as String?,
           'category_name': mov['expenseCategoryName'] as String? ?? 'Otros Gastos',
           'description': mov['reason'] as String?,
           'source': 'cashRegister',
