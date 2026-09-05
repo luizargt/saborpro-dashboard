@@ -21,7 +21,13 @@ class CancellationsProvider extends ChangeNotifier {
   /// entero. Si se alcanza, la consulta sale ordenada por `createdAt` ASC y lo
   /// que falta es el final del rango: la vista lo avisa en vez de mostrar un
   /// total corto como si fuera completo.
-  static const int _kMovementLimit = 20000;
+  ///
+  /// No puede pasar de 10000: Firestore rechaza la consulta entera con
+  /// `invalid-argument` si el límite es mayor, sin importar cuántos documentos
+  /// existan de verdad. Estaba en 20000, así que este reporte fallaba siempre,
+  /// para cualquier tenant y cualquier período. Se deja en 8000 para no traer
+  /// al navegador el máximo teórico de un saque.
+  static const int _kMovementLimit = 8000;
 
   CancellationsReport _report = CancellationsReport.empty;
   CancellationsReport get report => _report;
