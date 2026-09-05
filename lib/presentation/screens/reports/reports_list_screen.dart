@@ -4,6 +4,7 @@ import '../../widgets/max_content_width.dart';
 import 'cancelled_orders_report_screen.dart';
 import 'cash_closures_report_screen.dart';
 import 'expenses_report_screen.dart';
+import 'profitability_report_screen.dart';
 
 /// Grupos en los que se organizan los reportes. El orden de esta lista es el
 /// orden en que aparecen; un grupo sin reportes disponibles no se dibuja.
@@ -47,6 +48,14 @@ class _ReportsListScreenState extends State<ReportsListScreen> {
   // Solo reportes que ya funcionan. Al construir uno nuevo basta agregarlo aquí
   // con su grupo: la pantalla se arma sola.
   static final _reports = <_Report>[
+    // Primero de Dinero a propósito: responde la pregunta que todos los demás
+    // rodean — cuánto se está ganando de verdad.
+    _Report(
+      group: _Group.dinero,
+      icon: Icons.trending_up_rounded,
+      label: 'Rentabilidad',
+      builder: (_) => const ProfitabilityReportScreen(),
+    ),
     _Report(
       group: _Group.dinero,
       icon: Icons.point_of_sale_rounded,
