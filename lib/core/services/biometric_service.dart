@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:local_auth/local_auth.dart';
@@ -98,9 +100,29 @@ class BiometricService {
     aOptions: AndroidOptions(encryptedSharedPreferences: true),
   );
 
+  /// Cuentas vinculadas en este teléfono: `{correo: contraseña}`, en orden de
+  /// uso (la última usada al final). Son varias a propósito: un gerente con
+  /// dos restaurantes cambia el correo del login y entra con la cara a
+  /// cualquiera de los dos, sin volver a teclear contraseñas.
+  static const _keyAccounts = 'bio_accounts';
+
+  /// Último correo con el que se entró, esté vinculado o no. Solo sirve para
+  /// pre-llenar el campo del login; no es una credencial.
+  static const _keyLastEmail = 'bio_last_email';
+
+  // Esquema viejo (una sola cuenta). Se migra al mapa y se borra.
   static const _keyEmail = 'bio_email';
   static const _keyPassword = 'bio_password';
   static const _keyEnabled = 'bio_enabled';
+
+  /// Tope de cuentas guardadas. Sin tope, cada cuenta que alguien probó una
+  /// vez deja su contraseña en el teléfono para siempre.
+  static const _maxAccounts = 5;
+
+  /// El correo es la llave del mapa, así que entra siempre igual: AuthService
+  /// también hace `trim().toLowerCase()` antes de buscar en Firestore, y sin
+  /// esto "Ana@Resto.com" y "ana@resto.com" serían dos cuentas distintas.
+  static String normalizeEmail(String email) => email.trim().toLowerCase();
 
   bool get _isApple =>
       !kIsWeb &&
@@ -164,48 +186,143 @@ class BiometricService {
     }
   }
 
-  // Devuelve el email guardado (si existe) para pre-llenar el diálogo de configuración
+  Future<Map<String, String>> _readAccounts() async {
+    if (kIsWeb) return {};
+    try {
+      final raw = await _storage.read(key: _keyAccounts);
+      if (raw == null || raw.isEmpty) return _migrateLegacy();
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return {};
+      final accounts = <String, String>{};
+      decoded.forEach((k, v) {
+        if (v is String && v.isNotEmpty) {
+          accounts[normalizeEmail(k.toString())] = v;
+        }
+      });
+      return accounts;
+    } catch (_) {
+      return {};
+    }
+  }
+
+  /// Pasa la única cuenta del esquema viejo al mapa nuevo.
+  ///
+  /// Sin esto, quien ya tenía Face ID activado lo perdería al actualizar la
+  /// app: el botón aparecería apagado y tendría que escribir su contraseña sin
+  /// entender por qué.
+  Future<Map<String, String>> _migrateLegacy() async {
+    final email = await _storage.read(key: _keyEmail);
+    final password = await _storage.read(key: _keyPassword);
+    final enabled = await _storage.read(key: _keyEnabled);
+    if (email == null && password == null && enabled == null) return {};
+
+    final migrated = <String, String>{};
+    if (enabled == 'true' && email != null && password != null) {
+      migrated[normalizeEmail(email)] = password;
+      await _storage.write(key: _keyAccounts, value: jsonEncode(migrated));
+      final last = await _storage.read(key: _keyLastEmail);
+      if (last == null || last.isEmpty) {
+        await _storage.write(key: _keyLastEmail, value: normalizeEmail(email));
+      }
+    }
+    // Solo las claves propias: nunca deleteAll sobre este almacén, que es el
+    // mismo donde AuthService guarda la sesión.
+    await Future.wait([
+      _storage.delete(key: _keyEmail),
+      _storage.delete(key: _keyPassword),
+      _storage.delete(key: _keyEnabled),
+    ]);
+    return migrated;
+  }
+
+  Future<void> _writeAccounts(Map<String, String> accounts) async {
+    if (accounts.isEmpty) {
+      await _storage.delete(key: _keyAccounts);
+      return;
+    }
+    await _storage.write(key: _keyAccounts, value: jsonEncode(accounts));
+  }
+
+  /// Correos que pueden entrar con biometría en este teléfono.
+  Future<List<String>> linkedEmails() async =>
+      (await _readAccounts()).keys.toList();
+
+  /// Si esta cuenta puntual tiene acceso rápido vinculado.
+  Future<bool> isLinked(String email) async =>
+      (await _readAccounts()).containsKey(normalizeEmail(email));
+
+  /// Correo de la última cuenta vinculada. Lo usa el diálogo de ajustes para
+  /// pre-llenar el campo cuando la sesión se restauró sin correo en memoria.
   Future<String?> getStoredEmail() async {
+    final accounts = await _readAccounts();
+    return accounts.isEmpty ? null : accounts.keys.last;
+  }
+
+  /// Último correo con el que se entró, para dejarlo escrito en el login.
+  Future<String?> lastEmail() async {
     if (kIsWeb) return null;
     try {
-      return await _storage.read(key: _keyEmail);
+      final stored = await _storage.read(key: _keyLastEmail);
+      if (stored != null && stored.isNotEmpty) return stored;
+      // Instalación anterior a esta clave: la cuenta vinculada hace de último
+      // correo usado.
+      return await getStoredEmail();
     } catch (_) {
       return null;
     }
   }
 
-  // Verifica si el usuario activó el login biométrico
-  Future<bool> isEnabled() async {
-    if (kIsWeb) return false;
+  /// Recuerda el correo para la próxima vez, sin guardar la contraseña.
+  Future<void> rememberEmail(String email) async {
+    final normalized = normalizeEmail(email);
+    if (normalized.isEmpty) return;
     try {
-      final val = await _storage.read(key: _keyEnabled);
-      if (val != 'true') return false;
-      // El flag sin credenciales detrás es basura: alguna limpieza previa pudo
-      // dejarlo suelto y el login mostraría un botón que no puede entrar.
-      final email = await _storage.read(key: _keyEmail);
-      final password = await _storage.read(key: _keyPassword);
-      return email != null && password != null;
-    } catch (_) {
-      return false;
-    }
+      await _storage.write(key: _keyLastEmail, value: normalized);
+    } catch (_) {}
   }
 
-  // Guarda credenciales y activa biometría
+  // Verifica si hay alguna cuenta con acceso biométrico en este dispositivo
+  Future<bool> isEnabled() async => (await _readAccounts()).isNotEmpty;
+
+  /// Vincula (o revincula) una cuenta al acceso biométrico.
   Future<void> saveCredentials(String email, String password) async {
-    await _storage.write(key: _keyEmail, value: email);
-    await _storage.write(key: _keyPassword, value: password);
-    await _storage.write(key: _keyEnabled, value: 'true');
+    final key = normalizeEmail(email);
+    final accounts = await _readAccounts();
+    // Quitar y volver a poner deja la cuenta al final: el mapa queda en orden
+    // de uso y el recorte de abajo saca siempre la más vieja.
+    accounts.remove(key);
+    accounts[key] = password;
+    while (accounts.length > _maxAccounts) {
+      accounts.remove(accounts.keys.first);
+    }
+    await _writeAccounts(accounts);
+    await rememberEmail(key);
   }
 
-  /// Desactiva y borra SOLO las credenciales biométricas.
+  /// Desvincula UNA cuenta y deja las demás intactas.
+  ///
+  /// Es lo que corresponde cuando falla una cuenta puntual (contraseña
+  /// cambiada, activación cancelada): borrar todas castigaría a las otras.
+  Future<void> unlink(String email) async {
+    try {
+      final accounts = await _readAccounts();
+      if (accounts.remove(normalizeEmail(email)) == null) return;
+      await _writeAccounts(accounts);
+    } catch (_) {}
+  }
+
+  /// Apaga el acceso rápido: desvincula TODAS las cuentas.
   ///
   /// Antes usaba `deleteAll()`, que vacía el almacén entero de
   /// flutter_secure_storage — el mismo donde AuthService guarda la sesión
   /// (`session_tenant_id`, `session_firestore_uid`…). Desactivar la huella
-  /// borraba de paso la sesión persistida.
+  /// borraba de paso la sesión persistida. El último correo usado sí se
+  /// conserva: es lo que deja el campo del login listo para escribir la
+  /// contraseña.
   Future<void> clearCredentials() async {
     try {
       await Future.wait([
+        _storage.delete(key: _keyAccounts),
         _storage.delete(key: _keyEmail),
         _storage.delete(key: _keyPassword),
         _storage.delete(key: _keyEnabled),
@@ -216,8 +333,39 @@ class BiometricService {
   /// Lanza el prompt de huella/Face ID y devuelve las credenciales si pasa.
   ///
   /// [reason] permite ajustar el texto según el momento (ingresar vs. activar).
-  Future<BiometricAuthResult> authenticate({String? reason}) async {
+  /// [email] elige a qué cuenta entrar; sin él se usa la última vinculada, que
+  /// es lo que necesita el bloqueo de pantalla (ahí la sesión ya está abierta
+  /// y no hay ningún correo que escoger).
+  Future<BiometricAuthResult> authenticate({
+    String? reason,
+    String? email,
+  }) async {
     final kind = await detectKind();
+    final accounts = await _readAccounts();
+    final target = email == null ? '' : normalizeEmail(email);
+
+    // La cuenta se comprueba ANTES de encender el sensor: hacer que el usuario
+    // ponga la cara para decirle después que ese correo no está vinculado es
+    // el peor orden posible.
+    final String key;
+    if (target.isNotEmpty) {
+      if (!accounts.containsKey(target)) {
+        return BiometricAuthResult.setupRequired(
+          'El acceso rápido no está vinculado a $target. Ingresa una vez con '
+          'su contraseña y podrás activarlo para esta cuenta.',
+        );
+      }
+      key = target;
+    } else {
+      if (accounts.isEmpty) {
+        return BiometricAuthResult.setupRequired(
+          'No hay una cuenta vinculada. Ingresa con tu correo y contraseña '
+          'para volver a activar el acceso rápido.',
+        );
+      }
+      key = accounts.keys.last;
+    }
+
     try {
       final ok = await _auth.authenticate(
         localizedReason: reason ?? 'Verifica tu identidad para ingresar',
@@ -229,15 +377,17 @@ class BiometricService {
       );
       if (!ok) return BiometricAuthResult.cancelled();
 
-      final email = await _storage.read(key: _keyEmail);
-      final password = await _storage.read(key: _keyPassword);
-      if (email == null || password == null) {
+      // Se relee después del prompt: entre que se abrió y que pasó, la cuenta
+      // pudo desvincularse desde otra pantalla.
+      final fresh = await _readAccounts();
+      final password = fresh[key];
+      if (password == null) {
         return BiometricAuthResult.setupRequired(
           'No hay una cuenta vinculada. Ingresa con tu correo y contraseña '
           'para volver a activar el acceso rápido.',
         );
       }
-      return BiometricAuthResult.ok(email, password);
+      return BiometricAuthResult.ok(key, password);
     } on PlatformException catch (e) {
       return BiometricAuthResult.failure(_mapError(e, kind));
     } catch (_) {

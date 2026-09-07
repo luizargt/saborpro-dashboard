@@ -21,14 +21,30 @@ class _LoginScreenState extends State<LoginScreen> {
   String? _error;
 
   bool _biometricAvailable = false;
-  bool _biometricEnabled = false;
   BiometricKind _biometricKind = BiometricKind.fingerprint;
-  String? _biometricAccount;
+
+  /// Cuentas con acceso rápido vinculado en este teléfono, en minúsculas.
+  Set<String> _linkedAccounts = {};
+
+  /// La cuenta a la que va a entrar el botón biométrico: la que está escrita
+  /// arriba. No hay ninguna cuenta escondida en otro lado.
+  String get _typedEmail => BiometricService.normalizeEmail(_emailCtrl.text);
+  bool get _typedEmailLinked => _linkedAccounts.contains(_typedEmail);
 
   @override
   void initState() {
     super.initState();
+    // El botón sigue al correo escrito: pasa de "Ingresar con Face ID" a
+    // "Activar" en cuanto se teclea una cuenta que no está vinculada.
+    _emailCtrl.addListener(_onEmailChanged);
     _checkBiometric();
+  }
+
+  void _onEmailChanged() {
+    if (!mounted) return;
+    // Tocar el correo es reaccionar al mensaje de error: dejarlo pegado en
+    // rojo mientras se escribe la cuenta nueva solo estorba.
+    setState(() => _error = null);
   }
 
   Future<void> _checkBiometric() async {
@@ -36,75 +52,98 @@ class _LoginScreenState extends State<LoginScreen> {
     // teléfono con sensor pero sin huellas registradas todavía, para que quien
     // nunca lo configuró vea que la opción existe en vez de un login pelado.
     final available = await BiometricService().isHardwarePresent();
-    final enabled = await BiometricService().isEnabled();
     final kind = await BiometricService().detectKind();
-    final account = await BiometricService().getStoredEmail();
+    final linked = await BiometricService().linkedEmails();
+    final last = await BiometricService().lastEmail();
     if (!mounted) return;
+
+    // El correo recordado va al campo editable de arriba, no a un letrero fijo
+    // debajo del botón: así se ve cuál es, y se puede borrar y escribir otro.
+    // Nunca pisa lo que el usuario ya haya empezado a escribir.
+    if (last != null && last.isNotEmpty && _emailCtrl.text.trim().isEmpty) {
+      _emailCtrl.text = last;
+    }
 
     setState(() {
       _biometricAvailable = available;
-      _biometricEnabled = enabled;
       _biometricKind = kind;
-      _biometricAccount = account;
+      _linkedAccounts = linked.toSet();
     });
-
-    // Si ya está habilitado, intenta autenticar automáticamente al abrir
-    if (available && enabled) {
-      _loginWithBiometric(auto: true);
-    }
   }
 
-  /// Toque en el botón biométrico. Si todavía no está configurado no puede
-  /// entrar, pero tampoco puede quedarse mudo: explica en un paso qué hacer.
+  /// Toque en el botón biométrico. Nunca se dispara solo: el usuario decide
+  /// cuándo, y sobre qué cuenta, porque la cuenta es la del campo de arriba.
   Future<void> _onBiometricTap() async {
-    if (_biometricEnabled) {
-      await _loginWithBiometric();
+    final email = _emailCtrl.text.trim();
+    if (email.isEmpty || !email.contains('@')) {
+      setState(() => _error =
+          'Escribe arriba el correo de la cuenta a la que quieres entrar.');
       return;
     }
-    await _showActivationHelp();
+    if (_typedEmailLinked) {
+      await _loginWithBiometric(email);
+      return;
+    }
+    await _showActivationHelp(email);
   }
 
-  Future<void> _loginWithBiometric({bool auto = false}) async {
+  Future<void> _loginWithBiometric(String email) async {
     setState(() { _loading = true; _error = null; });
 
     final result = await BiometricService().authenticate(
       reason: 'Verifica tu identidad para entrar a Sabor Manager',
+      email: email,
     );
     if (!mounted) return;
 
     if (!result.success) {
+      if (result.needsSetup) await BiometricService().unlink(email);
+      if (!mounted) return;
       setState(() {
         _loading = false;
         // Cancelar a propósito no es un error: el usuario solo quiere teclear
-        // su contraseña. En el intento automático de arranque tampoco se
-        // muestra nada, para no recibir a nadie con un letrero rojo.
-        _error = (result.cancelled || auto) ? null : result.error;
-        if (result.needsSetup) _biometricEnabled = false;
+        // su contraseña, y no merece un letrero rojo por eso.
+        _error = result.cancelled ? null : result.error;
+        if (result.needsSetup) {
+          _linkedAccounts.remove(BiometricService.normalizeEmail(email));
+        }
       });
-      if (result.needsSetup) await BiometricService().clearCredentials();
       return;
     }
 
     final login = await AuthService().login(result.email!, result.password!);
     if (!mounted) return;
 
+    // Un correo con cuenta en dos restaurantes también entra con la cara: sin
+    // esto se tomaba por contraseña equivocada y se desvinculaba solo.
+    if (login.needsTenantSelection) {
+      setState(() => _loading = false);
+      await _showTenantSelectionDialog(
+          login.candidates, result.email!, result.password!);
+      return;
+    }
+
     if (!login.success) {
-      // Credenciales guardadas ya no son válidas
-      await BiometricService().clearCredentials();
+      // Credenciales guardadas ya no son válidas — se desvincula solo esta
+      // cuenta, las otras del teléfono siguen sirviendo.
+      await BiometricService().unlink(result.email!);
       if (!mounted) return;
       setState(() {
         _error = 'Tu contraseña cambió. Ingresa con tu correo y contraseña '
             'para volver a activar el acceso rápido.';
-        _biometricEnabled = false;
-        _biometricAccount = null;
+        _linkedAccounts.remove(result.email!);
         _loading = false;
       });
-    } else {
-      _goToDashboard();
+      return;
     }
+
+    await BiometricService().rememberEmail(result.email!);
+    if (!mounted) return;
+    _goToDashboard();
   }
 
-  Future<void> _showActivationHelp() async {
+  /// Por qué el botón todavía no puede entrar a la cuenta escrita arriba.
+  Future<void> _showActivationHelp(String email) async {
     final hasEnrolled = await BiometricService().isAvailable();
     if (!mounted) return;
 
@@ -133,9 +172,10 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
         content: Text(
           hasEnrolled
-              ? 'Ingresa esta vez con tu correo y contraseña. Al terminar te '
-                  'preguntamos si quieres activar el acceso con '
-                  '${_biometricKind.label}, y la próxima vez entras con un toque.'
+              ? 'Esta cuenta ($email) todavía no tiene acceso con '
+                  '${_biometricKind.label}. Ingresa esta vez con su '
+                  'contraseña y al terminar te preguntamos si quieres '
+                  'activarlo; la próxima vez entras con un toque.'
               : 'Tu dispositivo todavía no tiene ${_biometricKind.label} '
                   'registrada.\n\n${_biometricKind.enrollHint}',
           style: GoogleFonts.inter(
@@ -179,12 +219,7 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
 
-    // Login exitoso — preguntar si quiere activar biometría
-    if (_biometricAvailable && !_biometricEnabled) {
-      _offerBiometric(email, password);
-    } else {
-      _goToDashboard();
-    }
+    await _afterPasswordLogin(email, password);
   }
 
   Future<void> _showTenantSelectionDialog(
@@ -280,8 +315,18 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
 
-    if (_biometricAvailable && !_biometricEnabled) {
-      _offerBiometric(email, password);
+    await _afterPasswordLogin(email, password);
+  }
+
+  /// Entró con contraseña: se recuerda el correo para la próxima y, si esa
+  /// cuenta todavía no tiene acceso rápido, se le ofrece.
+  Future<void> _afterPasswordLogin(String email, String password) async {
+    await BiometricService().rememberEmail(email);
+    if (!mounted) return;
+
+    final normalized = BiometricService.normalizeEmail(email);
+    if (_biometricAvailable && !_linkedAccounts.contains(normalized)) {
+      await _offerBiometric(email, password);
     } else {
       _goToDashboard();
     }
@@ -308,8 +353,8 @@ class _LoginScreenState extends State<LoginScreen> {
           style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.w700),
         ),
         content: Text(
-          'La próxima vez entras con tu ${_biometricKind.label}, sin escribir '
-          'tu contraseña.',
+          'La próxima vez entras a $email con tu ${_biometricKind.label}, sin '
+          'escribir tu contraseña.',
           style: GoogleFonts.inter(color: Colors.white70),
         ),
         actions: [
@@ -329,8 +374,9 @@ class _LoginScreenState extends State<LoginScreen> {
               final check = await BiometricService().authenticate(
                 reason: 'Confirma tu ${_biometricKind.label} para activar el '
                     'acceso rápido',
+                email: email,
               );
-              if (!check.success) await BiometricService().clearCredentials();
+              if (!check.success) await BiometricService().unlink(email);
               if (!mounted) return;
               Navigator.pop(context);
               _goToDashboard();
@@ -355,6 +401,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   void dispose() {
+    _emailCtrl.removeListener(_onEmailChanged);
     _emailCtrl.dispose();
     _passCtrl.dispose();
     super.dispose();
@@ -472,14 +519,14 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   ),
                   // Acceso biométrico. Se muestra siempre que el dispositivo
-                  // tenga sensor: apagado invita a activarlo, encendido entra
-                  // de un toque. Antes solo aparecía ya activado, y como
-                  // cerrar sesión borraba las credenciales, no aparecía nunca.
+                  // tenga sensor, y entra a la cuenta escrita arriba: encendido
+                  // si ese correo está vinculado, apagado si no. Nunca se
+                  // dispara solo al abrir la app — el usuario decide cuándo,
+                  // porque si no, nunca alcanzaba a cambiar de cuenta.
                   if (_biometricAvailable)
                     BiometricLoginButton(
                       kind: _biometricKind,
-                      enabled: _biometricEnabled,
-                      account: _biometricAccount,
+                      enabled: _typedEmailLinked,
                       onTap: _loading ? null : _onBiometricTap,
                     ),
                 ],

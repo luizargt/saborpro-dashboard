@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:saborpro_reports/core/services/biometric_service.dart';
@@ -55,6 +57,9 @@ void main() {
         .setMockMethodCallHandler(channel, null);
   });
 
+  Map<String, String> cuentasGuardadas() =>
+      (jsonDecode(almacen['bio_accounts']!) as Map).cast<String, String>();
+
   /// Deja el almacén como queda tras un login normal: sesión de AuthService
   /// más credenciales biométricas.
   Future<void> sembrarSesionYHuella() async {
@@ -71,6 +76,7 @@ void main() {
     await BiometricService().clearCredentials();
 
     // Lo biométrico se fue…
+    expect(almacen.containsKey('bio_accounts'), isFalse);
     expect(almacen.containsKey('bio_email'), isFalse);
     expect(almacen.containsKey('bio_password'), isFalse);
     expect(almacen.containsKey('bio_enabled'), isFalse);
@@ -89,14 +95,87 @@ void main() {
 
     expect(llamadas, isNot(contains('deleteAll')),
         reason: 'deleteAll vacía el almacén compartido con AuthService');
-    expect(llamadas.where((m) => m == 'delete').length, 3);
+    // Una por clave propia: el mapa de cuentas y las tres del esquema viejo.
+    expect(llamadas.where((m) => m == 'delete').length, 4);
+  });
+
+  test('apagar la huella conserva el último correo', () async {
+    // El correo recordado no es una credencial: es lo que deja el campo del
+    // login escrito para que el usuario solo teclee su contraseña.
+    await sembrarSesionYHuella();
+
+    await BiometricService().clearCredentials();
+
+    expect(await BiometricService().isEnabled(), isFalse);
+    expect(await BiometricService().lastEmail(), 'ana@resto.com');
   });
 
   test('guardar credenciales las deja legibles', () async {
     await BiometricService().saveCredentials('ana@resto.com', 'secreta');
 
     expect(await BiometricService().isEnabled(), isTrue);
+    expect(await BiometricService().isLinked('ana@resto.com'), isTrue);
     expect(await BiometricService().getStoredEmail(), 'ana@resto.com');
+    expect(await BiometricService().lastEmail(), 'ana@resto.com');
+  });
+
+  test('el correo entra siempre en minúsculas y sin espacios', () async {
+    // Si no, "Ana@Resto.com" y "ana@resto.com" serían dos cuentas distintas y
+    // el botón aparecería apagado según cómo se tecleó el correo.
+    await BiometricService().saveCredentials('  Ana@Resto.com ', 'secreta');
+
+    expect(await BiometricService().isLinked('ana@resto.com'), isTrue);
+    expect(await BiometricService().isLinked('ANA@resto.com'), isTrue);
+    expect(cuentasGuardadas().keys, ['ana@resto.com']);
+  });
+
+  test('dos cuentas conviven: un gerente con dos restaurantes', () async {
+    await BiometricService().saveCredentials('ana@resto.com', 'secreta');
+    await BiometricService().saveCredentials('luis@otro.com', 'otra');
+
+    expect(await BiometricService().linkedEmails(),
+        containsAll(['ana@resto.com', 'luis@otro.com']));
+    // El último usado queda al final: es el que ofrece el bloqueo de pantalla,
+    // que no tiene ningún correo escrito de dónde escoger.
+    expect(await BiometricService().getStoredEmail(), 'luis@otro.com');
+  });
+
+  test('desvincular una cuenta deja viva a la otra', () async {
+    await BiometricService().saveCredentials('ana@resto.com', 'secreta');
+    await BiometricService().saveCredentials('luis@otro.com', 'otra');
+
+    await BiometricService().unlink('luis@otro.com');
+
+    expect(await BiometricService().isLinked('luis@otro.com'), isFalse);
+    expect(await BiometricService().isLinked('ana@resto.com'), isTrue);
+    expect(await BiometricService().isEnabled(), isTrue);
+  });
+
+  test('se guardan como mucho 5 cuentas y se va la más vieja', () async {
+    for (var i = 1; i <= 6; i++) {
+      await BiometricService().saveCredentials('user$i@resto.com', 'pw$i');
+    }
+
+    final vinculadas = await BiometricService().linkedEmails();
+    expect(vinculadas.length, 5);
+    expect(vinculadas, isNot(contains('user1@resto.com')));
+    expect(vinculadas, contains('user6@resto.com'));
+  });
+
+  test('quien ya tenía la huella activada no la pierde al actualizar',
+      () async {
+    // Esquema viejo: una sola cuenta en tres claves sueltas.
+    almacen['bio_email'] = 'ana@resto.com';
+    almacen['bio_password'] = 'secreta';
+    almacen['bio_enabled'] = 'true';
+
+    expect(await BiometricService().isEnabled(), isTrue);
+    expect(await BiometricService().isLinked('ana@resto.com'), isTrue);
+    expect(await BiometricService().lastEmail(), 'ana@resto.com');
+    // Y las claves viejas ya no quedan tiradas con la contraseña adentro.
+    expect(almacen.containsKey('bio_password'), isFalse);
+    expect(almacen.containsKey('bio_email'), isFalse);
+    expect(almacen.containsKey('bio_enabled'), isFalse);
   });
 
   test('el flag encendido sin credenciales detrás no cuenta como activado',
@@ -111,9 +190,23 @@ void main() {
   test('sin nada guardado la biometría está apagada', () async {
     expect(await BiometricService().isEnabled(), isFalse);
     expect(await BiometricService().getStoredEmail(), isNull);
+    expect(await BiometricService().lastEmail(), isNull);
+    expect(await BiometricService().linkedEmails(), isEmpty);
+  });
+
+  test('un mapa de cuentas corrupto no tumba el login', () async {
+    almacen['bio_accounts'] = 'esto no es json';
+
+    expect(await BiometricService().isEnabled(), isFalse);
+    expect(await BiometricService().linkedEmails(), isEmpty);
   });
 
   test('clearCredentials sobre un almacén vacío no lanza', () async {
     await expectLater(BiometricService().clearCredentials(), completes);
+  });
+
+  test('unlink de una cuenta que no está no lanza ni escribe', () async {
+    await expectLater(BiometricService().unlink('nadie@resto.com'), completes);
+    expect(almacen.containsKey('bio_accounts'), isFalse);
   });
 }

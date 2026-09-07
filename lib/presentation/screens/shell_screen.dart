@@ -921,11 +921,14 @@ class _MenuModalState extends State<_MenuModal> {
     await BiometricService().saveCredentials(email, password);
     final auth = await BiometricService().authenticate(
       reason: 'Confirma tu ${_biometricKind.label} para activar el acceso rápido',
+      email: email,
     );
     if (auth.success) {
       if (mounted) setState(() => _biometricEnabled = true);
     } else {
-      await BiometricService().clearCredentials();
+      // Solo esta cuenta: si el teléfono tiene otra vinculada, que una
+      // activación fallida la desvincule sería castigar a la equivocada.
+      await BiometricService().unlink(email);
       // Si el sensor falló de verdad (no fue el usuario cancelando), decirlo:
       // el interruptor volviendo solo a "apagado" no explica nada.
       if (mounted && auth.error != null) {
@@ -1059,11 +1062,12 @@ class _MenuModalState extends State<_MenuModal> {
                 final auth = await BiometricService().authenticate(
                   reason: 'Confirma tu ${_biometricKind.label} para activar '
                       'el acceso rápido',
+                  email: resolvedEmail,
                 );
                 if (auth.success) {
                   if (ctx.mounted) Navigator.pop(ctx, true);
                 } else {
-                  await BiometricService().clearCredentials();
+                  await BiometricService().unlink(resolvedEmail);
                   setStateDialog(() => errorMsg = auth.error ??
                       'No se pudo verificar tu ${_biometricKind.label}.');
                 }
