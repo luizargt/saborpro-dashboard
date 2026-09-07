@@ -111,6 +111,24 @@ enum ResultadoPush {
 ///
 /// El filtro de administrador de las Cloud Functions sigue ahí, pero como
 /// SEGUNDA capa, no como única defensa.
+///
+/// OJO — UN APARATO, UNA CUENTA (fuga ENTRE TENANTS medida en producción)
+///
+/// Separar los campos tapa la fuga POS → Sabor Manager, pero NO la fuga entre
+/// dos cuentas de Sabor Manager. El token de FCM se emite por INSTALACIÓN de
+/// app, no por persona: es el mismo antes y después de cambiar de usuario. Si
+/// alguien entra con la cuenta A y luego con la B en el mismo teléfono sin que
+/// el borrado al cerrar sesión llegue a ejecutarse, el token queda en las DOS
+/// cuentas y ese aparato recibe los avisos de los DOS negocios.
+///
+/// No es hipotético: en producción se encontró el token que empieza por
+/// `eBBQs7JwT7u4Zr` a la vez en "Administrador Demo" (tenant_1766782843192) y
+/// en "Soporte SaborPro" (tenant_1773447631977). El dueño de un restaurante
+/// estaba viendo los cierres de caja, los descuadres y los gastos del otro.
+///
+/// Por eso `saveFcmToken` desvincula el token de cualquier OTRA cuenta antes de
+/// guardarlo. Ver `_desvincularTokenDeOtrasCuentas`, y sobre todo POR QUÉ el
+/// borrado al cerrar sesión no alcanza.
 class NotificationService {
   static final NotificationService _instance = NotificationService._internal();
   factory NotificationService() => _instance;
@@ -139,6 +157,18 @@ class NotificationService {
   StreamSubscription<RemoteMessage>? _onMessageSub;
   StreamSubscription<RemoteMessage>? _onOpenedSub;
   StreamSubscription<String>? _onTokenRefreshSub;
+
+  /// Par `uid|token` para el que la desvinculación de otras cuentas YA terminó
+  /// bien en este proceso de la app. Vive solo en memoria a propósito: al
+  /// reiniciar la app se vuelve a intentar, que es justo lo que hace falta si
+  /// la última vez falló por falta de red.
+  ///
+  /// Existe porque `saveFcmToken` se llama varias veces por sesión (al entrar,
+  /// en cada regreso a la app desde `_reintentarPush`, y en cada refresco de
+  /// token) y no tiene sentido repetir la consulta cuando ya se sabe que ese
+  /// token no está en ninguna otra cuenta. Se marca SOLO cuando la limpieza
+  /// terminó sin errores: si falló, el siguiente intento la repite.
+  String? _desvinculacionHecha;
 
   /// Si esta plataforma puede recibir push. En Windows, Linux y web no,
   /// así que la UI no debería ni ofrecer activar notificaciones.
@@ -394,7 +424,17 @@ class NotificationService {
   /// Manager. Si alguna vez esto deja de ser cierto (por ejemplo si las dos
   /// apps pasaran a compartir id de aplicación), hay que quitar el arrayRemove:
   /// dejar basura inofensiva es preferible a callar las notificaciones del POS.
+  ///
+  /// ANTES de guardar, desvincula el token de cualquier OTRA cuenta que lo
+  /// tenga (`_desvincularTokenDeOtrasCuentas`). Ese orden es deliberado y está
+  /// justificado allí: pase lo que pase entre los dos pasos, nunca queda un
+  /// instante con el token colgado de dos tenants.
   Future<void> saveFcmToken(String uid, String token) async {
+    // Primero desvincular de otras cuentas, después guardar en la propia.
+    // Nunca lanza y nunca se queda colgada: si falla, se sigue igual y el
+    // token del usuario actual se guarda de todos modos.
+    await _desvincularTokenDeOtrasCuentas(uid, token);
+
     // Un solo mapa para las dos mutaciones. Si el doc no tuviera `fcm_tokens`,
     // el arrayRemove lo deja como array vacío: para quien lo lee es lo mismo
     // que no tenerlo.
@@ -422,6 +462,139 @@ class NotificationService {
     } catch (e) {
       // ignore: avoid_print
       print('[PUSH] Error guardando token FCM: $e');
+    }
+  }
+
+  /// UN APARATO, UNA CUENTA: saca este token de CUALQUIER otro usuario que lo
+  /// tenga, para que el teléfono reciba únicamente los avisos de la cuenta con
+  /// la que se está usando ahora mismo.
+  ///
+  /// POR QUÉ EXISTE (no borrar pensando que es redundante)
+  ///
+  /// El token de FCM es por INSTALACIÓN de la app, no por persona: no cambia
+  /// cuando entra otro usuario en el mismo teléfono. `removeCurrentDeviceToken`
+  /// ya lo quita al cerrar sesión, pero eso NO alcanza, porque depende de dos
+  /// cosas que fallan justo en el caso que importa:
+  ///   1. que el usuario cierre sesión de verdad (casi nadie lo hace: se mata
+  ///      la app, se desinstala, o se le pasa el teléfono a otro empleado), y
+  ///   2. que haya red en ese momento — el borrado corta a los 2 segundos y se
+  ///      traga el error a propósito, para no dejar colgado el botón.
+  /// Si cualquiera de las dos falla, el token se queda en la cuenta vieja Y se
+  /// agrega a la nueva.
+  ///
+  /// Medido en producción, no es hipotético: el token que empieza por
+  /// `eBBQs7JwT7u4Zr` estaba a la vez en "Administrador Demo"
+  /// (tenant_1766782843192) y en "Soporte SaborPro" (tenant_1773447631977). Ese
+  /// teléfono recibía los cierres de caja, los descuadres y los gastos de los
+  /// DOS negocios: una fuga entre tenants. Esta limpieza es la única defensa
+  /// que NO depende de que nadie haga nada bien; el borrado al cerrar sesión
+  /// queda como camino feliz.
+  ///
+  /// POR QUÉ VA ANTES DE GUARDAR Y NO DESPUÉS
+  ///
+  ///   - Dirección segura del fallo. Si el proceso muere, se pierde la red o el
+  ///     usuario mata la app entre los dos pasos, el estado intermedio es "el
+  ///     token no es de nadie" (el aparato se queda mudo un rato, y el próximo
+  ///     arranque lo arregla), nunca "el token está en dos cuentas". Al revés,
+  ///     el estado intermedio SERÍA la fuga que se está tapando.
+  ///   - Se repara sola. El `arrayUnion` del usuario actual es la ÚLTIMA
+  ///     escritura: aunque esta limpieza se equivocara de documento, lo que
+  ///     borre de la cuenta propia vuelve a entrar acto seguido. Si corriera
+  ///     después, el mismo error dejaría el teléfono callado para siempre, y un
+  ///     teléfono callado no se queja: nadie reporta los avisos que no llegan.
+  ///   - Menos ruido en la consulta: corriendo antes, el documento propio solo
+  ///     aparece si ya tenía el token de una sesión anterior; corriendo después
+  ///     aparecería SIEMPRE. En los dos casos se salta por ID (`doc.id == uid`)
+  ///     y jamás por posición: pueden venir varios documentos y en cualquier
+  ///     orden.
+  ///
+  /// POR QUÉ TAMBIÉN LIMPIA `fcm_tokens` DE ESOS DOCUMENTOS AJENOS
+  ///
+  /// Por lo mismo que ya hace `saveFcmToken` con el documento propio: Sabor
+  /// Suite (`com.escalya.saborsuite`) y Sabor Manager (`com.escalya.sabormanager`)
+  /// son apps distintas y FCM les da tokens distintos aun en el mismo teléfono,
+  /// así que este token concreto solo pudo llegar a `fcm_tokens` escrito por una
+  /// versión vieja de Sabor Manager, antes de estrenar el campo propio. Dejarlo
+  /// ahí sería la misma fuga por la otra puerta: la cuenta vieja seguiría
+  /// mandándole a este aparato los avisos que el POS manda a `fcm_tokens`.
+  /// Borrarlo no puede callar a un aparato del POS de verdad. Si algún día las
+  /// dos apps compartieran id de aplicación, hay que quitar `fcm_tokens` de
+  /// este `update` (y del de `saveFcmToken`): basura inofensiva es mejor que un
+  /// POS mudo.
+  ///
+  /// COSTO Y FRECUENCIA
+  ///
+  /// `array-contains` sobre un campo simple usa el índice automático de un solo
+  /// campo: no hace falta índice compuesto, y no se agrega ningún segundo
+  /// `where` ni `orderBy` que sí lo pediría. Los ~512 documentos de `users` no
+  /// se recorren: Firestore cobra por documento DEVUELTO, o sea 1 lectura
+  /// mínima por consulta. Por eso se corre en todos los guardados (login,
+  /// regreso a la app y refresco de token) en vez de solo en el primero: así se
+  /// reintenta sola si un día falló por falta de red, que es exactamente cuando
+  /// el borrado al cerrar sesión también falla. El campo `_desvinculacionHecha`
+  /// evita repetirla dentro del mismo proceso cuando ya salió bien.
+  Future<void> _desvincularTokenDeOtrasCuentas(String uid, String token) async {
+    if (uid.isEmpty || token.isEmpty) return;
+
+    final clave = '$uid|$token';
+    if (_desvinculacionHecha == clave) return;
+
+    try {
+      // Timeout obligatorio: sin servidor el future de un update() de Firestore
+      // NUNCA resuelve, y esto corre ANTES de guardar el token propio; sin el
+      // corte, quedarse sin red dejaría al usuario sin token guardado y sin
+      // avisos. Al vencer se sigue de largo, pero las escrituras que ya se
+      // encolaron salen solas cuando vuelva la red.
+      await Future(() async {
+        // Los dos campos donde este token pudo quedar pegado. `fcm_tokens` va
+        // en la búsqueda para alcanzar también a la cuenta que nunca volvió a
+        // entrar después de que Sabor Manager estrenara su campo propio: ahí el
+        // token vive SOLO en el campo viejo y la consulta al campo nuevo no lo
+        // encontraría.
+        final ajenos = <String>{};
+        // Sin red, get() NO lanza: resuelve con la caché, que además arranca
+        // vacía porque la persistencia está apagada (firestore_service.dart).
+        // Un vacío servido por caché significa "no pude preguntar", no "no hay
+        // nadie", y darlo por bueno dejaría la fuga viva hasta el próximo
+        // arranque con red. Por eso se anota si alguna consulta vino de caché.
+        var huboCache = false;
+        for (final campo in const ['manager_fcm_tokens', 'fcm_tokens']) {
+          final resultado =
+              await _usersCollection.where(campo, arrayContains: token).get();
+          if (resultado.metadata.isFromCache) huboCache = true;
+          for (final doc in resultado.docs) {
+            // Saltar la cuenta propia por ID, nunca por posición: pueden venir
+            // varios documentos (el caso real traía dos) y en cualquier orden.
+            if (doc.id == uid) continue;
+            ajenos.add(doc.id);
+          }
+        }
+
+        if (ajenos.isEmpty) {
+          // Solo se da por hecha si el servidor de verdad contestó.
+          if (!huboCache) _desvinculacionHecha = clave;
+          return;
+        }
+
+        // TODOS los documentos, no solo el primero: cuando esto aparece suele
+        // haber más de una cuenta colgada del mismo teléfono.
+        await Future.wait(ajenos.map((otroUid) {
+          return _usersCollection.doc(otroUid).update({
+            'manager_fcm_tokens': FieldValue.arrayRemove([token]),
+            'fcm_tokens': FieldValue.arrayRemove([token]),
+          });
+        }));
+
+        _desvinculacionHecha = clave;
+        // ignore: avoid_print
+        print('[PUSH] Token desvinculado de ${ajenos.length} cuenta(s) ajena(s): ${ajenos.join(", ")}');
+      }).timeout(const Duration(seconds: 5));
+    } catch (e) {
+      // Nunca se relanza: esta limpieza es un extra y no puede impedir que se
+      // guarde el token del usuario actual ni romper el inicio de sesión. Al no
+      // marcar `_desvinculacionHecha`, el próximo guardado la vuelve a intentar.
+      // ignore: avoid_print
+      print('[PUSH] No se pudo desvincular el token de otras cuentas: $e');
     }
   }
 

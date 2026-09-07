@@ -50,9 +50,17 @@ class NotificationSettingsScreen extends StatefulWidget {
       subtitle: 'Incluye si cuadró y el monto de venta',
       icon: Icons.lock_rounded,
     ),
+    // La llave sigue siendo 'expense' porque es la que consultan las Cloud
+    // Functions y la que ya está guardada en los documentos de usuario en
+    // producción; renombrarla apagaría el aviso a quien lo tenga configurado.
+    // Lo que cambió es su alcance: además de los gastos de la pantalla de
+    // Gastos, ahora cubre los retiros de efectivo hechos desde la caja (que no
+    // crean documento en `expenses`, van dentro del cierre de caja). El
+    // subtítulo nombra las DOS cosas a propósito: quien apague esto buscando
+    // callar una se quedaría sin la otra sin entender por qué.
     'expense': _PrefCopy(
-      title: 'Gastos',
-      subtitle: 'Cuando se registra un gasto',
+      title: 'Gastos y retiros de efectivo',
+      subtitle: 'Cuando se registra un gasto o se retira efectivo de la caja',
       icon: Icons.receipt_long_rounded,
     ),
     'inventory_movement': _PrefCopy(
@@ -626,7 +634,10 @@ class _PrefRow extends StatelessWidget {
                 children: [
                   Text(
                     copy.title,
-                    maxLines: 2,
+                    // 3 y no 2: "Gastos y retiros de efectivo" entra en una
+                    // línea a 360dp, pero con la letra del sistema agrandada
+                    // necesita hasta tres y con dos se cortaba a la mitad.
+                    maxLines: 3,
                     overflow: TextOverflow.ellipsis,
                     style: GoogleFonts.inter(
                       color: on ? Colors.white : Colors.white54,
