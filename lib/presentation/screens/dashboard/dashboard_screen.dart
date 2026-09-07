@@ -56,7 +56,8 @@ class _DashboardBody extends StatelessWidget {
           // visible mientras se recorre el contenido.
           const LocationHeaderBar(),
           Expanded(
-            child: RefreshIndicator(
+            child: LocationContentSwitcher(
+              child: RefreshIndicator(
               color: const Color(0xFF7444fd),
               backgroundColor: const Color(0xFF1E293B),
               onRefresh: provider.load,
@@ -86,6 +87,7 @@ class _DashboardBody extends StatelessWidget {
                   ),
                 ],
               ),
+            ),
             ),
           ),
         ],

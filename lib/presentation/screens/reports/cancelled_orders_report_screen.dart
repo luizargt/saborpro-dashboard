@@ -73,7 +73,8 @@ class _CancelledOrdersReportScreenState
                 // Barra de sucursales + fecha fija, fuera del scroll.
                 const LocationHeaderBar(),
                 Expanded(
-                  child: Consumer<CancellationsProvider>(
+                  child: LocationContentSwitcher(
+                    child: Consumer<CancellationsProvider>(
                     builder: (context, provider, _) => RefreshIndicator(
                       color: _kAccent,
                       backgroundColor: _kCard,
@@ -93,6 +94,7 @@ class _CancelledOrdersReportScreenState
                               : CancellationsReportBody(
                                   report: provider.report),
                     ),
+                  ),
                   ),
                 ),
               ],

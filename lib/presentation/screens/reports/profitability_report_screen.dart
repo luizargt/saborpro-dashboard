@@ -75,7 +75,8 @@ class _ProfitabilityReportScreenState extends State<ProfitabilityReportScreen> {
                 children: [
                   const LocationHeaderBar(),
                   Expanded(
-                    child: Consumer<ProfitabilityProvider>(
+                    child: LocationContentSwitcher(
+                      child: Consumer<ProfitabilityProvider>(
                       builder: (context, p, _) => RefreshIndicator(
                         color: _acento,
                         backgroundColor: _tarjeta,
@@ -90,6 +91,7 @@ class _ProfitabilityReportScreenState extends State<ProfitabilityReportScreen> {
                         // correspondían.
                         child: _Cuerpo(provider: p, cargandoVentas: dash.loading),
                       ),
+                    ),
                     ),
                   ),
                 ],

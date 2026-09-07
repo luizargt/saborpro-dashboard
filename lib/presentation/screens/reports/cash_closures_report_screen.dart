@@ -33,7 +33,8 @@ class CashClosuresReportScreen extends StatelessWidget {
             // Barra de sucursales fija, fuera del scroll.
             const LocationHeaderBar(),
             Expanded(
-              child: RefreshIndicator(
+              child: LocationContentSwitcher(
+                child: RefreshIndicator(
           color: const Color(0xFF7444fd),
           backgroundColor: const Color(0xFF1E293B),
           onRefresh: provider.load,
@@ -75,6 +76,7 @@ class CashClosuresReportScreen extends StatelessWidget {
               ),
             ],
           ),
+              ),
               ),
             ),
           ],
