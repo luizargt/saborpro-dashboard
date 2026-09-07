@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import '../../data/models/dashboard_data.dart';
 import '../../data/models/inventory_data.dart';
 import '../../core/services/location_service.dart';
+import 'fiscal_reports_service.dart';
 
 class ExportService {
   static final _fmt = NumberFormat('#,##0.00', 'en_US');
@@ -389,4 +390,84 @@ class ExportService {
     }
     return null;
   }
+
+  // ── HONDURAS: DOCUMENTOS NO UTILIZADOS (Art. 42) ──────────────────────────
+  /// El listado que el obligado tributario debe comunicar al SAR "dentro de los
+  /// primeros diez (10) días hábiles del mes siguiente" de que un rango
+  /// venciera, se agotara o se diera de baja.
+  ///
+  /// Sale en Excel y no en pantalla porque su destino no es leerlo: es
+  /// entregarlo. Quien lo presenta es el contador, desde una computadora, una
+  /// vez al mes.
+  static void exportUnusedNumbers(
+    List<UnusedNumber> numbers,
+    String periodLabel,
+  ) {
+    final excel = Excel.createExcel();
+    final sheet = excel['No utilizados'];
+    excel.setDefaultSheet('No utilizados');
+
+    _header(sheet, ['No. de documento', 'CAI', 'Motivo']);
+
+    for (final n in numbers) {
+      sheet.appendRow([
+        TextCellValue(n.number),
+        TextCellValue(n.cai),
+        TextCellValue(n.cause),
+      ]);
+    }
+
+    if (numbers.isEmpty) {
+      sheet.appendRow([
+        TextCellValue('Sin documentos no utilizados en el período'),
+      ]);
+    }
+
+    _download(excel, 'no_utilizados_${_slug(periodLabel)}.xlsx');
+  }
+
+  // ── HONDURAS: RESUMEN DE VENTAS POR ISV (Art. 38) ─────────────────────────
+  /// El resumen que debe presentar quien emite en papel térmico.
+  ///
+  /// Va separado por tarifa porque así se declara el ISV: las ventas al 15% y
+  /// las del 18% se informan por aparte, igual que en la declaración mensual.
+  static void exportIsvSummary(
+    List<IsvSummaryLine> lines,
+    String periodLabel,
+  ) {
+    final excel = Excel.createExcel();
+    final sheet = excel['Resumen ISV'];
+    excel.setDefaultSheet('Resumen ISV');
+
+    _header(sheet, [
+      'Tarifa',
+      'Importe gravado (L)',
+      'ISV (L)',
+      'Facturas',
+    ]);
+
+    var totalBase = 0.0;
+    var totalIsv = 0.0;
+    for (final line in lines) {
+      sheet.appendRow([
+        TextCellValue(line.rateLabel),
+        DoubleCellValue(line.taxable),
+        DoubleCellValue(line.tax),
+        IntCellValue(line.invoices),
+      ]);
+      totalBase += line.taxable;
+      totalIsv += line.tax;
+    }
+
+    sheet.appendRow([]);
+    sheet.appendRow([
+      TextCellValue('TOTAL'),
+      DoubleCellValue(double.parse(totalBase.toStringAsFixed(2))),
+      DoubleCellValue(double.parse(totalIsv.toStringAsFixed(2))),
+      TextCellValue(''),
+    ]);
+
+    _download(excel, 'resumen_isv_${_slug(periodLabel)}.xlsx');
+  }
+
 }

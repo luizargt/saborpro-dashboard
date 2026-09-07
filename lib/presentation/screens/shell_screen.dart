@@ -8,6 +8,7 @@ import '../../core/navigation/app_navigator.dart';
 import '../../core/services/auth_service.dart';
 import '../../core/services/biometric_service.dart';
 import '../../core/services/export_service.dart';
+import '../../core/services/fiscal_reports_service.dart';
 import '../../core/services/notification_service.dart';
 import '../../presentation/providers/dashboard_provider.dart';
 import '../../presentation/providers/inventory_provider.dart';
@@ -778,10 +779,16 @@ enum _ReportType {
   caja('Reporte de Caja'),
   metodoPago('Ventas por Método de Pago'),
   platillos('Platillos vendidos'),
-  inventario('Inventario');
+  inventario('Inventario'),
+
+  // Solo Honduras. No son reportes de gestión: son dos obligaciones ante el
+  // SAR, y el que las presenta es el contador una vez al mes.
+  noUtilizados('Documentos no utilizados (SAR)', soloHonduras: true),
+  resumenIsv('Resumen de ventas por ISV (SAR)', soloHonduras: true);
 
   final String label;
-  const _ReportType(this.label);
+  final bool soloHonduras;
+  const _ReportType(this.label, {this.soloHonduras = false});
 }
 
 class _MenuModal extends StatefulWidget {
@@ -797,6 +804,14 @@ class _MenuModalState extends State<_MenuModal> {
   _ReportType _selected = _ReportType.caja;
   bool _downloading = false;
 
+  /// Los reportes del SAR solo se ofrecen si el tenant factura en Honduras:
+  /// a un restaurante guatemalteco no le dicen nada.
+  bool _esHonduras = false;
+
+  List<_ReportType> get _reportesDisponibles => _ReportType.values
+      .where((r) => !r.soloHonduras || _esHonduras)
+      .toList();
+
   // Biometría — null mientras carga
   bool?  _biometricAvailable;
   bool   _biometricEnabled = false;
@@ -807,6 +822,15 @@ class _MenuModalState extends State<_MenuModal> {
   void initState() {
     super.initState();
     _loadBiometricState();
+    _loadPaisFiscal();
+  }
+
+  Future<void> _loadPaisFiscal() async {
+    final tenantId = context.read<DashboardProvider>().tenantId;
+    if (tenantId == null) return;
+    final esHn = await FiscalReportsService().isHonduras(tenantId);
+    if (!mounted) return;
+    setState(() => _esHonduras = esHn);
   }
 
   Future<void> _loadBiometricState() async {
@@ -1106,6 +1130,23 @@ class _MenuModalState extends State<_MenuModal> {
           );
         case _ReportType.inventario:
           ExportService.exportInventory(ip.items, ip.locations);
+
+        case _ReportType.noUtilizados:
+          final tenantId = dp.tenantId;
+          if (tenantId == null) break;
+          final numeros = await FiscalReportsService()
+              .unusedNumbers(tenantId: tenantId);
+          ExportService.exportUnusedNumbers(numeros, dp.range.label);
+
+        case _ReportType.resumenIsv:
+          final tenantId = dp.tenantId;
+          if (tenantId == null) break;
+          final resumen = await FiscalReportsService().isvSummary(
+            tenantId: tenantId,
+            from: dp.range.start,
+            to: dp.range.end,
+          );
+          ExportService.exportIsvSummary(resumen, dp.range.label);
       }
       if (mounted) Navigator.pop(context);
     } finally {
@@ -1188,7 +1229,7 @@ class _MenuModalState extends State<_MenuModal> {
                       color: Colors.white70,
                       fontSize: 14,
                     ),
-                    items: _ReportType.values
+                    items: _reportesDisponibles
                         .map((r) => DropdownMenuItem(
                               value: r,
                               child: Text(r.label),
