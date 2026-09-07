@@ -218,6 +218,7 @@ class ExportService {
     switch (type) {
       case 'dine_in':    return 'Mesa';
       case 'takeout':    return 'Para llevar';
+      case 'pickup':     return 'Pasa a Recoger';
       case 'delivery':   return 'Delivery';
       case 'quick_sale': return 'Venta rápida';
       default:           return type;
