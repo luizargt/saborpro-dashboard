@@ -12,6 +12,7 @@ import '../../../presentation/widgets/sales_chart.dart';
 import '../../../presentation/widgets/products_list.dart';
 import '../../../presentation/widgets/summary_table.dart';
 import '../../../presentation/widgets/payment_method_breakdown.dart';
+import '../../../presentation/widgets/year_detail_notice.dart';
 
 enum DashboardView { chart, table }
 
@@ -60,7 +61,7 @@ class _DashboardBody extends StatelessWidget {
               child: RefreshIndicator(
               color: const Color(0xFF7444fd),
               backgroundColor: const Color(0xFF1E293B),
-              onRefresh: provider.load,
+              onRefresh: provider.refresh,
               child: CustomScrollView(
                 slivers: [
                   SliverToBoxAdapter(
@@ -112,8 +113,16 @@ class _DataContent extends StatelessWidget {
   Widget build(BuildContext context) {
     final metrics = provider.metrics!;
     final wide = MediaQuery.of(context).size.width >= 900;
+    // Solo existe en la vista de año, y solo si el dueño lo mandó calcular.
+    final detalle = provider.yearDetail;
+    final categorias = detalle?.categoriesByClassification.isNotEmpty == true
+        ? detalle!.categoriesByClassification
+        : metrics.categoriesByClassification;
 
-    final paymentCard = metrics.salesByMethod.isEmpty
+    final metodos = detalle != null && detalle.salesByMethod.isNotEmpty
+        ? detalle.salesByMethod
+        : metrics.salesByMethod;
+    final paymentCard = metodos.isEmpty
         ? null
         : Container(
             padding: const EdgeInsets.all(16),
@@ -122,7 +131,7 @@ class _DataContent extends StatelessWidget {
               borderRadius: BorderRadius.circular(12),
             ),
             child: PaymentMethodBreakdown(
-              salesByMethod: metrics.salesByMethod,
+              salesByMethod: metodos,
               customMethodNames: {
                 for (final r in provider.openRegisters) ...r.customMethodNames,
                 for (final r in provider.closedRegisters) ...r.customMethodNames,
@@ -130,6 +139,9 @@ class _DataContent extends StatelessWidget {
             ),
           );
 
+    // En la vista de año no hay órdenes en memoria, así que la venta por
+    // sucursal viene ya sumada por Firestore. Sin eso este bloque saldría con
+    // todas las sucursales en cero.
     final locationsCard = provider.selectedLocationId != null
         ? null
         : LocationSalesBreakdown(
@@ -137,6 +149,7 @@ class _DataContent extends StatelessWidget {
             orders: provider.currentOrders,
             expenseItems: provider.expenseItems,
             purchaseItems: provider.purchaseItems,
+            precomputedSales: provider.yearSalesByLocation,
           );
 
     return Column(
@@ -182,7 +195,9 @@ class _DataContent extends StatelessWidget {
                 children: [
                   Expanded(
                     child: Text(
-                      view == DashboardView.chart ? _chartTitle(provider.range.mode) : 'Resumen financiero',
+                      view == DashboardView.chart || !metrics.detailAvailable
+                          ? _chartTitle(provider.range.mode)
+                          : 'Resumen financiero',
                       style: GoogleFonts.inter(
                         color: Colors.white,
                         fontSize: 14,
@@ -191,11 +206,16 @@ class _DataContent extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  _ViewToggle(view: view, onChanged: onViewChanged),
+                  // El resumen financiero desglosa descuentos, impuestos y
+                  // cortesías, y eso vive dentro de cada ticket. En la vista de
+                  // año no hay tickets en memoria, así que el botón se esconde
+                  // en vez de abrir una tabla llena de ceros.
+                  if (metrics.detailAvailable)
+                    _ViewToggle(view: view, onChanged: onViewChanged),
                 ],
               ),
               const SizedBox(height: 16),
-              if (view == DashboardView.chart)
+              if (view == DashboardView.chart || !metrics.detailAvailable)
                 SalesChart(
                   points: metrics.chartPoints,
                   prevPoints: metrics.prevChartPoints,
@@ -208,28 +228,31 @@ class _DataContent extends StatelessWidget {
             ],
           ),
         ),
-        if (metrics.categoriesByClassification.isNotEmpty) ...[
+        // En la vista de año estas salen del detalle que el dueño mandó
+        // calcular; en los demás períodos ya vienen en las métricas.
+        if (categorias.isNotEmpty) ...[
           const SizedBox(height: 20),
-          TopCategoriesCarousel(
-            categoriesByClassification: metrics.categoriesByClassification,
-          ),
+          TopCategoriesCarousel(categoriesByClassification: categorias),
         ],
         const SizedBox(height: 20),
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: const Color(0xFF1E293B),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: ProductsList(
-            products: metrics.topProducts,
-            productsByMethod: metrics.productsByMethod,
-            prevLabel: provider.range.prevLabel,
-            tips: metrics.tips,
-            discounts: metrics.discounts,
-            totalSales: metrics.totalSales,
-          ),
-        ),
+        if (metrics.detailAvailable || detalle != null)
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1E293B),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: ProductsList(
+              products: detalle?.topProducts ?? metrics.topProducts,
+              productsByMethod: metrics.productsByMethod,
+              prevLabel: provider.range.prevLabel,
+              tips: metrics.tips,
+              discounts: metrics.discounts,
+              totalSales: metrics.totalSales,
+            ),
+          )
+        else
+          YearDetailNotice(mes: provider.mesDetalle),
         const SizedBox(height: 32),
       ],
     );

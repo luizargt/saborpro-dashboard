@@ -12,12 +12,18 @@ class LocationSalesBreakdown extends StatelessWidget {
   final List<Map<String, dynamic>> expenseItems;
   final List<Map<String, dynamic>> purchaseItems;
 
+  /// Venta por sucursal ya calculada. La vista de año no tiene órdenes en
+  /// memoria (los totales los suma Firestore), así que las trae hechas. Vacío
+  /// en los demás períodos, donde se suman las órdenes de `orders`.
+  final Map<String, double> precomputedSales;
+
   const LocationSalesBreakdown({
     super.key,
     required this.locations,
     required this.orders,
     required this.expenseItems,
     required this.purchaseItems,
+    this.precomputedSales = const {},
   });
 
   static const _palette = [
@@ -46,11 +52,15 @@ class LocationSalesBreakdown extends StatelessWidget {
 
     // payment_amount no siempre está presente; usamos fallback a total_amount por orden.
     final sales = <String, double>{};
-    for (final o in orders) {
-      final locId = o['location_id'] as String?;
-      if (locId == null || locId.isEmpty) continue;
-      final amount = (o['payment_amount'] as num?)?.toDouble() ?? (o['total_amount'] as num?)?.toDouble() ?? 0;
-      sales[locId] = (sales[locId] ?? 0) + amount;
+    if (precomputedSales.isNotEmpty) {
+      sales.addAll(precomputedSales);
+    } else {
+      for (final o in orders) {
+        final locId = o['location_id'] as String?;
+        if (locId == null || locId.isEmpty) continue;
+        final amount = (o['payment_amount'] as num?)?.toDouble() ?? (o['total_amount'] as num?)?.toDouble() ?? 0;
+        sales[locId] = (sales[locId] ?? 0) + amount;
+      }
     }
 
     final expensesByLoc = _sumByLocation(expenseItems, 'amount');

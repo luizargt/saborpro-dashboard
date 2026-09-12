@@ -101,6 +101,11 @@ class CancellationsProvider extends ChangeNotifier {
         movements: movements,
         costs: costs,
         cancelledOrders: cancelledOrders,
+        // En la vista de año esto viene vacío: el dashboard no baja las
+        // órdenes, le pide los totales a Firestore. Lo único que se pierde son
+        // los metadatos de pedido (mesa, motivo, quién lo hizo) de las órdenes
+        // que se cobraron igual tras anular un ítem. Las cantidades y los
+        // costos salen de inventoryMovements y no cambian.
         paidOrders: dp.currentOrders,
         truncated: raw.truncated,
       );

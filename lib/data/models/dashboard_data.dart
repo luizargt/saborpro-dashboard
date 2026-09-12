@@ -55,6 +55,17 @@ class PeriodMetrics {
   // Productos agrupados por método de pago para filtrado en UI
   final Map<String, List<ProductSummary>> productsByMethod;
 
+  /// Falso cuando las cifras las sumó Firestore sin bajar las órdenes. Pasa en
+  /// la vista de año: los totales y el gráfico son exactos, pero nada que viva
+  /// dentro de los renglones del ticket (productos, categorías, métodos de
+  /// pago, cortesías) se puede calcular así. La pantalla oculta esos bloques en
+  /// vez de mostrarlos vacíos o a medias.
+  final bool detailAvailable;
+
+  /// Verdadero si alguna consulta tocó un tope y el total podría quedar corto.
+  /// Existe para que nunca vuelva a truncarse en silencio.
+  final bool truncated;
+
   PeriodMetrics({
     required this.totalSales,
     required this.totalOrders,
@@ -80,6 +91,8 @@ class PeriodMetrics {
     this.courtesyCount = 0,
     this.salesByMethod = const {},
     this.productsByMethod = const {},
+    this.detailAvailable = true,
+    this.truncated = false,
   });
 
   PeriodMetrics copyWith({
@@ -111,6 +124,8 @@ class PeriodMetrics {
       courtesyCount: courtesyCount,
       salesByMethod: salesByMethod ?? this.salesByMethod,
       productsByMethod: productsByMethod ?? this.productsByMethod,
+      detailAvailable: detailAvailable,
+      truncated: truncated,
     );
   }
 
@@ -159,6 +174,27 @@ class ProductSummary {
     if (prevTotal == 0) return 0;
     return ((total - prevTotal) / prevTotal) * 100;
   }
+}
+
+/// Productos y categorías de un año, calculados abriendo los tickets.
+///
+/// Va aparte de `PeriodMetrics` porque no llega con la pantalla: se arma con los
+/// resúmenes mensuales guardados en Firestore, y el primero que abra un mes
+/// nuevo es quien paga calcularlo. Ver `DashboardProvider.computeYearDetail`.
+class YearDetail {
+  const YearDetail({
+    required this.topProducts,
+    required this.categoriesByClassification,
+    this.salesByMethod = const {},
+  });
+
+  final List<ProductSummary> topProducts;
+  final Map<String, List<CategorySummary>> categoriesByClassification;
+
+  /// Ventas por método de pago sumadas de los meses. También sale del detalle
+  /// porque un pago repartido entre efectivo y tarjeta se desarma abriendo el
+  /// ticket, y eso las sumas de servidor no lo pueden hacer.
+  final Map<String, double> salesByMethod;
 }
 
 /// Ventas acumuladas de una categoría del menú ("Tacos", "Cervezas"), dentro

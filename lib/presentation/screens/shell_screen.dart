@@ -1094,9 +1094,16 @@ class _MenuModalState extends State<_MenuModal> {
 
     setState(() => _downloading = true);
     try {
+      // La vista de año no baja las órdenes: los totales los suma Firestore.
+      // Un Excel sí necesita cada fila, así que se piden a propósito y
+      // paginadas, sin el tope que antes recortaba el período por detrás.
+      // Fuera de la vista de año esto devuelve lo que ya está en memoria.
+      //
+      // Se pide dentro de cada reporte que las usa, y no antes del switch, para
+      // que exportar inventario no arrastre un año de órdenes que no mira.
       switch (_selected) {
         case _ReportType.caja:
-          final orders = dp.currentOrders;
+          final orders = await dp.ensureDetailedOrders();
           final orderDocIds = orders
               .map((o) => o['_docId'] as String? ?? '')
               .where((id) => id.isNotEmpty)
@@ -1124,12 +1131,12 @@ class _MenuModalState extends State<_MenuModal> {
           );
         case _ReportType.metodoPago:
           ExportService.exportPaymentMethodReport(
-            dp.currentOrders,
+            await dp.ensureDetailedOrders(),
             dp.range.label,
           );
         case _ReportType.platillos:
           ExportService.exportProducts(
-            dp.metrics?.topProducts ?? [],
+            dp.topProductsFrom(await dp.ensureDetailedOrders()),
             dp.range.prevLabel,
           );
         case _ReportType.inventario:

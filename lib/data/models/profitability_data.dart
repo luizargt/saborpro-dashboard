@@ -75,6 +75,12 @@ class ProfitabilityData {
   final double inventoryValue;
   final int ingredientesSinPrecio;
 
+  /// Ingredientes con una existencia que no puede ser real (más de un millón de
+  /// unidades). Suelen ser un número gigante escrito a mano para que ese
+  /// producto nunca se agote. Se listan para que el dueño sepa cuáles revisar:
+  /// el valor de la despensa los sigue contando, así que la cifra se dispara.
+  final List<String> existenciasImposibles;
+
   const ProfitabilityData({
     required this.netSales,
     required this.cogs,
@@ -88,6 +94,7 @@ class ProfitabilityData {
     this.entradasSinCosto = 0,
     required this.inventoryValue,
     required this.ingredientesSinPrecio,
+    this.existenciasImposibles = const [],
   });
 
   static const vacio = ProfitabilityData(

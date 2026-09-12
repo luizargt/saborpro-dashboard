@@ -17,6 +17,15 @@ const _idsSueldos = {'salarios'};
 /// tratarlo como variable descuadra el punto de equilibrio.
 const _idsFijos = {'renta', 'salarios', 'internet', 'seguros'};
 
+/// A partir de acá una existencia deja de ser creíble y se avisa.
+///
+/// Medido sobre los 2.694 ingredientes con existencia del sistema: por debajo
+/// de cien mil todo es legítimo (56 litros de aceite, 98 kilos de salsa), y los
+/// que pasan el millón son 26 en dos negocios, con cosas como pollo en cien mil
+/// billones de porciones o una cerveza de barril en un billón de unidades. El
+/// millón deja el corte donde no hay ninguna falsa alarma.
+const kStockImposible = 1000000.0;
+
 /// Movimientos de inventario que forman el costo de lo vendido.
 const _tipoSalidaVenta = 'salidaVenta';
 
@@ -51,6 +60,10 @@ class ProfitabilityProvider extends ChangeNotifier {
       '|${dash.range.end.toIso8601String()}'
       '|${dash.selectedLocationId ?? "*"}'
       '|${dash.currentOrders.length}'
+      // En la vista de año no hay órdenes en memoria y el contador de arriba se
+      // queda en cero para siempre: sin esto, un cálculo hecho antes de que
+      // llegaran los totales se quedaría cacheado mostrando venta cero.
+      '|${dash.metrics?.totalSales.toStringAsFixed(2) ?? "-"}'
       '|${dash.expenseItems.length}'
       '|${dash.purchaseItems.length}';
 
@@ -275,6 +288,7 @@ class ProfitabilityProvider extends ChangeNotifier {
     var total = 0.0;
     var sinPrecio = 0;
     final precios = <String, double>{};
+    final sospechosos = <String>[];
 
     for (final doc in snap.docs) {
       final d = doc.data();
@@ -291,6 +305,14 @@ class ProfitabilityProvider extends ChangeNotifier {
       final stock = (d['currentStock'] as num?)?.toDouble() ?? 0;
       if (stock <= 0) continue;
 
+      // Existencias imposibles: alguien escribió un número gigante para que ese
+      // ingrediente nunca se agote y no le bloquee la venta. El valor SÍ las
+      // sigue sumando (cambiarlo sería tocar el inventario, y el dueño pidió
+      // que no), pero se avisa cuáles son para que pueda corregirlas.
+      if (stock >= kStockImposible) {
+        sospechosos.add(d['name'] as String? ?? 'sin nombre');
+      }
+
       if (precio == null || precio <= 0) {
         sinPrecio++;
         continue;
@@ -298,10 +320,12 @@ class ProfitabilityProvider extends ChangeNotifier {
       total += stock * precio;
     }
 
+    sospechosos.sort();
     return _Inventario(
       valor: total,
       sinPrecio: sinPrecio,
       precioPorIngrediente: precios,
+      existenciasImposibles: sospechosos,
     );
   }
 
@@ -315,14 +339,28 @@ class ProfitabilityProvider extends ChangeNotifier {
 
     // Venta neta: lo cobrado menos propina y envío. La propina es del personal
     // y el envío se cobra para pagarlo; ninguno es ingreso del negocio.
+    //
+    // En la vista de año el dashboard no baja las órdenes (los totales los suma
+    // Firestore), así que la venta sale de las métricas, que ya son esa misma
+    // resta y ya vienen filtradas por sucursal. Sin esto la rentabilidad anual
+    // daría venta cero y una pérdida inventada del tamaño de los gastos.
+    final m = dash.metrics;
+    final sinOrdenesEnMemoria = m != null && dash.sinOrdenesEnMemoria;
+
     var netSales = 0.0;
-    for (final o in dash.currentOrders) {
-      if (locId != null && o['location_id'] != locId) continue;
-      final cobrado = (o['payment_amount'] as num?)?.toDouble() ??
-          (o['total_amount'] as num? ?? 0).toDouble();
-      final propina = (o['tip_amount'] as num? ?? 0).toDouble();
-      final envio = (o['delivery_fee'] as num? ?? 0).toDouble();
-      netSales += cobrado - propina - envio;
+    if (sinOrdenesEnMemoria) {
+      // `ventaBruta` es exactamente cobrado menos propina y envío, ya filtrado
+      // por sucursal por las consultas de agregación.
+      netSales = m.ventaBruta;
+    } else {
+      for (final o in dash.currentOrders) {
+        if (locId != null && o['location_id'] != locId) continue;
+        final cobrado = (o['payment_amount'] as num?)?.toDouble() ??
+            (o['total_amount'] as num? ?? 0).toDouble();
+        final propina = (o['tip_amount'] as num? ?? 0).toDouble();
+        final envio = (o['delivery_fee'] as num? ?? 0).toDouble();
+        netSales += cobrado - propina - envio;
+      }
     }
 
     // Gastos por categoría. Los retiros de caja vienen mezclados en la misma
@@ -398,6 +436,7 @@ class ProfitabilityProvider extends ChangeNotifier {
       entradasSinCosto: cogs.entradasSinCosto,
       inventoryValue: inv.valor,
       ingredientesSinPrecio: inv.sinPrecio,
+      existenciasImposibles: inv.existenciasImposibles,
     );
   }
 }
@@ -434,12 +473,17 @@ class _Inventario {
   final double valor;
   final int sinPrecio;
 
+  /// Nombres de los ingredientes con existencia imposible, para poder decirle
+  /// al dueño CUÁLES revisar en vez de solo que algo anda mal.
+  final List<String> existenciasImposibles;
+
   /// id de ingrediente → último precio de compra conocido.
   final Map<String, double> precioPorIngrediente;
 
   const _Inventario({
     required this.valor,
     required this.sinPrecio,
+    this.existenciasImposibles = const [],
     required this.precioPorIngrediente,
   });
 }

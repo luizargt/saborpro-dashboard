@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
@@ -5,6 +7,8 @@ import 'package:sentry_flutter/sentry_flutter.dart';
 import '../../core/services/firestore_service.dart';
 import '../../core/services/location_service.dart';
 import '../../core/services/auth_service.dart';
+import '../../core/services/sales_aggregates_service.dart';
+import '../../core/services/monthly_rollup_service.dart';
 import '../../core/utils/date_range.dart';
 import '../../data/models/dashboard_data.dart';
 import '../../data/models/cash_register_summary.dart';
@@ -12,6 +16,25 @@ import '../../data/models/cash_register_summary.dart';
 class DashboardProvider extends ChangeNotifier {
   final FirestoreService _firestore = FirestoreService();
   final LocationService _locationService = LocationService();
+  final SalesAggregatesService _aggregates = SalesAggregatesService();
+
+  /// La vista de año no baja las órdenes: le pide los totales a Firestore.
+  /// Un año del cliente más grande son 20.669 órdenes y 69 MB; sumarlo en el
+  /// servidor cuesta unas 170 lecturas y no se puede truncar.
+  bool get _usaAgregados => _range.mode == PeriodMode.year;
+
+  /// Verdadero cuando `currentOrders` está vacío a propósito porque los totales
+  /// los sumó Firestore. Quien necesite recorrer órdenes tiene que mirar esto y
+  /// no `metrics.detailAvailable`: ese se enciende en cuanto hay resúmenes
+  /// mensuales, y aun así sigue sin haber órdenes en memoria.
+  bool get sinOrdenesEnMemoria => _usaAgregados;
+
+  YearAggregate? _yearAgg;
+  YearAggregate? _prevYearAgg;
+
+  /// Caché por sucursal: cambiar de pestaña no vuelve a consultar si ya se vio.
+  /// La clave es el año y la sucursal ('' = todas).
+  final Map<String, YearAggregate> _aggCache = {};
 
   DateRange _range = DateRange.today();
   DateRange get range => _range;
@@ -117,6 +140,9 @@ class DashboardProvider extends ChangeNotifier {
     _tenantId = tenantId;
     _locationId = locationId;
     _rawCacheValid = false;
+    // Los totales cacheados son de otro negocio: tirarlos antes de nada.
+    _aggCache.clear();
+    _detalleCache.clear();
     // Fijar sucursales permitidas de forma síncrona (load() corre en paralelo
     // con _loadLocations, así el filtro aplica desde la primera carga).
     _allowedLocationIds = AuthService().assignedLocationIds.toSet();
@@ -149,6 +175,14 @@ class DashboardProvider extends ChangeNotifier {
   void selectLocation(String? locationId) {
     if (_selectedLocationId == locationId) return;
     _selectedLocationId = locationId;
+    // En la vista de año las sumas las hace Firestore filtrando por sucursal,
+    // así que no hay nada que re-filtrar en memoria: hay que volver a pedirlas.
+    // `_aggCache` hace que volver a una pestaña ya vista no cueste ni una
+    // consulta.
+    if (_usaAgregados) {
+      load();
+      return;
+    }
     // Las queries no filtran por sucursal, así que el fetch del rango actual ya
     // trae los datos de todas: basta re-filtrar en memoria (instantáneo, sin red).
     if (_rawCacheValid) {
@@ -162,6 +196,15 @@ class DashboardProvider extends ChangeNotifier {
     _range = range;
     _rawCacheValid = false;
     load();
+  }
+
+  /// Recarga tirando lo cacheado. Es lo que hace "deslizar para actualizar":
+  /// quien acaba de cobrar espera ver ese cobro, no el total de hace un rato.
+  Future<void> refresh() async {
+    _aggCache.clear();
+    _detalleCache.clear();
+    _rawCacheValid = false;
+    await load();
   }
 
   void goNext() {
@@ -203,14 +246,33 @@ class DashboardProvider extends ChangeNotifier {
       final we = DateTime(now.year, now.month, now.day, 23, 59, 59);
       final monthStart = DateTime(now.year, now.month, 1);
 
-      // Etapa 1+2 en paralelo: período actual y anterior simultáneamente
-      final orderPair = await Future.wait([
-        _fetchOrders(_range.start, _range.end),
-        _fetchOrders(prev.start, prev.end),
-      ]);
-      final currentOrders = orderPair[0];
-      final prevOrders = orderPair[1];
-      _mark('orders(actual+anterior) docs=${currentOrders.length}+${prevOrders.length}');
+      // Etapa 1+2 en paralelo: período actual y anterior simultáneamente.
+      //
+      // En la vista de año NO se bajan las órdenes. Antes se bajaban con un tope
+      // de 5.000 y sin orden explícito, y como Firestore ordena por el campo del
+      // filtro de rango, ese tope se quedaba con las 5.000 más antiguas y tiraba
+      // el resto del año sin avisar. Ahora los totales los suma el servidor.
+      var currentOrders = const <Map<String, dynamic>>[];
+      var prevOrders = const <Map<String, dynamic>>[];
+      if (_usaAgregados) {
+        final aggs = await Future.wait([
+          _loadYearAggregate(_range.start.year),
+          _loadYearAggregate(prev.start.year),
+        ]);
+        _yearAgg = aggs[0];
+        _prevYearAgg = aggs[1];
+        _mark('agregados(actual+anterior) tickets=${_yearAgg?.totalOrders}');
+      } else {
+        _yearAgg = null;
+        _prevYearAgg = null;
+        final orderPair = await Future.wait([
+          _fetchOrders(_range.start, _range.end),
+          _fetchOrders(prev.start, prev.end),
+        ]);
+        currentOrders = orderPair[0];
+        prevOrders = orderPair[1];
+        _mark('orders(actual+anterior) docs=${currentOrders.length}+${prevOrders.length}');
+      }
 
       // Etapa 0b: cargar clasificaciones: por categoria y por producto
       final categoryIds = _extractCategoryIds(currentOrders);
@@ -268,6 +330,14 @@ class DashboardProvider extends ChangeNotifier {
       // Etapa 4: filtrar por sucursal y construir métricas (sin Firestore adicional).
       _rebuildFromRaw(notify: false);
       _mark('metrics+summaries');
+
+      // Etapa 5, solo en la vista de año: ver qué meses ya están resumidos en
+      // Firestore para mostrar el detalle sin que nadie tenga que pedirlo. No
+      // se espera, porque las cifras ya están en pantalla y esto solo agrega
+      // los bloques de abajo cuando llega.
+      if (_usaAgregados) {
+        unawaited(_cargarResumenesDelAnio());
+      }
       debugPrint('[PERF] === load() TOTAL: ${_swTotal.elapsedMilliseconds}ms ===');
     } catch (e, st) {
       _rawCacheValid = false;
@@ -326,6 +396,14 @@ class DashboardProvider extends ChangeNotifier {
         : [];
 
     _buildCashRegisterSummaries(_rawCashRegisters);
+    if (_usaAgregados) {
+      _metrics = _buildMetricsFromAggregate(
+        expenses: expenses,
+        purchaseCosts: purchaseCosts,
+      );
+      if (notify) notifyListeners();
+      return;
+    }
     _metrics = _buildMetrics(
       currentOrders,
       prevOrders,
@@ -608,6 +686,554 @@ class DashboardProvider extends ChangeNotifier {
     }
   }
 
+  /// Baja las órdenes del período COMPLETO, paginando hasta agotarlo.
+  ///
+  /// La pantalla de año no las necesita y por eso no las pide: son 20.669
+  /// órdenes y 69 MB en el cliente más grande. Pero exportar un reporte sí
+  /// necesita cada fila, así que quien lo pide paga esa descarga a propósito,
+  /// una vez, en vez de cargársela a todo el mundo al abrir el inicio.
+  ///
+  /// A diferencia de `_fetchOrders`, esto NO se queda corto: pagina con
+  /// `orderBy` explícito y cursor, así que ningún tope recorta el período por
+  /// detrás. Si el período es chico, las órdenes que ya están en memoria se
+  /// devuelven tal cual.
+  Future<List<Map<String, dynamic>>> ensureDetailedOrders() async {
+    if (!_usaAgregados) return _currentOrders;
+    if (_tenantId == null) return const [];
+    return _fetchOrdersPaged(_range.start, _range.end);
+  }
+
+  /// Baja las órdenes de un rango paginando hasta agotarlo, sin ningún tope.
+  Future<List<Map<String, dynamic>>> _fetchOrdersPaged(
+      DateTime inicio, DateTime fin) async {
+    final todas = <Map<String, dynamic>>[];
+    final vistos = <String>{};
+
+    for (final esTexto in [false, true]) {
+      final desde = esTexto
+          ? inicio.toIso8601String().substring(0, 23) as Object
+          : Timestamp.fromDate(inicio) as Object;
+      final hasta = esTexto
+          ? fin.toIso8601String().substring(0, 23) as Object
+          : Timestamp.fromDate(fin) as Object;
+
+      // El cursor va por documento y no por fecha: dos órdenes cobradas en el
+      // mismo segundo harían que un cursor por fecha repitiera o se saltara
+      // una página.
+      DocumentSnapshot<Map<String, dynamic>>? cursor;
+      // 2.000 por vuelta: un año grande son ~10 vueltas, y cada una entra en
+      // memoria sin sobresaltos.
+      while (true) {
+        var q = _firestore.orders
+            .where('tenant_id', isEqualTo: _tenantId)
+            .where('paid_at', isGreaterThanOrEqualTo: desde)
+            .where('paid_at', isLessThanOrEqualTo: hasta)
+            .orderBy('paid_at')
+            .limit(2000);
+        if (cursor != null) q = q.startAfterDocument(cursor);
+
+        final snap = await q.get();
+        if (snap.docs.isEmpty) break;
+
+        for (final doc in snap.docs) {
+          if (!vistos.add(doc.id)) continue;
+          final data = doc.data();
+          data['_docId'] = doc.id;
+          if ((data['status'] as String?) == 'CANCELLED') continue;
+          todas.add(data);
+        }
+        if (snap.docs.length < 2000) break;
+        cursor = snap.docs.last;
+      }
+    }
+
+    debugPrint('[AGG] detalle bajo demanda: ${todas.length} órdenes');
+    return todas.where((o) => _passesLocationFilter(o['location_id'] as String?)).toList();
+  }
+
+  // ── DETALLE DEL AÑO: RESÚMENES MENSUALES COMPARTIDOS ────────────────────────
+  // Los productos y las categorías viven dentro de `items`, una lista adentro
+  // de cada ticket. Las sumas de servidor de Firestore solo trabajan sobre
+  // campos sueltos del documento y no saben agrupar, así que eso no se puede
+  // pedir sumado: hay que abrir los tickets.
+  //
+  // La salida es guardar el mes ya calculado en Firestore, no en el teléfono.
+  // El negocio más grande tiene 6 personas entrando a Sabor Manager: en el
+  // dispositivo, ese mes se calcularía 6 veces, y otra por cada teléfono nuevo,
+  // cada navegador y cada reinstalación. Compartido se calcula UNA vez.
+  //
+  // Un mes cerrado no cambia nunca, así que se paga una sola vez en la vida.
+  // El mes en curso se completa con lo que entró después, sin rehacerlo.
+
+  final MonthlyRollupService _rollups = MonthlyRollupService();
+
+  bool _calculandoDetalle = false;
+  bool get calculandoDetalle => _calculandoDetalle;
+
+  /// Mes que se está procesando (1-12), para la barra de progreso.
+  int _mesDetalle = 0;
+  int get mesDetalle => _mesDetalle;
+
+  /// Meses que hace falta calcular para poder mostrar el detalle del año.
+  /// Cero significa que ya está todo y la pantalla lo muestra sin pedir nada.
+  int _mesesPendientes = 0;
+  int get mesesPendientes => _mesesPendientes;
+
+  final Map<String, YearDetail> _detalleCache = {};
+
+  YearDetail? get yearDetail =>
+      _usaAgregados ? _detalleCache[_claveDetalle] : null;
+
+  String get _claveDetalle => '${_range.start.year}|${_selectedLocationId ?? ''}';
+
+  /// Sucursal con la que se guardan y leen los resúmenes. Vacío = todas.
+  String get _scopeRollup => _selectedLocationId ?? '';
+
+  /// Mira qué meses del año ya están resumidos y arma el detalle con los que
+  /// estén al día. Corre al abrir la vista de año.
+  ///
+  /// Cuesta una lectura por mes más dos conteos de servidor, que se facturan
+  /// como una lectura por cada mil órdenes. Es lo que permite saber si un mes
+  /// cambió sin rehacerlo a ciegas.
+  Future<void> _cargarResumenesDelAnio() async {
+    if (!_usaAgregados || _tenantId == null) return;
+    final year = _range.start.year;
+    final ahora = DateTime.now();
+    final ultimoMes = year < ahora.year ? 12 : ahora.month;
+
+    final chequeos = await Future.wait([
+      for (var m = 1; m <= ultimoMes; m++)
+        _rollups.chequear(
+          tenantId: _tenantId!,
+          locationId: _scopeRollup,
+          year: year,
+          month: m,
+        ),
+    ]);
+
+    final listos = <MonthlyRollup>[];
+    var pendientes = 0;
+    var ordenesPendientes = 0;
+    for (final c in chequeos) {
+      // Un mes sin una sola venta no tiene nada que resumir: está resuelto por
+      // definición. Contarlo como pendiente dejaba el botón puesto para
+      // siempre, porque calcular no le cambiaba nada y el siguiente chequeo lo
+      // volvía a contar. Un negocio que abrió en junio arrastraba cinco meses
+      // vacíos que jamás se iban a poder tachar.
+      if (c.orderCount == 0) continue;
+      if (c.estado == RollupEstado.alDia && c.rollup != null) {
+        listos.add(c.rollup!);
+      } else {
+        pendientes++;
+        ordenesPendientes += c.orderCount;
+      }
+    }
+
+    debugPrint('[ROLLUP] año $year: ${listos.length} mes(es) listos, '
+        '$pendientes pendiente(s) con $ordenesPendientes órdenes');
+    _mesesPendientes = pendientes;
+
+    if (pendientes == 0) {
+      if (listos.isNotEmpty) {
+        _detalleCache[_claveDetalle] = _sumarResumenes(listos);
+        _completarMetricas(listos);
+      }
+      notifyListeners();
+      return;
+    }
+
+    // Con meses sin resumir el detalle saldría incompleto, y un top de
+    // productos al que le falten meses miente peor que no mostrarlo: parecería
+    // que eso fue todo lo que se vendió.
+    _detalleCache.remove(_claveDetalle);
+    notifyListeners();
+
+    // Se calcula solo, sin preguntar. La vista de mes tampoco pide permiso
+    // para bajar sus pedidos, y hacer que el año se comporte distinto obliga al
+    // dueño a entender por qué su reporte tiene un botón que los otros no.
+    // Es una vez por mes en la vida del negocio: después queda guardado para
+    // todos y esto no vuelve a correr.
+    if (ordenesPendientes > 0) {
+      await computeYearDetail();
+    }
+  }
+
+  /// Calcula los meses que faltan, los guarda para todo el negocio y arma el
+  /// detalle. Esto es lo que dispara el botón.
+  ///
+  /// Va MES A MES y suelta cada mes al terminarlo: el año entero de golpe son
+  /// 20.669 órdenes y 69 MB en el cliente más grande, suficiente para colgar la
+  /// pestaña de un teléfono. De a un mes el pico son unos 3.500 tickets.
+  ///
+  /// Sumar los meses da el mismo resultado que calcular el año de una vez: el
+  /// descuento se prorratea dentro de cada pedido, así que ningún número
+  /// depende de con qué otros pedidos venga agrupado.
+  Future<void> computeYearDetail() async {
+    if (!_usaAgregados || _tenantId == null) return;
+    if (_calculandoDetalle) return;
+
+    _calculandoDetalle = true;
+    _mesDetalle = 0;
+    notifyListeners();
+
+    final year = _range.start.year;
+    final ahora = DateTime.now();
+    final ultimoMes = year < ahora.year ? 12 : ahora.month;
+    final listos = <MonthlyRollup>[];
+
+    try {
+      for (var m = 1; m <= ultimoMes; m++) {
+        _mesDetalle = m;
+        notifyListeners();
+
+        final chequeo = await _rollups.chequear(
+          tenantId: _tenantId!,
+          locationId: _scopeRollup,
+          year: year,
+          month: m,
+        );
+
+        if (chequeo.estado == RollupEstado.alDia && chequeo.rollup != null) {
+          listos.add(chequeo.rollup!);
+          continue;
+        }
+        if (chequeo.orderCount == 0) continue; // mes sin ventas
+
+        // Mes en curso al que solo le entraron ventas: se le suman esas y
+        // listo, en vez de volver a bajar el mes entero cada vez que alguien
+        // abre la pantalla. Es lo que hace que el mes de hoy salga solo.
+        final rollup = chequeo.estado == RollupEstado.soloNuevas
+            ? await _completarMesConLoNuevo(year, m, chequeo)
+            : await _calcularMes(year, m, chequeo);
+        if (rollup == null) continue;
+        listos.add(rollup);
+        await _rollups.write(_tenantId!, rollup);
+      }
+
+      _mesesPendientes = 0;
+      if (listos.isNotEmpty) {
+        _detalleCache[_claveDetalle] = _sumarResumenes(listos);
+        _completarMetricas(listos);
+      }
+    } catch (e, st) {
+      _error = 'No se pudo calcular el detalle del año: $e';
+      Sentry.captureException(e, stackTrace: st, withScope: (scope) {
+        scope.setTag('provider', 'dashboard');
+        scope.setTag('accion', 'computeYearDetail');
+      });
+    } finally {
+      _calculandoDetalle = false;
+      _mesDetalle = 0;
+      notifyListeners();
+    }
+  }
+
+  /// Baja un mes entero y lo reduce a un resumen guardable.
+  ///
+  /// La huella (`orderCount`) viene del chequeo hecho ANTES de bajar las
+  /// órdenes, y eso importa: si se tomara después, una venta que entre mientras
+  /// se calcula quedaría fuera del resumen pero contada en la huella, y el
+  /// próximo chequeo daría el mes por completo faltándole esa venta para
+  /// siempre. Tomándola antes, el desfase se ve como "entraron órdenes nuevas"
+  /// y el mes se rehace. Peca de rehacer de más, nunca de mostrar de menos.
+  Future<MonthlyRollup?> _calcularMes(
+      int year, int month, RollupChequeo chequeo) async {
+    final inicio = DateTime(year, month, 1);
+    final fin = DateTime(year, month + 1, 1).subtract(const Duration(milliseconds: 1));
+    final ordenes = await _fetchOrdersPaged(inicio, fin);
+
+    // Las clasificaciones (Comidas, Bebidas, Servicios) no se cargaron al
+    // entrar porque en la vista de año no había órdenes de donde sacar los ids.
+    final ids = _extractCategoryIds(ordenes);
+    final maps = ids.isEmpty
+        ? (byId: <String, String>{}, byName: <String, String>{}, nameById: <String, String>{})
+        : await _fetchCategoryClassifications(ids);
+    if (_cachedProductClassificationMap == null) {
+      final prodMaps = await _fetchProductClassifications(maps.byId, maps.nameById);
+      _cachedProductClassificationMap = prodMaps.classification;
+      _cachedProductCategoryNameMap = prodMaps.categoryName;
+    }
+
+    final metrics = _buildMetrics(
+      ordenes,
+      const [],
+      DateRange(start: inicio, end: fin, mode: PeriodMode.month),
+      classificationMap: maps.byId,
+      classificationByName: maps.byName,
+      productClassificationMap: _cachedProductClassificationMap ?? const {},
+      productCategoryNameMap: _cachedProductCategoryNameMap ?? const {},
+      categoryNameById: maps.nameById,
+    );
+
+    DateTime? ultima;
+    for (final o in ordenes) {
+      final dt = _toDateTime(o['paid_at']);
+      if (dt != null && (ultima == null || dt.isAfter(ultima))) ultima = dt;
+    }
+
+    return MonthlyRollup(
+      year: year,
+      month: month,
+      locationId: _scopeRollup,
+      orderCount: chequeo.orderCount,
+      cancelledCount: chequeo.cancelledCount,
+      lastPaidAt: ultima,
+      metrics: metrics,
+    );
+  }
+
+  /// Le suma a un mes ya resumido solo las ventas que entraron después.
+  ///
+  /// Devuelve null si no se puede hacer con seguridad, y entonces el mes se
+  /// rehace entero. El caso que obliga a eso es que el resumen guardado haya
+  /// tocado el tope de productos: ahí la cola quedó recortada y sumarle encima
+  /// propagaría el recorte en vez de corregirlo.
+  Future<MonthlyRollup?> _completarMesConLoNuevo(
+      int year, int month, RollupChequeo chequeo) async {
+    final previo = chequeo.rollup;
+    final desdeQue = previo?.lastPaidAt;
+    if (previo == null || desdeQue == null) return _calcularMes(year, month, chequeo);
+    if (previo.metrics.topProducts.length >= MonthlyRollup.kMaxProductos) {
+      return _calcularMes(year, month, chequeo);
+    }
+
+    final finMes = DateTime(year, month + 1, 1).subtract(const Duration(milliseconds: 1));
+    final nuevas = await _fetchOrdersPaged(
+      desdeQue.add(const Duration(milliseconds: 1)),
+      finMes,
+    );
+    if (nuevas.isEmpty) return previo;
+
+    final ids = _extractCategoryIds(nuevas);
+    final maps = ids.isEmpty
+        ? (byId: <String, String>{}, byName: <String, String>{}, nameById: <String, String>{})
+        : await _fetchCategoryClassifications(ids);
+
+    final delta = _buildMetrics(
+      nuevas,
+      const [],
+      DateRange(start: desdeQue, end: finMes, mode: PeriodMode.month),
+      classificationMap: maps.byId,
+      classificationByName: maps.byName,
+      productClassificationMap: _cachedProductClassificationMap ?? const {},
+      productCategoryNameMap: _cachedProductCategoryNameMap ?? const {},
+      categoryNameById: maps.nameById,
+    );
+
+    final productos = <String, ProductSummary>{};
+    _acumularProductos(productos, previo.metrics.topProducts);
+    _acumularProductos(productos, delta.topProducts);
+    final categorias = <String, Map<String, CategorySummary>>{};
+    _acumularCategorias(categorias, previo.metrics.categoriesByClassification);
+    _acumularCategorias(categorias, delta.categoriesByClassification);
+    final metodos = <String, double>{...previo.metrics.salesByMethod};
+    delta.salesByMethod.forEach((k, v) => metodos[k] = (metodos[k] ?? 0) + v);
+
+    var ultima = desdeQue;
+    for (final o in nuevas) {
+      final dt = _toDateTime(o['paid_at']);
+      if (dt != null && dt.isAfter(ultima)) ultima = dt;
+    }
+
+    final a = previo.metrics;
+    debugPrint('[ROLLUP] $year-$month completado con ${nuevas.length} órdenes nuevas');
+    return MonthlyRollup(
+      year: year,
+      month: month,
+      locationId: _scopeRollup,
+      orderCount: chequeo.orderCount,
+      cancelledCount: chequeo.cancelledCount,
+      lastPaidAt: ultima,
+      metrics: PeriodMetrics(
+        totalSales: a.totalSales + delta.totalSales,
+        totalOrders: a.totalOrders + delta.totalOrders,
+        avgTicket: 0,
+        prevTotalSales: 0,
+        prevTotalOrders: 0,
+        prevAvgTicket: 0,
+        chartPoints: const [],
+        topProducts: productos.values.toList()
+          ..sort((x, y) => y.total.compareTo(x.total)),
+        categoriesByClassification: {
+          for (final e in categorias.entries)
+            e.key: (e.value.values.toList()..sort((x, y) => y.total.compareTo(x.total)))
+        },
+        grossSales: a.grossSales + delta.grossSales,
+        discounts: a.discounts + delta.discounts,
+        taxes: a.taxes + delta.taxes,
+        tips: a.tips + delta.tips,
+        refunds: a.refunds + delta.refunds,
+        deliveryFees: a.deliveryFees + delta.deliveryFees,
+        courtesyTotal: a.courtesyTotal + delta.courtesyTotal,
+        tipsCount: a.tipsCount + delta.tipsCount,
+        deliveryCount: a.deliveryCount + delta.deliveryCount,
+        courtesyCount: a.courtesyCount + delta.courtesyCount,
+        salesByMethod: metodos,
+      ),
+    );
+  }
+
+  /// Junta los meses en el detalle que ve la pantalla.
+  YearDetail _sumarResumenes(List<MonthlyRollup> meses) {
+    final productos = <String, ProductSummary>{};
+    final categorias = <String, Map<String, CategorySummary>>{};
+    final metodos = <String, double>{};
+
+    for (final r in meses) {
+      _acumularProductos(productos, r.metrics.topProducts);
+      _acumularCategorias(categorias, r.metrics.categoriesByClassification);
+      r.metrics.salesByMethod.forEach((k, v) {
+        metodos[k] = (metodos[k] ?? 0) + v;
+      });
+    }
+
+    final lista = productos.values.toList()
+      ..sort((a, b) => b.total.compareTo(a.total));
+    return YearDetail(
+      topProducts: lista,
+      categoriesByClassification: {
+        for (final e in categorias.entries)
+          e.key: (e.value.values.toList()..sort((a, b) => b.total.compareTo(a.total))),
+      },
+      salesByMethod: metodos,
+    );
+  }
+
+  /// Rellena en las métricas del año lo que solo se sabe abriendo los tickets:
+  /// descuentos, impuestos, devoluciones y cortesías.
+  ///
+  /// La venta, los tickets, la propina y el envío NO se tocan: siguen saliendo
+  /// de las sumas de servidor, que están comprobadas al centavo contra la base.
+  /// Mezclar dos fuentes para el mismo número es justo como nacen los
+  /// descuadres.
+  void _completarMetricas(List<MonthlyRollup> meses) {
+    final m = _metrics;
+    if (m == null) return;
+
+    var discounts = 0.0, taxes = 0.0, refunds = 0.0, courtesy = 0.0, gross = 0.0;
+    var tipsCount = 0, deliveryCount = 0, courtesyCount = 0;
+    for (final r in meses) {
+      discounts += r.metrics.discounts;
+      taxes += r.metrics.taxes;
+      refunds += r.metrics.refunds;
+      courtesy += r.metrics.courtesyTotal;
+      gross += r.metrics.grossSales;
+      tipsCount += r.metrics.tipsCount;
+      deliveryCount += r.metrics.deliveryCount;
+      courtesyCount += r.metrics.courtesyCount;
+    }
+
+    _metrics = PeriodMetrics(
+      totalSales: m.totalSales,
+      totalOrders: m.totalOrders,
+      avgTicket: m.avgTicket,
+      prevTotalSales: m.prevTotalSales,
+      prevTotalOrders: m.prevTotalOrders,
+      prevAvgTicket: m.prevAvgTicket,
+      chartPoints: m.chartPoints,
+      prevChartPoints: m.prevChartPoints,
+      topProducts: _detalleCache[_claveDetalle]?.topProducts ?? const [],
+      categoriesByClassification:
+          _detalleCache[_claveDetalle]?.categoriesByClassification ?? const {},
+      grossSales: gross,
+      discounts: discounts,
+      taxes: taxes,
+      tips: m.tips,
+      refunds: refunds,
+      deliveryFees: m.deliveryFees,
+      operationalExpenses: m.operationalExpenses,
+      purchaseCosts: m.purchaseCosts,
+      courtesyTotal: courtesy,
+      tipsCount: tipsCount,
+      deliveryCount: deliveryCount,
+      courtesyCount: courtesyCount,
+      salesByMethod: _detalleCache[_claveDetalle]?.salesByMethod ?? const {},
+      // Ya hay de dónde sacar todos los bloques, así que la pantalla deja de
+      // esconderlos y el año se ve igual que un mes.
+      detailAvailable: true,
+      truncated: m.truncated,
+    );
+  }
+
+  void _acumularProductos(
+      Map<String, ProductSummary> dst, List<ProductSummary> mes) {
+    for (final p in mes) {
+      final previo = dst[p.name];
+      dst[p.name] = previo == null
+          ? p
+          : ProductSummary(
+              name: p.name,
+              category: p.category.isNotEmpty ? p.category : previo.category,
+              quantity: previo.quantity + p.quantity,
+              total: previo.total + p.total,
+              prevQuantity: 0,
+              prevTotal: 0,
+            );
+    }
+  }
+
+  void _acumularCategorias(Map<String, Map<String, CategorySummary>> dst,
+      Map<String, List<CategorySummary>> mes) {
+    for (final entry in mes.entries) {
+      final porNombre = dst.putIfAbsent(entry.key, () => {});
+      for (final c in entry.value) {
+        final previo = porNombre[c.name];
+        porNombre[c.name] = previo == null
+            ? c
+            : CategorySummary(
+                name: c.name,
+                classification: c.classification,
+                quantity: previo.quantity + c.quantity,
+                total: previo.total + c.total,
+              );
+      }
+    }
+  }
+
+  /// Top de productos sobre una lista de órdenes ya bajada.
+  ///
+  /// En la vista de año `metrics.topProducts` viene vacío a propósito, así que
+  /// quien exporta le pasa lo que consiguió con `ensureDetailedOrders`. En los
+  /// demás períodos devuelve lo que ya estaba calculado.
+  List<ProductSummary> topProductsFrom(List<Map<String, dynamic>> orders) {
+    if (!_usaAgregados) return _metrics?.topProducts ?? const [];
+    // Si los resúmenes del año ya están, el top sale de ahí y no hay que
+    // recalcular nada sobre las órdenes que se acaban de bajar.
+    final ya = _detalleCache[_claveDetalle];
+    if (ya != null && ya.topProducts.isNotEmpty) return ya.topProducts;
+    return _buildTopProducts(
+      orders,
+      const [],
+      _rawCategoryClassifications,
+      _rawCategoryClassificationsByName,
+      _cachedProductClassificationMap ?? const {},
+    );
+  }
+
+  /// Totales de un año pedidos a Firestore, con caché por sucursal para que
+  /// cambiar de pestaña no repita las consultas.
+  Future<YearAggregate> _loadYearAggregate(int year) async {
+    final scope = _selectedLocationId ?? '';
+    final key = '$year|$scope|${_allowedLocationIds.length}';
+    final cached = _aggCache[key];
+    if (cached != null) return cached;
+
+    final agg = await _aggregates.fetchYear(
+      tenantId: _tenantId!,
+      year: year,
+      locationId: _selectedLocationId,
+      allowedLocationIds: _allowedLocationIds,
+      desglosePorSucursal: [for (final l in _locations) l.id],
+    );
+    _aggCache[key] = agg;
+    return agg;
+  }
+
+  /// Venta por sucursal en la vista de año. Vacío en los demás períodos, donde
+  /// la tabla de reparto la arma el widget desde las órdenes en memoria.
+  Map<String, double> get yearSalesByLocation =>
+      _usaAgregados ? (_yearAgg?.salesByLocation ?? const {}) : const {};
+
   Future<List<Map<String, dynamic>>> _fetchOrders(
       DateTime start, DateTime end) async {
     try {
@@ -814,6 +1440,56 @@ class DashboardProvider extends ChangeNotifier {
       courtesyCount: courtesyCount,
       salesByMethod: salesByMethod,
       productsByMethod: productsByMethod,
+    );
+  }
+
+  /// Métricas de la vista de año a partir de lo que sumó Firestore.
+  ///
+  /// Los totales y el gráfico salen exactos para cualquier volumen. Lo que se
+  /// queda vacío a propósito es todo lo que vive dentro de los renglones del
+  /// ticket: productos, categorías, métodos de pago y cortesías. `detailAvailable`
+  /// en falso le dice a la pantalla que muestre un aviso en vez de esos bloques,
+  /// porque un desglose a medias sobre un total exacto se lee como un descuadre.
+  PeriodMetrics _buildMetricsFromAggregate({
+    required double expenses,
+    required double purchaseCosts,
+  }) {
+    const nombres = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+    List<PeriodPoint> puntos(YearAggregate? a) => [
+          for (var m = 0; m < 12; m++)
+            PeriodPoint(
+              label: nombres[m],
+              amount: a == null ? 0 : a.months[m].sales,
+              orders: a == null ? 0 : a.months[m].orders,
+            ),
+        ];
+
+    final agg = _yearAgg;
+    final prev = _prevYearAgg;
+    final total = agg?.totalSales ?? 0;
+    final count = agg?.totalOrders ?? 0;
+    final prevTotal = prev?.totalSales ?? 0;
+    final prevCount = prev?.totalOrders ?? 0;
+
+    return PeriodMetrics(
+      totalSales: total,
+      totalOrders: count,
+      avgTicket: count == 0 ? 0 : total / count,
+      prevTotalSales: prevTotal,
+      prevTotalOrders: prevCount,
+      prevAvgTicket: prevCount == 0 ? 0 : prevTotal / prevCount,
+      chartPoints: puntos(agg),
+      prevChartPoints: puntos(prev),
+      topProducts: const [],
+      // grossSales replica lo que hace _buildMetrics cuando no hay `subtotal`,
+      // que es el caso en el 100% de las órdenes de producción: cae al total.
+      grossSales: total,
+      tips: agg?.tips ?? 0,
+      deliveryFees: agg?.deliveryFees ?? 0,
+      operationalExpenses: expenses,
+      purchaseCosts: purchaseCosts,
+      detailAvailable: false,
+      truncated: agg?.truncated ?? false,
     );
   }
 

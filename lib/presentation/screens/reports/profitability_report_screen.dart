@@ -690,10 +690,38 @@ class _FueraDeLaCuenta extends StatelessWidget {
                     color: _ambar.withValues(alpha: 0.85), fontSize: 11),
               ),
             ),
+          // El valor de arriba puede salir disparado por existencias que nadie
+          // pudo haber comprado. No se corrige el número (eso es tocar el
+          // inventario del cliente) pero sí se dice de dónde viene y cuáles
+          // revisar, que es lo único que el dueño puede accionar.
+          if (d.existenciasImposibles.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(
+                _avisoExistencias(d.existenciasImposibles),
+                style: GoogleFonts.inter(
+                    color: _ambar.withValues(alpha: 0.85), fontSize: 11),
+              ),
+            ),
         ],
       ),
     );
   }
+}
+
+/// Nombra los ingredientes mal digitados en vez de decir solo cuántos son: el
+/// dueño tiene que poder ir a corregirlos sin adivinar.
+String _avisoExistencias(List<String> nombres) {
+  final muestra = nombres.take(3).join(', ');
+  final resto = nombres.length - 3;
+  final lista = resto > 0 ? '$muestra y $resto más' : muestra;
+  if (nombres.length == 1) {
+    return 'Ojo: $lista tiene una cantidad imposible en Despensa y por eso '
+        'este valor sale tan alto. Revisá cuánto tenés de verdad.';
+  }
+  return 'Ojo: ${nombres.length} ingredientes tienen una cantidad imposible en '
+      'Despensa y por eso este valor sale tan alto ($lista). '
+      'Revisá cuánto tenés de verdad.';
 }
 
 class _Dato extends StatelessWidget {
