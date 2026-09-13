@@ -128,7 +128,25 @@ class _HeroCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          _ValueText(value: report.totalWasted, color: _kLoss, size: 30),
+          // El titular es el PRECIO DE VENTA y no el costo de ingredientes.
+          // Dos razones: es el número que el dueño lee sin que nadie se lo
+          // explique, y es el único que incluye los productos SIN RECETA, que
+          // no generan movimiento y por eso faltaban en todo el reporte. El
+          // costo queda abajo, donde se puede comparar.
+          Text(
+            // Q0.00 solo cuando de verdad no se perdió nada. Si hubo
+            // desperdicio pero no se pudo poner precio, va un guion: un cero
+            // se lee como "no pasó nada", que es justo lo contrario.
+            report.saleWaste.items > 0 && report.saleWaste.amount == 0
+                ? '—'
+                : 'Q${_fmtMoney.format(report.saleWaste.amount)}',
+            style: GoogleFonts.inter(
+              color: _kLoss,
+              fontSize: 30,
+              fontWeight: FontWeight.w800,
+              height: 1.05,
+            ),
+          ),
           const SizedBox(height: 10),
           Text(
             report.itemsCancelled == 0
@@ -145,6 +163,11 @@ class _HeroCard extends StatelessWidget {
             spacing: 24,
             runSpacing: 14,
             children: [
+              _MiniStat(
+                label: 'Costo de ingredientes',
+                child: _ValueText(
+                    value: report.totalWasted, color: _kLoss, size: 17),
+              ),
               _MiniStat(
                 label: 'Regresó a despensa',
                 child: _ValueText(
@@ -163,6 +186,30 @@ class _HeroCard extends StatelessWidget {
               ),
             ],
           ),
+          if (report.saleWaste.hayInvisible) ...[
+            const SizedBox(height: 10),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.visibility_off_outlined,
+                    size: 14, color: Colors.white38),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'Q${_fmtMoney.format(report.saleWaste.withoutRecipeAmount)} '
+                    'son ${_fmtInt.format(report.saleWaste.withoutRecipeItems)} '
+                    '${report.saleWaste.withoutRecipeItems == 1 ? 'producto' : 'productos'} '
+                    'sin receta: no bajan inventario ni tienen costo.',
+                    style: GoogleFonts.inter(
+                      color: Colors.white38,
+                      fontSize: 11.5,
+                      height: 1.35,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
           if (noInventory > 0) ...[
             const SizedBox(height: 8),
             Text(

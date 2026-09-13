@@ -202,6 +202,51 @@ class CancellationItem {
   });
 }
 
+/// El desperdicio declarado, valorado al PRECIO DE VENTA del producto.
+///
+/// Existe porque el costo de ingredientes deja fuera la mitad de la historia.
+/// Un producto SIN RECETA no genera ningún movimiento de inventario —no hay
+/// ingrediente que descontar—, así que hasta ahora un Taco de Camarón de Q50
+/// declarado basura no aparecía en ningún reporte. En septiembre de 2026 eso
+/// fue 12 de 22 productos perdidos en Santa Rosalía.
+///
+/// El dato no necesita receta ni precios de compra cargados: la cantidad
+/// desperdiciada y el precio viajan en el propio item del pedido.
+///
+/// OJO CON QUÉ MIDE. El precio de venta no es lo que el negocio desembolsó: si
+/// la Coca cuesta Q3 y se vende a Q5, tirarla cuesta Q3 de producto más Q2 que
+/// se dejó de ganar. Este número es el total de los dos, que es el que el dueño
+/// lee sin explicación ("se fueron Q205 este mes"), y por eso convive con el
+/// costo de ingredientes en vez de reemplazarlo.
+class SaleValueWaste {
+  /// Quetzales perdidos, a precio de venta.
+  final double amount;
+
+  /// Cuántas líneas de pedido tuvieron algo declarado desperdicio.
+  final int items;
+
+  /// La parte que NO genera movimiento de inventario, y que por lo tanto es
+  /// invisible en el resto del reporte.
+  final double withoutRecipeAmount;
+  final int withoutRecipeItems;
+
+  const SaleValueWaste({
+    required this.amount,
+    required this.items,
+    required this.withoutRecipeAmount,
+    required this.withoutRecipeItems,
+  });
+
+  static const empty = SaleValueWaste(
+    amount: 0,
+    items: 0,
+    withoutRecipeAmount: 0,
+    withoutRecipeItems: 0,
+  );
+
+  bool get hayInvisible => withoutRecipeItems > 0;
+}
+
 /// Una cancelación: una fila del reporte.
 class CancellationEvent {
   final String orderId;
@@ -293,6 +338,10 @@ class CancellationsReport {
   /// Ingredientes distintos involucrados que no tienen precio de compra.
   final int unpricedIngredients;
 
+  /// Lo perdido valorado al precio de venta. Incluye los productos sin receta,
+  /// que no aparecen en [totalWasted] porque nunca generan movimiento.
+  final SaleValueWaste saleWaste;
+
   /// La consulta llegó al tope: hay más movimientos de los que se leyeron.
   final bool truncated;
 
@@ -306,6 +355,7 @@ class CancellationsReport {
     required this.cancelledBeforeKitchen,
     required this.cancelledWithoutRecipe,
     required this.unpricedIngredients,
+    required this.saleWaste,
     required this.truncated,
   });
 
@@ -319,6 +369,7 @@ class CancellationsReport {
     cancelledBeforeKitchen: 0,
     cancelledWithoutRecipe: 0,
     unpricedIngredients: 0,
+    saleWaste: SaleValueWaste.empty,
     truncated: false,
   );
 

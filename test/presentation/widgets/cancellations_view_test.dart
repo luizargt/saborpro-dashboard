@@ -143,7 +143,51 @@ void main() {
       await tester.pumpWidget(wrap(_sampleReport()));
       await tester.pumpAndSettle();
 
+      // La marca vive en la lista de cancelaciones, debajo del resumen: a
+      // 360dp hay que bajar para llegar, como haría cualquiera.
+      await tester.scrollUntilVisible(
+        find.text('No llegó a cocina'),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pumpAndSettle();
+
       expect(find.text('No llegó a cocina'), findsOneWidget);
+    });
+  });
+
+  group('Pérdida a precio de venta', () {
+    testWidgets('es el titular, porque incluye lo que no tiene receta',
+        (tester) async {
+      // El costo de ingredientes deja fuera a los productos sin receta: no
+      // generan movimiento, así que un Taco de Q50 declarado basura no
+      // aparecía en NINGÚN número del reporte. En septiembre de 2026 eso fue
+      // 12 de 22 productos perdidos en Santa Rosalía.
+      tester.view.physicalSize = const Size(360, 640);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(wrap(_sampleReport()));
+      await tester.pumpAndSettle();
+
+      // El número grande es el precio de venta, no el costo.
+      expect(find.text('Q205.00'), findsOneWidget);
+      // Y el costo sigue estando, para poder comparar.
+      expect(find.text('Costo de ingredientes'), findsOneWidget);
+      // Se dice cuánto de eso es invisible para el resto del reporte.
+      expect(find.textContaining('sin receta: no bajan inventario'),
+          findsOneWidget);
+    });
+
+    testWidgets('un cero de verdad se muestra como Q0.00', (tester) async {
+      tester.view.physicalSize = const Size(360, 640);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(wrap(CancellationsReport.empty));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Ninguna cancelación'), findsOneWidget);
     });
   });
 }
@@ -229,6 +273,12 @@ CancellationsReport _sampleReport() {
     cancelledBeforeKitchen: 1,
     cancelledWithoutRecipe: 0,
     unpricedIngredients: 1,
+    saleWaste: const SaleValueWaste(
+      amount: 205,
+      items: 22,
+      withoutRecipeAmount: 50,
+      withoutRecipeItems: 12,
+    ),
     truncated: false,
   );
 }
@@ -283,6 +333,16 @@ CancellationsReport _unpricedOnlyReport() {
     cancelledBeforeKitchen: 0,
     cancelledWithoutRecipe: 0,
     unpricedIngredients: 2,
+    // Aunque NINGÚN ingrediente tenga precio de compra, el precio de venta sí
+    // viaja en el pedido: por eso este reporte igual puede decir cuánto dinero
+    // se perdió. Es justamente el agujero que la valoración a precio de venta
+    // vino a tapar.
+    saleWaste: const SaleValueWaste(
+      amount: 84,
+      items: 2,
+      withoutRecipeAmount: 0,
+      withoutRecipeItems: 0,
+    ),
     truncated: false,
   );
 }

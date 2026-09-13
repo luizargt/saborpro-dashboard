@@ -521,6 +521,15 @@ class CancellationsProvider extends ChangeNotifier {
         return b.itemsLost.compareTo(a.itemsLost);
       });
 
+    // Lo perdido a PRECIO DE VENTA, sacado de los propios items del pedido.
+    // No necesita receta ni precios de compra: la decisión y el precio ya
+    // viajan ahí. Es lo único que ve los productos sin receta, que no generan
+    // ningún movimiento y hasta ahora quedaban fuera del reporte entero.
+    final saleWaste = _saleValueWaste(
+      [...paidOrders, ...cancelledOrders],
+      conMovimiento: movements.map((m) => m.orderItemId).toSet(),
+    );
+
     return CancellationsReport(
       events: events,
       people: cut,
@@ -531,7 +540,63 @@ class CancellationsProvider extends ChangeNotifier {
       cancelledBeforeKitchen: beforeKitchen,
       cancelledWithoutRecipe: withoutRecipe,
       unpricedIngredients: unpriced.length,
+      saleWaste: saleWaste,
       truncated: truncated,
+    );
+  }
+
+  /// Suma lo declarado desperdicio, valorado al precio de venta del producto.
+  ///
+  /// Lee `inventory_returned_qty` del item: null significa que nunca se
+  /// preguntó (pedido viejo, o item que no selló ronda), y eso NO es lo mismo
+  /// que cero —cero es "se decidió que no regresa nada"—, así que los null se
+  /// saltan en vez de contarse como desperdicio total.
+  ///
+  /// Un mismo pedido puede venir en las dos listas (cobrados y cancelados),
+  /// así que se deduplica por id o nada se contaría dos veces.
+  static SaleValueWaste _saleValueWaste(
+    List<Map<String, dynamic>> orders, {
+    required Set<String> conMovimiento,
+  }) {
+    final vistos = <String>{};
+    double total = 0;
+    int items = 0;
+    double sinReceta = 0;
+    int sinRecetaItems = 0;
+
+    for (final o in orders) {
+      final id = (o['_docId'] as String? ?? o['id'] as String? ?? '');
+      if (id.isEmpty || !vistos.add(id)) continue;
+
+      final raw = o['items'];
+      if (raw is! List) continue;
+      for (final i in raw.whereType<Map>()) {
+        final regresa = (i['inventory_returned_qty'] as num?)?.toInt();
+        if (regresa == null) continue; // no se preguntó: no se inventa nada
+        final qty = (i['qty'] as num?)?.toInt() ?? 0;
+        final tirado = qty - regresa;
+        if (tirado <= 0) continue;
+
+        final precio = (i['unit_price'] as num?)?.toDouble() ?? 0;
+        final monto = tirado * precio;
+        total += monto;
+        items++;
+
+        // Sin movimiento de inventario = sin receta: es la plata que hoy no se
+        // ve por ningún otro lado.
+        final itemId = i['id'] as String? ?? '';
+        if (!conMovimiento.contains(itemId)) {
+          sinReceta += monto;
+          sinRecetaItems++;
+        }
+      }
+    }
+
+    return SaleValueWaste(
+      amount: total,
+      items: items,
+      withoutRecipeAmount: sinReceta,
+      withoutRecipeItems: sinRecetaItems,
     );
   }
 
