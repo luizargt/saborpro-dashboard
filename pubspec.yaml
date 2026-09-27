@@ -34,6 +34,9 @@ dependencies:
   intl: ^0.20.2
   shared_preferences: ^2.2.2
   crypto: ^3.0.3
+  # Para llamar a la Cloud Function adminLoginWithEmail (login de admin sin
+  # leer 'users' sin sesión). Paquete Dart puro, funciona en web y móvil.
+  http: ^1.2.0
   local_auth: ^2.3.0
   flutter_secure_storage: ^9.2.2
   # Solo por openAppSettings(): es el paquete que Sabor Suite ya usa, así que no

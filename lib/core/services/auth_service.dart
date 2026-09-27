@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:http/http.dart' as http;
 import 'package:crypto/crypto.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -72,8 +73,102 @@ class AuthService {
   String? get sessionPassword => _sessionPassword;
   List<String> get assignedLocationIds => _assignedLocationIds;
 
+  static const _urlAdminLogin =
+      'https://us-central1-saborprocom.cloudfunctions.net/adminLoginWithEmail';
+
+  /// Relee un doc de users por ID, autoritativo (del servidor).
+  ///
+  /// Se usa después de tener sesión: leer por id funciona con las reglas
+  /// cerradas, a diferencia de la query por correo que hace el flujo viejo.
+  Future<Map<String, dynamic>?> _leerDocPorId(String docId) async {
+    try {
+      final snap = await _db
+          .collection('users')
+          .doc(docId)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 8));
+      return snap.exists ? snap.data() : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Camino rápido: resuelve la identidad en el servidor y deja lista la
+  /// sesión de Firebase Auth, SIN leer 'users' antes de tener sesión.
+  ///
+  /// Devuelve null ante cualquier problema; el llamador sigue con el flujo de
+  /// siempre, que queda intacto. Nunca lanza.
+  Future<LoginResult?> _loginRapido(String email, String password) async {
+    try {
+      // Timeout TOTAL sobre el Future: acota también la resolución DNS.
+      final resp = await http
+          .post(
+            Uri.parse(_urlAdminLogin),
+            headers: const {'Content-Type': 'application/json'},
+            body: jsonEncode({'email': email, 'password': password}),
+          )
+          .timeout(const Duration(seconds: 10));
+
+      if (resp.statusCode != 200) return null;
+      final body = jsonDecode(resp.body);
+      if (body is! Map) return null;
+
+      final lista = body['candidatos'];
+      if (lista is! List || lista.isEmpty) return null;
+
+      // Preferir la sesión REAL con proveedor password: es la que conserva el
+      // cambio de contraseña. El custom token es el respaldo para cuando Auth
+      // tiene otra contraseña que la de Firestore (hash viejo).
+      var firmado = false;
+      try {
+        await _auth.signInWithEmailAndPassword(email: email, password: password);
+        firmado = true;
+      } catch (_) {}
+      if (!firmado) {
+        final token = body['token'];
+        if (token is String && token.isNotEmpty) {
+          try {
+            await _auth.signInWithCustomToken(token);
+            firmado = true;
+          } catch (_) {}
+        }
+      }
+      if (!firmado) return null;
+
+      final candidatos = <TenantLoginCandidate>[];
+      for (final c in lista) {
+        if (c is Map && c['user_id'] is String) {
+          candidatos.add(TenantLoginCandidate(
+              Map<String, dynamic>.from(c), c['user_id'] as String));
+        }
+      }
+      if (candidatos.isEmpty) return null;
+
+      // Un solo negocio: entrar directo, con el doc AUTORITATIVO por id.
+      if (candidatos.length == 1) {
+        final fresco = await _leerDocPorId(candidatos.first.docId);
+        // Si no se pudo releer, se ABORTA el camino rápido: hidratar la sesión
+        // con la versión saneada dejaría campos afuera (p. ej. la sucursal).
+        if (fresco == null) return null;
+        await _loadUserData(fresco, candidatos.first.docId);
+        _sessionEmail = email;
+        _sessionPassword = password;
+        return LoginResult.success();
+      }
+
+      // Varios: que elija. completeTenantLogin relee por id igualmente.
+      return LoginResult.tenantSelection(candidatos);
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<LoginResult> login(String email, String password) async {
     final normalizedEmail = email.trim().toLowerCase();
+
+    // Camino rápido primero. Si no puede, sigue el flujo de siempre intacto.
+    final rapido = await _loginRapido(normalizedEmail, password);
+    if (rapido != null) return rapido;
 
     // Buscar TODOS los docs con este email (puede haber más de uno en multi-tenant)
     final query = await _db
@@ -174,7 +269,12 @@ class AuthService {
     required String password,
   }) async {
     try {
-      await _loadUserData(data, docId);
+      // Releer el doc por id: si el login vino del camino rápido, `data` es la
+      // versión SANEADA que devuelve la function (sin hashes y sin todos los
+      // campos que necesita _loadUserData, como la sucursal). Si la relectura
+      // falla se usa `data`, que es lo que traía el flujo viejo.
+      final fresco = await _leerDocPorId(docId);
+      await _loadUserData(fresco ?? data, docId);
       _sessionEmail = email;
       _sessionPassword = password;
       return LoginResult.success();
