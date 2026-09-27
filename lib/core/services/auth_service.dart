@@ -407,6 +407,9 @@ class AuthService {
     return <String>[];
   }
 
+  /// Las pantallas NO la llaman directo: van por
+  /// `NotificationService().cerrarSesionYDesvincular()`, que además deja al
+  /// teléfono sin los avisos de la cuenta.
   Future<void> logout() async {
     _tenantId = null;
     _locationId = null;

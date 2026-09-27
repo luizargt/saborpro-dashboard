@@ -264,20 +264,11 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     if (_cerrandoSesion) return;
     _cerrandoSesion = true;
     try {
-      // El token se desvincula ANTES del logout, mientras el uid sigue vivo:
-      // después AuthService lo borra de memoria y del storage y ya no habría a
-      // qué doc de users/ apuntar. Sin esto, en multi-tenant el teléfono
-      // seguiría recibiendo avisos de caja, gastos e inventario del tenant que
-      // abandonó.
-      final uid = await _uidDeSesion();
-      if (uid != null) {
-        // Un fallo de red no puede impedir cerrar sesión:
-        // removeCurrentDeviceToken se traga sus errores y corta a los 2s.
-        await NotificationService().removeCurrentDeviceToken(uid);
-      }
       _pushSinPermiso = false;
 
-      await AuthService().logout();
+      // No AuthService().logout() a secas: esto además deja al teléfono sin
+      // los avisos de caja, gastos e inventario de la cuenta que abandona.
+      await NotificationService().cerrarSesionYDesvincular();
       // Las credenciales biométricas sobreviven al logout a propósito.
       // Borrarlas aquí dejaba el acceso con huella inservible: la pantalla de
       // login solo se ve después de cerrar sesión (con sesión viva, main.dart

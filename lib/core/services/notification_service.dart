@@ -9,6 +9,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 import '../navigation/app_navigator.dart';
 import 'auth_service.dart';
+import 'push_token_deletion.dart';
 
 /// Handler de mensajes cuando la app está en segundo plano o cerrada.
 ///
@@ -169,6 +170,11 @@ class NotificationService {
   /// token no está en ninguna otra cuenta. Se marca SOLO cuando la limpieza
   /// terminó sin errores: si falló, el siguiente intento la repite.
   String? _desvinculacionHecha;
+
+  /// Borrado del token en FCM al cerrar sesión (ver
+  /// `cerrarSesionYDesvincular` y `PushTokenDeletion`).
+  late final PushTokenDeletion _borradoDeToken =
+      PushTokenDeletion(() => _messaging.deleteToken());
 
   /// Si esta plataforma puede recibir push. En Windows, Linux y web no,
   /// así que la UI no debería ni ofrecer activar notificaciones.
@@ -387,10 +393,39 @@ class NotificationService {
 
   Future<bool> _obtenerYGuardarToken(String uid) async {
     try {
+      // Un cierre de sesión pudo dejar el borrado del token corriendo o sin
+      // confirmar (sin red, o la app murió a la mitad). Pedir token antes de
+      // terminarlo devuelve el que está por morir, o uno que el servidor ya
+      // borró: se guardaría un token muerto y el aparato se quedaría sin
+      // avisos sin que nadie lo note. El tope es solo para no colgar el push y
+      // no frena ninguna pantalla; cubre el peor caso de Play Services (~70s:
+      // dos intentos de 10+10s por el token de Installations y el Rpc de 30s).
+      // En iOS el pedido de token ya se encola detrás del borrado.
+      await _borradoDeToken
+          .runIfPending()
+          .timeout(const Duration(seconds: 90), onTimeout: () {});
+
       final token = await _messaging.getToken();
       if (token == null || token.isEmpty) {
         // ignore: avoid_print
         print('[PUSH] getToken() no devolvió token para $uid');
+        return false;
+      }
+
+      // La sesión pudo cerrarse mientras tanto: el "Ingresar con contraseña"
+      // del bloqueo puede tocarse mientras el shell, montado debajo, todavía
+      // está activando el push. Guardar igual dejaría un token recién
+      // estrenado —vivo— en la cuenta de la que el usuario acaba de salir.
+      // NO se puede simplificar a `isLoggedIn`: vale true en cuanto hay un
+      // usuario de Firebase firmado, y eso pasa SIN sesión cargada durante el
+      // diálogo de elegir restaurante del siguiente login (y sin límite si se
+      // cancela). El uid persistido en cambio lo borra el logout y solo lo
+      // escribe una sesión ya cargada.
+      final sesion = AuthService().firestoreUid ??
+          await AuthService().readPersistedUid();
+      if (sesion != uid) {
+        // ignore: avoid_print
+        print('[PUSH] La sesión de $uid ya se cerró; no se guarda el token');
         return false;
       }
       await saveFcmToken(uid, token);
@@ -642,6 +677,61 @@ class NotificationService {
       // ignore: avoid_print
       print('[PUSH] No se pudo quitar el token al cerrar sesión: $e');
     }
+  }
+
+  /// Cierra la sesión dejando a ESTE aparato sin los avisos de la cuenta.
+  ///
+  /// Todo cierre de sesión pasa por aquí, nunca por `AuthService().logout()` a
+  /// secas. El "Ingresar con contraseña" del bloqueo biométrico lo llamaba a
+  /// secas (y el bloqueo lo dispara solo cuando se pierden las credenciales):
+  /// el teléfono quedaba en el login recibiendo aperturas, cierres y
+  /// descuadres de un negocio del que ya había salido.
+  ///
+  /// Hace DOS cosas, porque cada una sola falla en silencio:
+  ///   1. Quita el token de `manager_fcm_tokens` (`removeCurrentDeviceToken`).
+  ///      Es una escritura con tope de 2 segundos que se traga el error: con
+  ///      mala señal no alcanza a salir, y después del `signOut` ya no sale
+  ///      nunca (ver allí).
+  ///   2. Borra el token en FCM (`PushTokenDeletion`). Desde ahí FCM rechaza
+  ///      todo envío a ese token, quede guardado donde quede: en esta cuenta
+  ///      si el paso 1 no llegó, o en otra donde se quedó colgado. Al volver a
+  ///      entrar, `_obtenerYGuardarToken` termina antes cualquier borrado
+  ///      pendiente y recién después pide el token nuevo.
+  ///
+  /// El 1 va ANTES del logout porque necesita el uid y la sesión de Firebase
+  /// Auth vivos. El 2 va DESPUÉS: el 1 tiene que saber qué token quitar, y con
+  /// la sesión ya cerrada ningún guardado puede volver a colgar un token nuevo
+  /// de esta cuenta.
+  ///
+  /// El 2 no se espera: necesita red y el login no tiene por qué aguardarlo.
+  /// Si no alcanza a confirmarse (sin red, o la app muere antes), queda
+  /// marcado en disco y se termina en el siguiente pedido de token o en el
+  /// siguiente arranque sin sesión (`completarBorradoPendiente`).
+  Future<void> cerrarSesionYDesvincular() async {
+    final auth = AuthService();
+    final uid = auth.firestoreUid ?? await auth.readPersistedUid();
+    if (uid != null) {
+      // Se traga sus errores y corta a los 2s: un fallo de red no puede
+      // impedir cerrar sesión.
+      await removeCurrentDeviceToken(uid);
+    }
+    await auth.logout();
+    if (_isFCMSupported) {
+      unawaited(_borradoDeToken.run());
+    }
+  }
+
+  /// Para el arranque SIN sesión: termina el borrado del token que un cierre
+  /// anterior dejó sin confirmar. Sin esto, cerrar sesión sin red dejaba al
+  /// teléfono recibiendo los avisos de la cuenta hasta que alguien volviera a
+  /// entrar en él.
+  ///
+  /// Estática para revisar la plataforma ANTES de construir el servicio: en
+  /// web y escritorio la pantalla de login nunca lo construía, y no tiene por
+  /// qué empezar a hacerlo.
+  static void completarBorradoPendiente() {
+    if (!_isFCMSupported) return;
+    unawaited(NotificationService()._borradoDeToken.runIfPending());
   }
 
   // ==================== HANDLERS ====================

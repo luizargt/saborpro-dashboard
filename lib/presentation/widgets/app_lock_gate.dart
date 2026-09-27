@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../core/services/app_lock_policy.dart';
 import '../../core/services/auth_service.dart';
 import '../../core/services/biometric_service.dart';
+import '../../core/services/notification_service.dart';
 import '../screens/auth/lock_screen.dart';
 import '../screens/auth/login_screen.dart';
 
@@ -42,6 +43,7 @@ class _AppLockGateState extends State<AppLockGate>
   bool _biometricEnabled = false;
   String? _accountLabel;
   BiometricKind? _kind;
+  bool _saliendo = false;
 
   @override
   void initState() {
@@ -110,12 +112,23 @@ class _AppLockGateState extends State<AppLockGate>
   /// Salida de emergencia. Cierra sesión y manda al login limpiando la pila:
   /// dejar el dashboard debajo permitiría volver con el botón atrás.
   Future<void> _usarContrasena() async {
-    await AuthService().logout();
-    widget.navigatorKey.currentState?.pushAndRemoveUntil(
-      MaterialPageRoute(builder: (_) => const LoginScreen()),
-      (route) => false,
-    );
-    _desbloquear();
+    // Quitar el token puede tardar hasta 2s sin que la pantalla cambie; sin
+    // esta guarda, un segundo toque (o el disparo automático por credenciales
+    // perdidas) abriría otro cierre en paralelo.
+    if (_saliendo) return;
+    _saliendo = true;
+    try {
+      // No AuthService().logout() a secas: el teléfono se quedaba en el login
+      // recibiendo los avisos de la cuenta. Ver cerrarSesionYDesvincular.
+      await NotificationService().cerrarSesionYDesvincular();
+      widget.navigatorKey.currentState?.pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+        (route) => false,
+      );
+      _desbloquear();
+    } finally {
+      _saliendo = false;
+    }
   }
 
   @override

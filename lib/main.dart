@@ -33,6 +33,13 @@ void main() async {
   await FirestoreService().initialize();
   await AuthService().restoreSession();
 
+  // Arranque sin sesión: si un cierre de sesión anterior no alcanzó a borrar
+  // el token de push (sin red, o la app murió a la mitad), se termina aquí
+  // para que este teléfono deje de recibir los avisos de esa cuenta.
+  if (!AuthService().isLoggedIn) {
+    NotificationService.completarBorradoPendiente();
+  }
+
   // Se resuelve ANTES de pintar: si se decidiera dentro del primer build, el
   // dashboard con las ventas del día alcanzaría a verse un frame antes de que
   // baje el bloqueo.
