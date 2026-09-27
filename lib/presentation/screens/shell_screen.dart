@@ -10,6 +10,7 @@ import '../../core/services/biometric_service.dart';
 import '../../core/services/export_service.dart';
 import '../../core/services/fiscal_reports_service.dart';
 import '../../core/services/notification_service.dart';
+import '../../core/services/store_update_service.dart';
 import '../../presentation/providers/dashboard_provider.dart';
 import '../../presentation/providers/inventory_provider.dart';
 import '../../presentation/providers/notification_settings_provider.dart';
@@ -32,6 +33,10 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   int _index = 0;
   int? _patchNumber;
+  // La versión instalada de verdad. Antes el menú decía "v1.0.1" fijo en el
+  // código, así que un teléfono al día con la 1.1.5 parecía viejo y daba a
+  // entender que el aviso de actualización no funcionaba.
+  String? _version;
 
   // El último intento de activar el push se quedó sin permiso. Sirve para
   // reintentar al volver de los Ajustes del sistema (ver
@@ -55,6 +60,9 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     pestanaSolicitada.addListener(_atenderPestanaSolicitada);
     _atenderPestanaSolicitada();
     _loadPatchNumber();
+    StoreUpdateService().currentVersion().then((v) {
+      if (mounted && v.isNotEmpty) setState(() => _version = v);
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final id = AuthService().tenantId;
       if (id != null) {
@@ -292,7 +300,9 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     return LayoutBuilder(
       builder: (context, constraints) {
         final wide = constraints.maxWidth >= 600;
-        final versionLabel = _patchNumber != null ? 'v1.0.1 ($_patchNumber)' : 'v1.0.1';
+        final base = _version == null ? '' : 'v$_version';
+        final versionLabel =
+            _patchNumber != null ? '$base ($_patchNumber)'.trim() : base;
         return wide
             ? _WideShell(index: _index, onSelect: _setIndex, onLogout: _logout, versionLabel: versionLabel)
             : _NarrowShell(index: _index, onSelect: _setIndex, onLogout: _logout, versionLabel: versionLabel);
