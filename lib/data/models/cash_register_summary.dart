@@ -48,6 +48,12 @@ class CashRegisterSummary {
   // Notas de cierre (incluye aclaraciones de cuadre si hubo diferencia)
   final String? closingNotes;
 
+  /// Otros cierres de esta misma caja que llegaron cuando ya estaba cerrada
+  /// (otro aparato que no se enteró del cierre). No cuentan: vale el que se
+  /// guardó primero. Los escribe el POS en `cierres_no_aplicados`, con el
+  /// aparato, la hora y lo que contó. Solo se leen: esta app nunca los escribe.
+  final List<Map<String, dynamic>> cierresNoAplicados;
+
   // Nombres de métodos personalizados: id → nombre
   final Map<String, String> customMethodNames;
   final String? locationName;
@@ -85,6 +91,7 @@ class CashRegisterSummary {
     this.differencePedidosya,
     this.differenceUbereats,
     this.closingNotes,
+    this.cierresNoAplicados = const [],
     this.customMethodNames = const {},
     this.locationName,
   });
@@ -201,6 +208,7 @@ class CashRegisterSummary {
       differencePedidosya: differencePedidosya,
       differenceUbereats: differenceUbereats,
       closingNotes: closingNotes,
+      cierresNoAplicados: cierresNoAplicados,
       customMethodNames: customMethodNames ?? this.customMethodNames,
       locationName: locationName ?? this.locationName,
     );
@@ -220,6 +228,12 @@ class CashRegisterSummary {
       return (v as Map<String, dynamic>)
           .map((k, val) => MapEntry(k, (val as num? ?? 0).toDouble()));
     }
+
+    List<Map<String, dynamic>> lista(dynamic v) => [
+          if (v is List)
+            for (final e in v)
+              if (e is Map) Map<String, dynamic>.from(e),
+        ];
 
     double totalWithdrawals = 0;
     double totalDeposits = 0;
@@ -264,6 +278,7 @@ class CashRegisterSummary {
       differencePedidosya: dblN(map['differencePedidosya']),
       differenceUbereats: dblN(map['differenceUbereats']),
       closingNotes: map['closingNotes'] as String?,
+      cierresNoAplicados: lista(map['cierres_no_aplicados']),
     );
   }
 }
