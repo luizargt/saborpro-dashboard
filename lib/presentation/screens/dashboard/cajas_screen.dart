@@ -282,6 +282,10 @@ class _ClosedRegisterCard extends StatelessWidget {
     final salesPedidosya = calc.hasOrders ? calc.pedidosya : register.salesPedidosya;
     final salesUbereats = calc.hasOrders ? calc.ubereats : register.salesUbereats;
     final totalSales = calc.hasOrders ? calc.total : register.totalSales;
+    // Las ventas de métodos propios: de las órdenes si se recalculó, si no las
+    // del corte (ver CashRegisterSummary.ventasPropias). Las mismas para las
+    // filas, el Total y la tabla: el Total no las sumaba en un corte sellado.
+    final ventasPropias = calc.hasOrders ? calc.custom : register.ventasPropias;
 
     // Diferencia total: usar la almacenada cuando hay diffs, recalcular si no
     double? totalDifference = register.totalDifference;
@@ -300,7 +304,7 @@ class _ClosedRegisterCard extends StatelessWidget {
       }
     }
 
-    final methods = _buildMethodsCalc(register, salesCash, salesCard, salesTransfer, salesPedidosya, salesUbereats, calc.custom);
+    final methods = _buildMethodsCalc(register, salesCash, salesCard, salesTransfer, salesPedidosya, salesUbereats, ventasPropias);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
@@ -431,12 +435,12 @@ class _ClosedRegisterCard extends StatelessWidget {
                   const SizedBox(height: 5),
                   _SummaryRow(label: 'Uber Eats', value: salesUbereats, fmt: fmt, sales: true),
                 ],
-                ...{...register.ventasPropias, ...calc.custom}.entries
+                ...ventasPropias.entries
                     .where((e) => e.value > 0)
                     .map((e) => Padding(
                           padding: const EdgeInsets.only(top: 5),
                           child: _SummaryRow(
-                            label: register.customMethodNames[e.key] ?? e.key,
+                            label: _nombreDelMetodo(register, e.key),
                             value: e.value,
                             fmt: fmt,
                             sales: true,
@@ -451,7 +455,7 @@ class _ClosedRegisterCard extends StatelessWidget {
                   label: 'Total',
                   value: register.initialCash + salesCash + register.totalDeposits - register.totalWithdrawals +
                       salesCard + salesTransfer + salesPedidosya + salesUbereats +
-                      calc.custom.values.fold(0.0, (a, b) => a + b),
+                      ventasPropias.values.fold(0.0, (a, b) => a + b),
                   fmt: fmt,
                   total: true,
                 ),
@@ -555,11 +559,17 @@ class _ClosedRegisterCard extends StatelessWidget {
     add('PedidosYa', salesPedidosya, r.actualPedidosya, r.initialPedidosya);
     add('Uber Eats', salesUbereats, r.actualUbereats, r.initialUbereats);
 
+    // En un corte sellado, lo contado de un método propio es esperado + su
+    // diferencia sellada, como en el ticket del POS: uno que no se declaró sale
+    // con su faltante, uno declarado sin ventas con su sobrante, y el de un
+    // cierre forzado sin diferencia. Así la tabla suma lo mismo que la insignia.
+    final sellado = r.differenceCash != null;
     salesCustom.forEach((id, expected) {
-      if (expected == 0) return;
-      final actual = r.actualCustomMethods[id];
-      final name = r.customMethodNames[id] ?? id;
-      list.add(_MethodData(label: name, expected: expected, actual: actual));
+      final actual = sellado
+          ? expected + (r.differenceCustomMethods[id] ?? 0)
+          : r.actualCustomMethods[id];
+      if (expected.abs() < 0.005 && (actual ?? 0).abs() < 0.005) return;
+      list.add(_MethodData(label: _nombreDelMetodo(r, id), expected: expected, actual: actual));
     });
 
     return list;
@@ -771,15 +781,19 @@ class _SummaryRow extends StatelessWidget {
     return Row(
       children: [
         if (indent) const SizedBox(width: 12),
-        Text(
-          label,
-          style: GoogleFonts.inter(
-            color: color,
-            fontSize: 12,
-            fontWeight: (highlight || total) ? FontWeight.w600 : FontWeight.w400,
+        // Expanded y no Spacer: el nombre de un método propio puede ser largo
+        // y a 360 dp desbordaba la fila; así pasa a otra línea.
+        Expanded(
+          child: Text(
+            label,
+            style: GoogleFonts.inter(
+              color: color,
+              fontSize: 12,
+              fontWeight: (highlight || total) ? FontWeight.w600 : FontWeight.w400,
+            ),
           ),
         ),
-        const Spacer(),
+        const SizedBox(width: 8),
         Text(
           valueText,
           style: GoogleFonts.inter(
@@ -831,6 +845,17 @@ class _StatusBadge extends StatelessWidget {
     );
   }
 }
+
+/// El nombre de un método propio. 'otros' es donde el POS junta los pagos con
+/// un método que no reconoce, y 'custom' la clave de ventas viejas sin el id
+/// del método: los dos salían con el id crudo.
+String _nombreDelMetodo(CashRegisterSummary r, String id) =>
+    r.customMethodNames[id] ??
+    switch (id) {
+      'otros' => 'Otros (revisar)',
+      'custom' => 'Personalizado',
+      _ => id,
+    };
 
 class _MethodData {
   final String label;
