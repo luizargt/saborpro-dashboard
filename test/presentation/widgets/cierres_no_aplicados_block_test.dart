@@ -121,4 +121,45 @@ void main() {
     expect(find.text('Esta caja se cerró 3 veces'), findsOneWidget);
     expect(find.text('Se hizo el 27/09 a las 01:05 PM. Contó efectivo Q0.00, otros Q30.00.'), findsOneWidget);
   });
+
+  test('un cierre forzado (no toca los métodos propios) no sale con faltante: suma de lo sellado', () {
+    final forzado = CashRegisterSummary.fromMap({
+      ...corte,
+      'differenceCash': 0.0,
+      'expectedCustomMethods': {'custom_vales': 30.0},
+      'actualCustomMethods': <String, double>{},
+      'differenceCustomMethods': <String, double>{},
+    });
+    expect(forzado.totalDifference, 0);
+    final sinDeclarar = CashRegisterSummary.fromMap({
+      ...corte,
+      'differenceCash': 0.0,
+      'expectedCustomMethods': {'custom_vales': 25.0},
+      'actualCustomMethods': <String, double>{},
+      'differenceCustomMethods': {'custom_vales': -25.0},
+    });
+    expect(sinDeclarar.totalDifference, -25, reason: 'un método propio sin declarar sí es faltante');
+  });
+
+  test('las ventas de métodos propios salen de lo sellado, no del acumulado con restos', () {
+    // Se cobraron Q30 con Vales y esa orden se anuló (el acumulado no la
+    // descuenta); Bono Q20. El cierre declaró Vales 0 y Bono 20: cuadrado.
+    final r = CashRegisterSummary.fromMap({
+      ...corte,
+      'differenceCash': 0.0,
+      'expectedCustomMethods': {'custom_vales': 30.0, 'custom_bono': 20.0},
+      'actualCustomMethods': {'custom_vales': 0.0, 'custom_bono': 20.0},
+      'differenceCustomMethods': {'custom_vales': 0.0, 'custom_bono': 0.0},
+    });
+    expect(r.ventasPropias, {'custom_vales': 0.0, 'custom_bono': 20.0});
+    expect(r.totalSales, 1520);
+    expect(r.totalDifference, 0);
+    // Sin diferencias selladas (cierre forzado), el acumulado, como antes.
+    final forzado = CashRegisterSummary.fromMap({
+      ...corte,
+      'differenceCash': 0.0,
+      'expectedCustomMethods': {'custom_vales': 30.0},
+    });
+    expect(forzado.totalSales, 1530);
+  });
 }

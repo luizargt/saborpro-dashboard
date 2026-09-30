@@ -431,7 +431,7 @@ class _ClosedRegisterCard extends StatelessWidget {
                   const SizedBox(height: 5),
                   _SummaryRow(label: 'Uber Eats', value: salesUbereats, fmt: fmt, sales: true),
                 ],
-                ...{...register.expectedCustomMethods, ...calc.custom}.entries
+                ...{...register.ventasPropias, ...calc.custom}.entries
                     .where((e) => e.value > 0)
                     .map((e) => Padding(
                           padding: const EdgeInsets.only(top: 5),

@@ -45,6 +45,9 @@ class CashRegisterSummary {
   final double? differencePedidosya;
   final double? differenceUbereats;
 
+  /// Las diferencias selladas de los métodos propios, por id.
+  final Map<String, double> differenceCustomMethods;
+
   // Notas de cierre (incluye aclaraciones de cuadre si hubo diferencia)
   final String? closingNotes;
 
@@ -90,6 +93,7 @@ class CashRegisterSummary {
     this.differenceTransfer,
     this.differencePedidosya,
     this.differenceUbereats,
+    this.differenceCustomMethods = const {},
     this.closingNotes,
     this.cierresNoAplicados = const [],
     this.customMethodNames = const {},
@@ -141,6 +145,20 @@ class CashRegisterSummary {
     return expectedUbereats - initialUbereats;
   }
 
+  /// Las ventas de cada método propio según lo que el corte selló: declarado −
+  /// diferencia, como el efectivo arriba. `expectedCustomMethods` es el
+  /// acumulado del turno y puede traer restos (una venta anulada con un método
+  /// propio no se descuenta, y el cierre escribe con merge, que no borra
+  /// claves): salían como ventas. Sin diferencias selladas (caja abierta,
+  /// cierre forzado, cortes anteriores a marzo 2026), el acumulado. Igual que
+  /// `CashRegisterCalculator.ventasPropiasSelladas` en el POS.
+  Map<String, double> get ventasPropias => differenceCustomMethods.isEmpty
+      ? expectedCustomMethods
+      : {
+          for (final e in differenceCustomMethods.entries)
+            e.key: (actualCustomMethods[e.key] ?? 0) - e.value,
+        };
+
   // Total de ventas (sin fondo inicial)
   double get totalSales =>
       salesCash +
@@ -148,11 +166,22 @@ class CashRegisterSummary {
       salesTransfer +
       salesPedidosya +
       salesUbereats +
-      expectedCustomMethods.values.fold(0, (a, b) => a + b);
+      ventasPropias.values.fold(0, (a, b) => a + b);
 
   // Diferencia total (contado - esperado). null si no se contó nada.
   // Los retiros reducen el efectivo esperado en gaveta; los depósitos lo aumentan.
   double? get totalDifference {
+    // Corte con diferencias selladas: la suma de las de cada método, igual que
+    // el POS. Recontar con lo declarado daba otra cosa en los cierres forzados,
+    // que no tocan los métodos propios (salían con un faltante por esas ventas).
+    if (differenceCash != null) {
+      return differenceCash! +
+          (differenceCard ?? 0) +
+          (differenceTransfer ?? 0) +
+          (differencePedidosya ?? 0) +
+          (differenceUbereats ?? 0) +
+          differenceCustomMethods.values.fold(0.0, (a, b) => a + b);
+    }
     final hasActual = actualCash != null || actualCard != null ||
         actualTransfer != null || actualPedidosya != null || actualUbereats != null ||
         actualCustomMethods.isNotEmpty;
@@ -207,6 +236,7 @@ class CashRegisterSummary {
       differenceTransfer: differenceTransfer,
       differencePedidosya: differencePedidosya,
       differenceUbereats: differenceUbereats,
+      differenceCustomMethods: differenceCustomMethods,
       closingNotes: closingNotes,
       cierresNoAplicados: cierresNoAplicados,
       customMethodNames: customMethodNames ?? this.customMethodNames,
@@ -277,6 +307,7 @@ class CashRegisterSummary {
       differenceTransfer: dblN(map['differenceTransfer']),
       differencePedidosya: dblN(map['differencePedidosya']),
       differenceUbereats: dblN(map['differenceUbereats']),
+      differenceCustomMethods: customMap(map['differenceCustomMethods']),
       closingNotes: map['closingNotes'] as String?,
       cierresNoAplicados: lista(map['cierres_no_aplicados']),
     );
