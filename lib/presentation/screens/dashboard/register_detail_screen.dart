@@ -107,6 +107,12 @@ class _RegisterDetailScreenState extends State<RegisterDetailScreen>
           if (o['location_id'] != locationId) return false;
         }
 
+        // Las ventas nuevas dicen en qué caja se cobraron y cuentan solo en esa:
+        // con dos cajas del cajero abiertas a la vez, antes salían en las dos.
+        // Misma regla que el POS (CashRegisterCalculator.perteneceACaja).
+        final caja = _cajaDelCobro(o);
+        if (caja != null) return caja == reg.id;
+
         final paidByUserId = o['paid_by_user_id'] as String? ?? '';
         // Usar mismo fallback de nombre que la columna "Usuario" del display
         final effectiveUserName = o['paid_by_user_name'] as String? ??
@@ -694,6 +700,20 @@ double? _parseAmount(dynamic v) {
   if (v is num) return v.toDouble();
   if (v is String) return double.tryParse(v);
   return null;
+}
+
+/// La caja en que se cobró la venta, si el sello es del cobro vigente: se
+/// selló con la misma hora de pago que tiene ahora (un minuto de margen: las
+/// copias de un mismo cobro difieren en segundos). Si se volvió a cobrar
+/// después con una versión anterior del POS, el sello quedó viejo: vale el
+/// criterio de siempre. Igual que Order.cajaDelCobro en el POS.
+String? _cajaDelCobro(Map<String, dynamic> o) {
+  final caja = o['cash_register_id'];
+  if (caja is! String || caja.isEmpty) return null;
+  final selladaA = _toDateTime(o['cash_register_paid_at']);
+  final pagada = _toDateTime(o['paid_at']);
+  if (selladaA == null || pagada == null) return null;
+  return selladaA.difference(pagada).abs() < const Duration(minutes: 1) ? caja : null;
 }
 
 DateTime? _toDateTime(dynamic ts) {
