@@ -5,9 +5,12 @@ import 'package:provider/provider.dart';
 
 import '../../../data/models/profitability_data.dart';
 import '../../providers/dashboard_provider.dart';
+import '../../providers/menu_margin_provider.dart';
 import '../../providers/profitability_provider.dart';
+import '../../widgets/dish_profit_card.dart';
 import '../../widgets/location_selector.dart';
 import '../../widgets/max_content_width.dart';
+import '../../widgets/period_selector.dart';
 
 const _fondo = Color(0xFF0F172A);
 const _appbar = Color(0xFF0A1020);
@@ -44,9 +47,15 @@ class ProfitabilityReportScreen extends StatefulWidget {
 class _ProfitabilityReportScreenState extends State<ProfitabilityReportScreen> {
   final _provider = ProfitabilityProvider();
 
+  /// El costo de receta de cada platillo, para la tarjeta "Utilidad por
+  /// platillo". Vive aquí y no en la tarjeta para que "Ver todos" use el mismo
+  /// sin volver a descargar el menú.
+  final _menu = MenuMarginProvider();
+
   @override
   void dispose() {
     _provider.dispose();
+    _menu.dispose();
     super.dispose();
   }
 
@@ -54,11 +63,17 @@ class _ProfitabilityReportScreenState extends State<ProfitabilityReportScreen> {
   Widget build(BuildContext context) {
     final dash = context.watch<DashboardProvider>();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
       _provider.loadIfNeeded(dash);
+      final tenant = dash.tenantId;
+      if (tenant != null) _menu.cargarSiHaceFalta(tenant);
     });
 
-    return ChangeNotifierProvider.value(
-      value: _provider,
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider.value(value: _provider),
+        ChangeNotifierProvider.value(value: _menu),
+      ],
       child: Scaffold(
         backgroundColor: _fondo,
         appBar: AppBar(
@@ -73,6 +88,10 @@ class _ProfitabilityReportScreenState extends State<ProfitabilityReportScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  // El reparto por platillo necesita Mes o Año: sin esto, en
+                  // teléfono habría que salir del reporte para cambiar el
+                  // período.
+                  const SelectorFechaEnTelefono(),
                   const LocationHeaderBar(),
                   Expanded(
                     child: LocationContentSwitcher(
@@ -80,10 +99,12 @@ class _ProfitabilityReportScreenState extends State<ProfitabilityReportScreen> {
                       builder: (context, p, _) => RefreshIndicator(
                         color: _acento,
                         backgroundColor: _tarjeta,
-                        onRefresh: () async {
-                          await dash.load();
-                          await p.load(dash);
-                        },
+                        // El menú se recarga en paralelo: esperarlo en fila
+                        // alargaba el giro del indicador sin necesidad.
+                        onRefresh: () => Future.wait([
+                          dash.load().then((_) => p.load(dash)),
+                          _menu.recargar(),
+                        ]),
                         // dash.loading cuenta como cargando: las ventas salen
                         // de ahí, y mientras no lleguen no hay reporte que
                         // mostrar. Sin esto quedaban en pantalla los números
@@ -150,6 +171,10 @@ class _Cuerpo extends StatelessWidget {
         _Cascada(d: d),
         const SizedBox(height: 14),
         _PuntoDeEquilibrio(d: d),
+        const SizedBox(height: 14),
+        // Escucha por su cuenta al menú: cuando llega, se redibuja la tarjeta
+        // y no todo el reporte.
+        const UtilidadPlatillosSeccion(),
         const SizedBox(height: 14),
         _FueraDeLaCuenta(d: d),
         if (!d.costoConfiable && d.itemsTotales > 0) ...[

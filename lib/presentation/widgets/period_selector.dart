@@ -76,6 +76,23 @@ class DateNavigator extends StatelessWidget {
 
 }
 
+/// El selector de fecha dentro del cuerpo de una pantalla empujada, solo en
+/// teléfono. En pantalla ancha ya lo pone LocationHeaderBar; en teléfono el
+/// del shell queda tapado por la pantalla, y en la barra superior se comía el
+/// título (y con letra grande tapaba el botón de regresar).
+class SelectorFechaEnTelefono extends StatelessWidget {
+  const SelectorFechaEnTelefono({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    if (MediaQuery.sizeOf(context).width >= 600) return const SizedBox.shrink();
+    return const Padding(
+      padding: EdgeInsets.fromLTRB(16, 10, 16, 0),
+      child: Align(alignment: Alignment.centerLeft, child: DateSelectorChip()),
+    );
+  }
+}
+
 // ── DATE SELECTOR CHIP ──────────────────────────────────────────────────────
 // Versión compacta (pastilla con ícono + etiqueta) para espacios reducidos,
 // como la barra superior. Abre el mismo picker unificado que DateNavigator.

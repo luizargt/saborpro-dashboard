@@ -51,6 +51,15 @@ class ProfitabilityProvider extends ChangeNotifier {
   bool get loading => _loading;
   String? get error => _error;
 
+  /// Los números de [data] corresponden a lo que el dashboard muestra AHORA.
+  ///
+  /// El recálculo corre después de dibujar: justo tras cambiar de sucursal,
+  /// durante un cuadro [data] todavía es de la anterior. Quien combine estos
+  /// números con otros de la sucursal nueva (la utilidad por platillo) tiene
+  /// que esperar a que esto sea cierto.
+  bool alDiaCon(DashboardProvider dash) =>
+      !_loading && _error == null && _cacheKey == _keyOf(dash);
+
   /// Identifica un cálculo. Incluye cuántas órdenes y gastos tenía el
   /// dashboard, y no solo el período y la sucursal: las ventas salen de esos
   /// datos, así que cuando terminan de llegar el resultado anterior quedó
@@ -107,7 +116,11 @@ class ProfitabilityProvider extends ChangeNotifier {
     if (dash.loading) return;
 
     final key = _keyOf(dash);
-    if (key == _cacheKey && !_loading) return;
+    // Misma clave = ese cálculo ya está hecho o EN CURSO. Antes se relanzaba
+    // mientras cargaba, y una pantalla que escucha a este provider (la lista
+    // de Utilidad por platillo) entraba en bucle: cargar → avisar →
+    // reconstruir → volver a cargar, un cuadro tras otro.
+    if (key == _cacheKey) return;
     await load(dash);
   }
 
@@ -157,13 +170,22 @@ class ProfitabilityProvider extends ChangeNotifier {
       // Mientras se esperaba, el usuario pudo cambiar de mes otra vez. Estos
       // números son del período viejo: pintarlos sería el mismo error que se
       // está arreglando.
-      if (_contextoOf(dash) != _contextoMostrado) return;
+      if (_contextoOf(dash) != _contextoMostrado) {
+        // Sin esto, volver a este mismo período dentro del mismo cuadro
+        // encontraba la clave ya puesta y no recalculaba: spinner eterno.
+        _cacheKey = null;
+        return;
+      }
 
       _data = _armar(dash, cogs, inventario);
       _loading = false;
       notifyListeners();
     } catch (e, stack) {
       _loading = false;
+      // Las consultas de costo e inventario se reutilizan mientras no cambie
+      // el período: si una falló, "deslizar para reintentar" volvía a esperar
+      // el MISMO futuro fallido y repetía el error. Así se relanzan.
+      _contextoPedido = null;
       // El detalle va a la pantalla, no solo al log: en web la consola del
       // navegador no siempre está a mano, y un "no se pudo" a secas no deja
       // avanzar a nadie.

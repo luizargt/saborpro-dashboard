@@ -72,6 +72,20 @@ class DashboardProvider extends ChangeNotifier {
   // Debug: docs totales en Firestore antes de filtrar por fecha
   int _expenseRawCount = 0;
   int get expenseRawCount => _expenseRawCount;
+
+  /// False si falló la consulta de cajas. Esa consulta trae los retiros de
+  /// caja, que cuentan como gasto, y ante un error devuelve una lista vacía:
+  /// sin esta señal los gastos saldrían cortos sin ningún aviso.
+  bool _cajasLeidas = true;
+  bool get cajasLeidas => _cajasLeidas;
+
+  /// Rangos (inicio|fin) cuyas órdenes llegaron al tope de [_fetchOrders]: ahí
+  /// la venta está incompleta y el tope no deja ninguna otra huella.
+  final Set<String> _rangosCortados = {};
+
+  /// Las órdenes del período elegido se cortaron en el tope.
+  bool get ordenesCortadas => _rangosCortados
+      .contains('${_range.start.toIso8601String()}|${_range.end.toIso8601String()}');
   String _expenseSampleDate = '';
   String get expenseSampleDate => _expenseSampleDate;
 
@@ -477,8 +491,10 @@ class DashboardProvider extends ChangeNotifier {
           all.add(data);
         }
       }
+      _cajasLeidas = true;
       return all;
     } catch (_) {
+      _cajasLeidas = false;
       return [];
     }
   }
@@ -1265,6 +1281,13 @@ class DashboardProvider extends ChangeNotifier {
             .limit(kOrderLimit)
             .get()),
       ]);
+
+      final clave = '${start.toIso8601String()}|${end.toIso8601String()}';
+      if (snaps.any((s) => s.docs.length >= kOrderLimit)) {
+        _rangosCortados.add(clave);
+      } else {
+        _rangosCortados.remove(clave);
+      }
 
       final seen = <String>{};
       final all  = <Map<String, dynamic>>[];
