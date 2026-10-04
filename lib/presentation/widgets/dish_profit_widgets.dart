@@ -139,14 +139,13 @@ class ChipFiltro extends StatelessWidget {
 
 String _plural(int n, String uno, String varios) => n == 1 ? uno : varios;
 
-/// Lo que dice una fila: la cifra principal, su explicación y su color.
+/// Lo que dice un platillo: la cifra principal, su explicación y su color.
 class _Lectura {
   final String principal;
   final Color color;
   final String? secundario;
-  final String resumen;
 
-  const _Lectura(this.principal, this.color, this.secundario, this.resumen);
+  const _Lectura(this.principal, this.color, this.secundario);
 
   factory _Lectura.de(FilaUtilidad f) {
     final p = f.platillo;
@@ -161,14 +160,10 @@ class _Lectura {
             colorDeBanda(d.banda),
             'por venta · ${formatoPct(d.pct)} del precio · '
                 '${etiquetaDeBanda(d)}$revisar',
-            'Precio ${formatoQ(p.precio)} · Receta ${formatoQ(d.costo)} · '
-                '${d.descuento > 0 ? 'Gastos y descuentos' : 'Gastos'} '
-                '${formatoQ(d.variables + d.fijos + d.descuento)}',
           );
         }
         if (p.margenRecetaPct == null) {
-          return _Lectura('Sin precio de venta', Colors.white60, null,
-              'Receta ${formatoQ(p.costo!)}');
+          return const _Lectura('Sin precio de venta', Colors.white60, null);
         }
         // Sin reparto el color es el del costo de comida, no "pierde/cubre":
         // se dice con las palabras de Rentabilidad para no confundirlos.
@@ -178,26 +173,16 @@ class _Lectura {
           'por venta, tras la receta · la receta es '
               '${formatoPct(100 - p.margenRecetaPct!)} del precio '
               '(meta: menos de 35%)$revisar',
-          'Precio ${formatoQ(p.precio)} · Receta ${formatoQ(p.costo!)}',
         );
       case EstadoCosto.incompleto:
-        final sin = p.sinPrecio, fuera = p.noEnSucursal;
-        final partes = <String>[
-          if (sin.isNotEmpty) 'Sin precio de compra: ${sin.join(', ')}',
-          if (fuera.isNotEmpty)
-            '${_plural(fuera.length, 'No está', 'No están')} en la sucursal: '
-                '${fuera.join(', ')}',
-        ];
-        final faltan = sin.length + fuera.length;
+        final faltan = p.sinPrecio.length + p.noEnSucursal.length;
         return _Lectura(
           'Falta costo',
           kAmbar,
           '$faltan ${_plural(faltan, 'ingrediente sin costo', 'ingredientes sin costo')}',
-          partes.join(' · '),
         );
       case EstadoCosto.sinReceta:
-        return _Lectura('Sin receta', Colors.white70, null,
-            'Precio ${formatoQ(p.precio)}');
+        return const _Lectura('Sin receta', Colors.white70, null);
     }
   }
 }
@@ -281,94 +266,6 @@ class FilaPlatilloCompacta extends StatelessWidget {
           const SizedBox(height: 3),
           _Cifras(l: l, tamano: 14.5),
         ],
-      ),
-    );
-  }
-}
-
-/// Fila de la lista completa. Se abre para mostrar el desglose línea por
-/// línea; quién está abierta lo decide el dueño de la lista, para que no se
-/// pierda al cambiar de sucursal.
-class FilaPlatillo extends StatelessWidget {
-  final FilaUtilidad fila;
-  final RepartoGastos? reparto;
-  final bool abierta;
-  final VoidCallback onToggle;
-
-  const FilaPlatillo({
-    super.key,
-    required this.fila,
-    required this.reparto,
-    required this.abierta,
-    required this.onToggle,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final p = fila.platillo;
-    final l = _Lectura.de(fila);
-    final alertas = p.alertas.toList()..sort((a, b) => a.index - b.index);
-    final grave = alertas.contains(AlertaReceta.cuestaMasQueElPrecio);
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Material(
-        color: kTarjeta,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14),
-          side: BorderSide(
-            color: alertas.isEmpty
-                ? Colors.transparent
-                : (grave ? kRojo : kAmbar).withValues(alpha: 0.35),
-          ),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: onToggle,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(child: _Nombre(p: p)),
-                    Icon(
-                      abierta
-                          ? Icons.keyboard_arrow_up_rounded
-                          : Icons.keyboard_arrow_down_rounded,
-                      color: Colors.white54,
-                      size: 22,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                _Cifras(l: l),
-                const SizedBox(height: 4),
-                Text(l.resumen,
-                    style: GoogleFonts.inter(
-                        color: Colors.white60, fontSize: 11.5, height: 1.4)),
-                for (final a in alertas)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 5),
-                    child: Text(
-                      textoDeAlerta(a),
-                      style: GoogleFonts.inter(
-                        color: a == AlertaReceta.cuestaMasQueElPrecio
-                            ? kRojoTexto
-                            : kAmbar,
-                        fontSize: 11.5,
-                        fontWeight: FontWeight.w600,
-                        height: 1.3,
-                      ),
-                    ),
-                  ),
-                if (abierta) DesglosePlatillo(fila: fila, reparto: reparto),
-              ],
-            ),
-          ),
-        ),
       ),
     );
   }
@@ -702,6 +599,9 @@ class ResumenReparto extends StatelessWidget {
   /// todos".
   final bool compacto;
 
+  /// Cuántos avisos ámbar caben. En la guía, que está para leerse, todos.
+  final int maxAvisos;
+
   const ResumenReparto({
     super.key,
     required this.reparto,
@@ -710,6 +610,7 @@ class ResumenReparto extends StatelessWidget {
     this.errorGastos = false,
     this.vistaTodas = false,
     this.compacto = false,
+    this.maxAvisos = 2,
   });
 
   static const _soloReceta = 'Por ahora ves solo el precio menos la receta.';
@@ -764,7 +665,7 @@ class ResumenReparto extends StatelessWidget {
               'Es mucho: por eso casi todo sale ámbar o rojo. Revisá en Gastos '
                   'que no haya pagos de otros meses cargados en este período.',
           ];
-          for (final a in avisos.take(2)) {
+          for (final a in avisos.take(maxAvisos)) {
             hijos.add(_nota(a, kAmbar));
           }
           if (!compacto && r.gastosDeComida > 0) {
@@ -844,4 +745,243 @@ class ResumenReparto extends StatelessWidget {
         child: Text(texto,
             style: GoogleFonts.inter(color: color, fontSize: 12, height: 1.45)),
       );
+}
+
+/// Una sola línea con lo que no puede esconderse detrás del ícono: de qué
+/// período salen los gastos, o por qué la columna Gasto está vacía. El resto
+/// vive en la guía.
+({String texto, Color color})? resumenCorto(
+  RepartoGastos? r, {
+  bool calculando = false,
+  bool errorGastos = false,
+}) {
+  if (r == null) {
+    if (errorGastos) {
+      return (texto: 'No se pudieron calcular los gastos', color: kAmbar);
+    }
+    if (calculando) {
+      return (texto: 'Calculando los gastos…', color: Colors.white60);
+    }
+    return null;
+  }
+  // Los avisos que cambian la lectura de TODA la tabla no pueden quedar
+  // detrás de un punto de 9 px: se suman a la línea y la pintan de ámbar.
+  final aviso = r.mesEnCurso
+      ? 'el mes va a medias'
+      : r.sinGastosFijos
+          ? 'faltan tus gastos fijos'
+          : r.ratio >= 0.8
+              ? 'gastos muy altos, revisalos'
+              : null;
+  return switch (r.estado) {
+    EstadoReparto.listo => (
+        texto: 'De cada Q100 que cobrás, Q${r.cada100.total} se van en gastos'
+            '${aviso == null ? '' : ' · $aviso'}',
+        color: aviso == null ? Colors.white : kAmbar,
+      ),
+    EstadoReparto.periodoCorto =>
+      (texto: 'Gasto vacío: elegí Mes o Año en la fecha', color: kAmbar),
+    EstadoReparto.sinVentas =>
+      (texto: 'Sin ventas en el período: no se reparten gastos', color: kAmbar),
+    EstadoReparto.sinGastos => (
+        texto: 'No hay gastos cargados: la ganancia sale más alta',
+        color: kAmbar,
+      ),
+    EstadoReparto.gastosNoLeidos =>
+      (texto: 'No se pudieron leer todos los gastos', color: kAmbar),
+    EstadoReparto.ventasIncompletas =>
+      (texto: 'Demasiadas ventas para repartir: probá Año', color: kAmbar),
+    EstadoReparto.gastosSuperanVentas => r.mesEnCurso
+        ? (texto: 'El mes recién empieza: elegí el mes pasado', color: kAmbar)
+        : (texto: 'Tus gastos superan tus ventas', color: kRojoTexto),
+  };
+}
+
+/// Hay avisos que conviene leer en la guía: el ícono se enciende.
+bool hayAvisos(RepartoGastos? r,
+    {bool errorGastos = false, bool vistaTodas = false}) {
+  // En "Todas" los números son aproximados (precio base): se avisa.
+  if (errorGastos || vistaTodas) return true;
+  if (r == null) return false;
+  if (!r.listo) return true;
+  return r.mesEnCurso ||
+      r.sinGastosFijos ||
+      !r.descuentoConocido ||
+      r.ratio >= 0.8;
+}
+
+Widget _tituloSeccion(String t) => Padding(
+      padding: const EdgeInsets.only(top: 18, bottom: 6),
+      child: Text(t,
+          style: GoogleFonts.inter(
+              color: Colors.white70,
+              fontSize: 10.5,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.8)),
+    );
+
+Widget _parrafo(String t, {Color color = Colors.white70}) => Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Text(t,
+          style: GoogleFonts.inter(color: color, fontSize: 12.5, height: 1.45)),
+    );
+
+/// La guía que abre el ícono de idea: todo lo que antes iba en texto encima de
+/// la lista. Está para leerse con calma, así que muestra todos los avisos.
+class GuiaUtilidad extends StatelessWidget {
+  final RepartoGastos? reparto;
+  final String periodo;
+  final bool calculando;
+  final bool errorGastos;
+  final bool vistaTodas;
+  final int descartados;
+  final String? errorMenu;
+
+  const GuiaUtilidad({
+    super.key,
+    required this.reparto,
+    required this.periodo,
+    this.calculando = false,
+    this.errorGastos = false,
+    this.vistaTodas = false,
+    this.descartados = 0,
+    this.errorMenu,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    Widget color(Color c, String nombre, String texto) => Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Container(
+                    width: 10,
+                    height: 10,
+                    decoration:
+                        BoxDecoration(color: c, shape: BoxShape.circle)),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text.rich(
+                  TextSpan(children: [
+                    TextSpan(
+                        text: '$nombre: ',
+                        style: const TextStyle(fontWeight: FontWeight.w700)),
+                    TextSpan(text: texto),
+                  ]),
+                  style: GoogleFonts.inter(
+                      color: Colors.white70, fontSize: 12.5, height: 1.45),
+                ),
+              ),
+            ],
+          ),
+        );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _tituloSeccion('TUS GASTOS DE ${periodo.toUpperCase()}'),
+        ResumenReparto(
+          reparto: reparto,
+          periodo: periodo,
+          calculando: calculando,
+          errorGastos: errorGastos,
+          vistaTodas: vistaTodas,
+          maxAvisos: 99,
+        ),
+        _tituloSeccion('QUÉ DICE CADA COLUMNA'),
+        _parrafo('Costo: lo que pide la receta al último precio de compra de '
+            'cada ingrediente en la sucursal, como lo descuenta el POS (sin '
+            'merma, extras ni desechables).'),
+        _parrafo('Gasto: la parte de tus gastos fijos y variables que le toca '
+            'al platillo según su precio, más el descuento promedio. Solo con '
+            'Mes o Año.'),
+        _parrafo('Precio: el que cobra la sucursal, con IVA.'),
+        _parrafo('Ganancia: precio menos costo menos gasto, por venta y antes '
+            'de impuestos. Sin gastos repartidos es precio menos costo.'),
+        _parrafo('%: la ganancia sobre el precio. Sirve para comparar un '
+            'platillo caro con uno barato.'),
+        _tituloSeccion('QUÉ DICE CADA COLOR'),
+        color(kVerde, 'Verde', 'cubre la receta y su parte de todos los gastos.'),
+        color(kAmbar, 'Ámbar',
+            'cubre la receta y los gastos variables, pero no toda su parte de '
+                'la renta y los sueldos. Aporta: no lo quités por esto, revisá '
+                'el precio.'),
+        color(kRojoTexto, 'Rojo',
+            'la receta y los gastos variables ya cuestan más de lo que '
+                'cobrás: cada venta pierde. Primero revisá que la receta esté '
+                'bien cargada.'),
+        _parrafo('Cuando no se reparten gastos (día, semana, un rango libre o '
+            'si faltan datos), el color sigue la meta de costo de comida de '
+            'Rentabilidad: la receta en menos de 35% del precio.'),
+        _parrafo('"Revisar" en Ganancia: el costo parece mal cargado y la '
+            'cifra no sería confiable. Tocá el platillo para ver por qué.'),
+        _tituloSeccion('CONSEJOS'),
+        _parrafo('Tocá cualquier platillo (o su ícono de idea) para ver el desglose línea '
+            'por línea y qué hacer con él. La idea encendida marca los que '
+            'tienen algo que revisar.'),
+        _parrafo('Los que tienen datos sospechosos (receta más cara que el '
+            'precio, un ingrediente repetido, unidades distintas) están en el '
+            'filtro "Por revisar". Casi siempre es un error de unidad: gramos '
+            'contra kilos.'),
+        _parrafo('A los que les falta costo, registrales en Despensa una '
+            'entrada con costo de los ingredientes sin precio.'),
+        if (descartados > 0) _parrafo(textoDescartadosMenu(descartados)),
+        if (errorMenu != null)
+          _parrafo(
+              'No se pudo actualizar el menú: se muestran los datos '
+              'anteriores. Deslizá hacia abajo para reintentar.',
+              color: kAmbar),
+      ],
+    );
+  }
+}
+
+String textoDescartadosMenu(int n) => n == 1
+    ? '1 producto o receta con datos dañados no aparece. Si falta un platillo, '
+        'avisá a soporte.'
+    : '$n productos o recetas con datos dañados no aparecen. Si falta un '
+        'platillo, avisá a soporte.';
+
+/// Lo que abre un platillo: su nombre completo, qué revisar y el desglose
+/// línea por línea con sus consejos.
+class ConsejosPlatillo extends StatelessWidget {
+  final FilaUtilidad fila;
+  final RepartoGastos? reparto;
+
+  const ConsejosPlatillo({super.key, required this.fila, this.reparto});
+
+  @override
+  Widget build(BuildContext context) {
+    final p = fila.platillo;
+    final l = _Lectura.de(fila);
+    final alertas = p.alertas.toList()..sort((a, b) => a.index - b.index);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _Nombre(p: p, tamano: 16),
+        const SizedBox(height: 8),
+        _Cifras(l: l),
+        for (final a in alertas)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(
+              textoDeAlerta(a),
+              style: GoogleFonts.inter(
+                color: a == AlertaReceta.cuestaMasQueElPrecio
+                    ? kRojoTexto
+                    : kAmbar,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                height: 1.35,
+              ),
+            ),
+          ),
+        DesglosePlatillo(fila: fila, reparto: reparto),
+      ],
+    );
+  }
 }

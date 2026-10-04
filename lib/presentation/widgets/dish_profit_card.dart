@@ -238,7 +238,7 @@ class UtilidadPlatillosCard extends StatelessWidget {
       if (d.descartados > 0)
         Padding(
           padding: const EdgeInsets.only(top: 4),
-          child: _texto(textoDescartados(d.descartados), Colors.white60),
+          child: _texto(textoDescartadosMenu(d.descartados), Colors.white60),
         ),
       if (error != null)
         Padding(
@@ -257,12 +257,6 @@ class UtilidadPlatillosCard extends StatelessWidget {
   Widget _texto(String t, Color c) => Text(t,
       style: GoogleFonts.inter(color: c, fontSize: 12, height: 1.45));
 }
-
-String textoDescartados(int n) => n == 1
-    ? '1 producto o receta con datos dañados no aparece. Si falta un platillo, '
-        'avisá a soporte.'
-    : '$n productos o recetas con datos dañados no aparecen. Si falta un '
-        'platillo, avisá a soporte.';
 
 class _Seccion extends StatelessWidget {
   final String titulo;
