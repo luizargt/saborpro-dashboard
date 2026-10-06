@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
+import '../../core/utils/formato_dinero.dart';
 
 class PaymentMethodBreakdown extends StatelessWidget {
   final Map<String, double> salesByMethod;
@@ -108,7 +109,7 @@ class PaymentMethodBreakdown extends StatelessWidget {
                       ),
                     ),
                     Text(
-                      'Q${fmt.format(e.value)}',
+                      '$moneda${fmt.format(e.value)}',
                       style: GoogleFonts.inter(
                         color: Colors.white,
                         fontSize: 13,
@@ -156,7 +157,7 @@ class PaymentMethodBreakdown extends StatelessWidget {
               ),
             ),
             Text(
-              'Q${fmt.format(total)}',
+              '$moneda${fmt.format(total)}',
               style: GoogleFonts.inter(
                 color: const Color(0xFF7444fd),
                 fontSize: 13,

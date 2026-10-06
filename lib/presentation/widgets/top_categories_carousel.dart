@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
+import '../../core/utils/formato_dinero.dart';
 import '../../data/models/dashboard_data.dart';
 
 /// Carrusel con una tarjeta por clasificación del menú (Comida, Bebidas,
@@ -160,7 +161,7 @@ class _ClassificationCard extends StatelessWidget {
           ),
           const SizedBox(height: 2),
           Text(
-            'Q${money.format(totalOfClassification)} en total',
+            '$moneda${money.format(totalOfClassification)} en total',
             style: GoogleFonts.inter(color: Colors.white60, fontSize: 11),
           ),
           const SizedBox(height: 12),
@@ -231,7 +232,7 @@ class _CategoryRow extends StatelessWidget {
         ),
         const SizedBox(width: 8),
         Text(
-          'Q${money.format(category.total)}',
+          '$moneda${money.format(category.total)}',
           style: GoogleFonts.inter(
             color: Colors.white,
             fontSize: 12.5,

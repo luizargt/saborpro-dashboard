@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
+import '../../../core/utils/formato_dinero.dart';
 import '../../../data/models/cash_register_summary.dart';
 import 'register_detail_screen.dart';
 
@@ -349,7 +350,7 @@ class _ClosedRegisterCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     Text(
-                      'Q${fmt.format(totalSales)}',
+                      '$moneda${fmt.format(totalSales)}',
                       style: GoogleFonts.inter(
                         color: const Color(0xFF7444fd),
                         fontSize: 15,
@@ -602,7 +603,7 @@ class CierresNoAplicadosBlock extends StatelessWidget {
 
   static String _cuando(DateTime f) => '${_dos(f.day)}/${_dos(f.month)} a las ${_hora.format(f)}';
 
-  static String _monto(dynamic v) => 'Q${_fmt.format(v is num ? v.toDouble() : 0.0)}';
+  static String _monto(dynamic v) => '$moneda${_fmt.format(v is num ? v.toDouble() : 0.0)}';
 
   static bool _usado(dynamic v) => v is num && v.abs() > 0.004;
 
@@ -773,9 +774,9 @@ class _SummaryRow extends StatelessWidget {
     if (value == 0 && !total) {
       valueText = '-';
     } else if (negative && value > 0) {
-      valueText = '-Q${fmt.format(value)}';
+      valueText = '-$moneda${fmt.format(value)}';
     } else {
-      valueText = 'Q${fmt.format(value)}';
+      valueText = '$moneda${fmt.format(value)}';
     }
 
     return Row(
@@ -895,7 +896,7 @@ class _MethodRow extends StatelessWidget {
           Expanded(
             flex: 2,
             child: Text(
-              'Q${fmt.format(method.expected)}',
+              '$moneda${fmt.format(method.expected)}',
               textAlign: TextAlign.right,
               style: GoogleFonts.inter(color: Colors.white70, fontSize: 12),
             ),
@@ -903,7 +904,7 @@ class _MethodRow extends StatelessWidget {
           Expanded(
             flex: 2,
             child: Text(
-              method.actual != null ? 'Q${fmt.format(method.actual!)}' : '—',
+              method.actual != null ? '$moneda${fmt.format(method.actual!)}' : '—',
               textAlign: TextAlign.right,
               style: GoogleFonts.inter(color: Colors.white70, fontSize: 12),
             ),
@@ -912,7 +913,7 @@ class _MethodRow extends StatelessWidget {
             flex: 2,
             child: Text(
               diff != null
-                  ? '${diff >= 0 ? '+' : ''}Q${fmt.format(diff)}'
+                  ? '${diff >= 0 ? '+' : ''}$moneda${fmt.format(diff)}'
                   : '—',
               textAlign: TextAlign.right,
               style: GoogleFonts.inter(

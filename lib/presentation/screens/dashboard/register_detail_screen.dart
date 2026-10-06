@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
+import '../../../core/utils/formato_dinero.dart';
 import '../../../core/services/firestore_service.dart';
 import '../../../data/models/cash_register_summary.dart';
 
@@ -380,7 +381,7 @@ class _OrderRow extends StatelessWidget {
             _amtCell(discounts, 90, fmt, negative: true),
             _amtCell(tips, 80, fmt, accent: const Color(0xFF22C55E)),
             _amtCell(courtesy, 80, fmt, accent: const Color(0xFFF59E0B)),
-            _cell('Q${fmt.format(total)}', 100,
+            _cell('$moneda${fmt.format(total)}', 100,
                 right: true,
                 style: GoogleFonts.inter(
                     color: Colors.white,
@@ -426,7 +427,7 @@ class _OrderRow extends StatelessWidget {
     } else {
       color = Colors.white54;
     }
-    final prefix = negative ? '-Q' : 'Q';
+    final prefix = negative ? '-$moneda' : moneda;
     return SizedBox(
       width: width,
       child: Text(
@@ -499,14 +500,14 @@ class _TotalsRow extends StatelessWidget {
                     fontWeight: FontWeight.w600),
               ),
             ),
-            _tot('Q${fmt.format(subtotal)}', 90),
-            _tot(discounts > 0 ? '-Q${fmt.format(discounts)}' : '—', 90,
+            _tot('$moneda${fmt.format(subtotal)}', 90),
+            _tot(discounts > 0 ? '-$moneda${fmt.format(discounts)}' : '—', 90,
                 color: discounts > 0 ? const Color(0xFFEF4444) : Colors.white24),
-            _tot(tips > 0 ? 'Q${fmt.format(tips)}' : '—', 80,
+            _tot(tips > 0 ? '$moneda${fmt.format(tips)}' : '—', 80,
                 color: tips > 0 ? const Color(0xFF22C55E) : Colors.white24),
-            _tot(courtesy > 0 ? 'Q${fmt.format(courtesy)}' : '—', 80,
+            _tot(courtesy > 0 ? '$moneda${fmt.format(courtesy)}' : '—', 80,
                 color: courtesy > 0 ? const Color(0xFFF59E0B) : Colors.white24),
-            _tot('Q${fmt.format(total)}', 100,
+            _tot('$moneda${fmt.format(total)}', 100,
                 color: Colors.white, bold: true),
             const SizedBox(width: 100),
           ],
@@ -564,7 +565,7 @@ class _ExpensesTab extends StatelessWidget {
               Text('Total gastos',
                   style: GoogleFonts.inter(color: Colors.white54, fontSize: 13)),
               const Spacer(),
-              Text('Q${fmt.format(total)}',
+              Text('$moneda${fmt.format(total)}',
                   style: GoogleFonts.inter(
                       color: const Color(0xFFEF4444),
                       fontSize: 15,
@@ -642,7 +643,7 @@ class _ExpenseRow extends StatelessWidget {
             ),
           ),
           Text(
-            'Q${fmt.format(amount)}',
+            '$moneda${fmt.format(amount)}',
             style: GoogleFonts.inter(
                 color: const Color(0xFFEF4444),
                 fontSize: 14,

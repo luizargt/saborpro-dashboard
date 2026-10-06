@@ -221,7 +221,7 @@ void main() {
         .firstWhere((f) => f.platillo.producto == 'Hamburguesa Clásica');
     final d = con.desglose!;
     expect(CeldasFila.de(con).gasto,
-        formatoQ(d.descuento + d.variables + d.fijos));
+        formatoDinero(d.descuento + d.variables + d.fijos));
     final sin = utilidadDificil(conReparto: false)
         .filas
         .firstWhere((f) => f.platillo.producto == 'Hamburguesa Clásica');

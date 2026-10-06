@@ -2,6 +2,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
+import '../../core/utils/formato_dinero.dart';
 import '../../data/models/dashboard_data.dart';
 import '../../core/utils/date_range.dart';
 
@@ -146,8 +147,8 @@ class SalesChart extends StatelessWidget {
                     final pt = series[group.x];
                     return BarTooltipItem(
                       isPrev
-                          ? '${_compareLabel()} · ${pt.label}\nQ${fmtFull.format(pt.amount)}'
-                          : '${pt.label}\nQ${fmtFull.format(pt.amount)}\n${pt.orders} tickets',
+                          ? '${_compareLabel()} · ${pt.label}\n$moneda${fmtFull.format(pt.amount)}'
+                          : '${pt.label}\n$moneda${fmtFull.format(pt.amount)}\n${pt.orders} tickets',
                       GoogleFonts.inter(
                         color: isPrev ? const Color(0xFFCBD5E1) : Colors.white,
                         fontSize: 11,
@@ -164,7 +165,7 @@ class SalesChart extends StatelessWidget {
                     getTitlesWidget: (value, meta) {
                       if (value == 0) return const SizedBox.shrink();
                       return Text(
-                        'Q${fmt.format(value)}',
+                        '$moneda${fmt.format(value)}',
                         style: GoogleFonts.inter(
                             color: Colors.white38, fontSize: 10),
                       );
@@ -340,7 +341,7 @@ class SalesChart extends StatelessWidget {
                     final h = e.value.x.toInt();
                     final hourStr = '${h.toString().padLeft(2, '0')}:00';
                     return LineTooltipItem(
-                      '${day.dayLabel} $hourStr\nQ${fmtFull.format(e.value.y)}',
+                      '${day.dayLabel} $hourStr\n$moneda${fmtFull.format(e.value.y)}',
                       GoogleFonts.inter(color: color, fontSize: 10),
                     );
                   }).toList(),
@@ -363,7 +364,7 @@ class SalesChart extends StatelessWidget {
                     getTitlesWidget: (value, meta) {
                       if (value == 0) return const SizedBox.shrink();
                       return Text(
-                        'Q${fmt.format(value)}',
+                        '$moneda${fmt.format(value)}',
                         style: GoogleFonts.inter(color: Colors.white38, fontSize: 10),
                       );
                     },
@@ -510,7 +511,7 @@ class SalesChart extends StatelessWidget {
               color: insightColor,
               label: 'Tu mejor día de esta semana fue ',
               value: dayText,
-              tail: ', vendiste Q${money.format(bestDayTotal)}.',
+              tail: ', vendiste $moneda${money.format(bestDayTotal)}.',
             ),
             const SizedBox(height: 6),
             _insightBullet(
@@ -518,7 +519,7 @@ class SalesChart extends StatelessWidget {
               label: '',
               value: '${hourText[0].toUpperCase()}${hourText.substring(1)}',
               tail:
-                  ', es cuando vendes más, en ese horario vendes en promedio Q${money.format(hourTotals[bestHour] / daysWithSales.length)}.',
+                  ', es cuando vendes más, en ese horario vendes en promedio $moneda${money.format(hourTotals[bestHour] / daysWithSales.length)}.',
             ),
           ],
         ),
@@ -673,8 +674,8 @@ class SalesChart extends StatelessWidget {
                     final pt = series[idx];
                     return LineTooltipItem(
                       isPrev
-                          ? '${_compareLabel()} · ${pt.label}\nQ${fmtFull.format(pt.amount)}'
-                          : '${pt.label}\nQ${fmtFull.format(pt.amount)}\n${pt.orders} tickets',
+                          ? '${_compareLabel()} · ${pt.label}\n$moneda${fmtFull.format(pt.amount)}'
+                          : '${pt.label}\n$moneda${fmtFull.format(pt.amount)}\n${pt.orders} tickets',
                       GoogleFonts.inter(
                         color: isPrev ? prevColor : Colors.white,
                         fontSize: 11,
@@ -691,7 +692,7 @@ class SalesChart extends StatelessWidget {
                     getTitlesWidget: (value, meta) {
                       if (value == 0) return const SizedBox.shrink();
                       return Text(
-                        'Q${fmt.format(value)}',
+                        '$moneda${fmt.format(value)}',
                         style: GoogleFonts.inter(color: Colors.white38, fontSize: 10),
                       );
                     },

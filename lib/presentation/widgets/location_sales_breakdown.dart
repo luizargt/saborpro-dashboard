@@ -104,6 +104,7 @@ class LocationSalesBreakdown extends StatelessWidget {
             _LocationRow(
               color: _palette[i % _palette.length],
               name: rows[i].loc.name,
+              simbolo: rows[i].loc.currencySymbol,
               sales: rows[i].sales,
               utilidad: rows[i].utilidad,
               percent: total > 0 ? (rows[i].sales / total) * 100 : 0,
@@ -119,6 +120,7 @@ class LocationSalesBreakdown extends StatelessWidget {
 class _LocationRow extends StatelessWidget {
   final Color color;
   final String name;
+  final String simbolo;
   final double sales;
   final double utilidad;
   final double percent;
@@ -127,6 +129,7 @@ class _LocationRow extends StatelessWidget {
   const _LocationRow({
     required this.color,
     required this.name,
+    required this.simbolo,
     required this.sales,
     required this.utilidad,
     required this.percent,
@@ -178,7 +181,7 @@ class _LocationRow extends StatelessWidget {
         ),
         const SizedBox(height: 6),
         Text(
-          'Q ${fmt.format(sales)} · utilidad ${utilidad < 0 ? '-' : ''}Q ${fmt.format(utilidad.abs())}',
+          '$simbolo ${fmt.format(sales)} · utilidad ${utilidad < 0 ? '-' : ''}$simbolo ${fmt.format(utilidad.abs())}',
           style: GoogleFonts.inter(
             color: Colors.white70,
             fontSize: 12,

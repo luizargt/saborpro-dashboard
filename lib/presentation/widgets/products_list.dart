@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
+import '../../core/utils/formato_dinero.dart';
 import '../../data/models/dashboard_data.dart';
 import '../../core/services/export_service.dart';
 
@@ -693,7 +694,7 @@ class _FooterRow extends StatelessWidget {
           SizedBox(
             width: 80,
             child: Text(
-              amount < 0 ? '−Q${fmt.format(amount.abs())}' : 'Q${fmt.format(amount)}',
+              amount < 0 ? '−$moneda${fmt.format(amount.abs())}' : '$moneda${fmt.format(amount)}',
               textAlign: TextAlign.right,
               style: style,
             ),
@@ -749,7 +750,7 @@ class _ProductRow extends StatelessWidget {
           SizedBox(
             width: 80,
             child: Text(
-              'Q${fmt.format(product.total)}',
+              '$moneda${fmt.format(product.total)}',
               textAlign: TextAlign.right,
               style: GoogleFonts.inter(
                 color: Colors.white,

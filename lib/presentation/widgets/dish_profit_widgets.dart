@@ -33,7 +33,7 @@ Color colorDeBanda(Banda b) => switch (b) {
 String etiquetaDeBanda(Desglose d) => switch (d.banda) {
       Banda.cubreTodo => 'cubre sus gastos',
       Banda.noCubreFijos =>
-        'aporta ${formatoQ(d.contribucion)} a los fijos, pero no toda su parte',
+        'aporta ${formatoDinero(d.contribucion)} a los fijos, pero no toda su parte',
       Banda.pierde => 'pierde en cada venta',
     };
 
@@ -156,7 +156,7 @@ class _Lectura {
       case EstadoCosto.completo:
         if (d != null && d.pct != null) {
           return _Lectura(
-            formatoQ(d.utilidad),
+            formatoDinero(d.utilidad),
             colorDeBanda(d.banda),
             'por venta · ${formatoPct(d.pct)} del precio · '
                 '${etiquetaDeBanda(d)}$revisar',
@@ -168,7 +168,7 @@ class _Lectura {
         // Sin reparto el color es el del costo de comida, no "pierde/cubre":
         // se dice con las palabras de Rentabilidad para no confundirlos.
         return _Lectura(
-          formatoQ(p.margenReceta!),
+          formatoDinero(p.margenReceta!),
           colorDeMargenReceta(p.margenRecetaPct),
           'por venta, tras la receta · la receta es '
               '${formatoPct(100 - p.margenRecetaPct!)} del precio '
@@ -290,20 +290,20 @@ class DesglosePlatillo extends StatelessWidget {
       const SizedBox(height: 10),
       Divider(color: Colors.white.withValues(alpha: 0.08), height: 1),
       const SizedBox(height: 8),
-      _Renglon('Precio de venta (con IVA)', formatoQ(p.precio), fuerte: true),
+      _Renglon('Precio de venta (con IVA)', formatoDinero(p.precio), fuerte: true),
     ];
 
     if (d != null && d.descuento > 0 && r != null) {
       hijos.add(_Renglon(
           'Descuentos (promedio del negocio, '
           '${formatoPct(r.tasaDescuento * 100)})',
-          formatoQ(-d.descuento)));
+          formatoDinero(-d.descuento)));
     }
 
     if (p.lineas.isNotEmpty) {
       hijos.add(_Renglon(
         'Receta',
-        p.costo == null ? 'Incompleta' : formatoQ(-p.costo!),
+        p.costo == null ? 'Incompleta' : formatoDinero(-p.costo!),
         colorMonto: p.costo == null ? kAmbar : null,
       ));
       for (final l in p.lineas) {
@@ -316,19 +316,19 @@ class DesglosePlatillo extends StatelessWidget {
         _Renglon(
             'Gastos variables (${formatoPct(r.ratioVariables * 100)} de lo '
             'cobrado)',
-            formatoQ(-d.variables)),
+            formatoDinero(-d.variables)),
         _Renglon(
             'Gastos fijos (${formatoPct(r.ratioFijos * 100)} de lo cobrado)',
-            formatoQ(-d.fijos)),
+            formatoDinero(-d.fijos)),
         const SizedBox(height: 4),
         Divider(color: Colors.white.withValues(alpha: 0.08), height: 1),
         const SizedBox(height: 6),
-        _Renglon('Te queda, antes de impuestos', formatoQ(d.utilidad),
+        _Renglon('Te queda, antes de impuestos', formatoDinero(d.utilidad),
             fuerte: true, colorMonto: colorDeBanda(d.banda)),
         _pie(switch (d.banda) {
           Banda.cubreTodo => 'Cubre la receta y su parte de todos los gastos.',
           Banda.noCubreFijos =>
-            'No lo quités por esto: cada venta deja ${formatoQ(d.contribucion)} '
+            'No lo quités por esto: cada venta deja ${formatoDinero(d.contribucion)} '
                 'para la renta y los sueldos. Sin él, esos gastos siguen y los '
                 'pagan los demás platillos.',
           Banda.pierde =>
@@ -337,14 +337,14 @@ class DesglosePlatillo extends StatelessWidget {
                 'la receta.',
         }),
         if (d.precioMinimo != null && d.banda != Banda.cubreTodo)
-          _pie('Cubriría todos sus gastos desde ${formatoQ(d.precioMinimo!)}.'),
+          _pie('Cubriría todos sus gastos desde ${formatoDinero(d.precioMinimo!)}.'),
       ]);
     } else if (p.estado == EstadoCosto.completo && p.margenReceta != null) {
       hijos.addAll([
         const SizedBox(height: 4),
         Divider(color: Colors.white.withValues(alpha: 0.08), height: 1),
         const SizedBox(height: 6),
-        _Renglon('Queda tras la receta (sin gastos)', formatoQ(p.margenReceta!),
+        _Renglon('Queda tras la receta (sin gastos)', formatoDinero(p.margenReceta!),
             fuerte: true,
             colorMonto: colorDeMargenReceta(p.margenRecetaPct)),
       ]);
@@ -524,7 +524,7 @@ class _LineaIngrediente extends StatelessWidget {
     switch (l.estado) {
       case EstadoLinea.ok:
         detalle = '$cantidad × ${_precioUnitario(l.precio!)}';
-        monto = formatoQ(l.centavos!);
+        monto = formatoDinero(l.centavos!);
         // Una sola línea que cuesta más que todo el platillo es casi siempre
         // un error de unidad: se marca para que se vea cuál corregir.
         if (precioPlatillo > 0 && l.centavos! > precioPlatillo) {
@@ -574,9 +574,9 @@ class _LineaIngrediente extends StatelessWidget {
 String _precioUnitario(double precio) {
   final centavos = precio * 100;
   if ((centavos - centavos.round()).abs() < 1e-9) {
-    return formatoQ(centavos.round());
+    return formatoDinero(centavos.round());
   }
-  return 'Q${formatoCantidad(precio)}';
+  return '$moneda${formatoCantidad(precio)}';
 }
 
 /// Cómo se repartieron los gastos del período, o por qué no se pudo.
@@ -635,7 +635,7 @@ class ResumenReparto extends StatelessWidget {
           final c = r.cada100;
           hijos.addAll([
             Text(
-              'De cada Q100 que cobrás, Q${c.total} se van en gastos',
+              'De cada ${moneda}100 que cobrás, $moneda${c.total} se van en gastos',
               style: GoogleFonts.inter(
                   color: Colors.white,
                   fontSize: 15,
@@ -644,8 +644,8 @@ class ResumenReparto extends StatelessWidget {
             ),
             const SizedBox(height: 3),
             Text(
-              'Aparte de la receta: Q${c.fijos} en fijos (renta, sueldos) y '
-              'Q${c.variables} en variables (luz, gas…). Gastos de $periodo; '
+              'Aparte de la receta: $moneda${c.fijos} en fijos (renta, sueldos) y '
+              '$moneda${c.variables} en variables (luz, gas…). Gastos de $periodo; '
               'precios y recetas de hoy.',
               style: GoogleFonts.inter(
                   color: Colors.white70, fontSize: 12.5, height: 1.4),
@@ -670,7 +670,7 @@ class ResumenReparto extends StatelessWidget {
           }
           if (!compacto && r.gastosDeComida > 0) {
             hijos.add(_nota(
-                'Sin contar ${formatoQ((r.gastosDeComida * 100).round())} de '
+                'Sin contar ${formatoDinero((r.gastosDeComida * 100).round())} de '
                 'insumos y pagos a proveedores: se asume que es la comida de '
                 'las recetas. Si incluye desechables o limpieza, ganás un poco '
                 'menos de lo que dice.',
@@ -713,8 +713,8 @@ class ResumenReparto extends StatelessWidget {
               kAmbar));
         case EstadoReparto.gastosSuperanVentas:
           final gastos =
-              formatoQ(((r.gastosFijos + r.gastosVariables) * 100).round());
-          final ventas = formatoQ((r.ventasNetas * 100).round());
+              formatoDinero(((r.gastosFijos + r.gastosVariables) * 100).round());
+          final ventas = formatoDinero((r.ventasNetas * 100).round());
           hijos.add(_nota(
               r.mesEnCurso
                   ? 'Apenas va el mes: ya hay $gastos de gastos y $ventas de '
@@ -775,7 +775,7 @@ class ResumenReparto extends StatelessWidget {
               : null;
   return switch (r.estado) {
     EstadoReparto.listo => (
-        texto: 'De cada Q100 que cobrás, Q${r.cada100.total} se van en gastos'
+        texto: 'De cada ${moneda}100 que cobrás, $moneda${r.cada100.total} se van en gastos'
             '${aviso == null ? '' : ' · $aviso'}',
         color: aviso == null ? Colors.white : kAmbar,
       ),

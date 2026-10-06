@@ -4,13 +4,23 @@ class LocationModel {
   final String id;
   final String name;
 
-  LocationModel({required this.id, required this.name});
+  /// El signo de moneda con que vende la sucursal. Se configura en Sabor Suite
+  /// (settings.currency_symbol) y es texto libre: "Q", "\$", "L", "USD"...
+  /// Sin configurar vale "Q", igual que en el POS.
+  final String currencySymbol;
+
+  LocationModel({required this.id, required this.name, this.currencySymbol = 'Q'});
 
   factory LocationModel.fromDoc(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;
+    final settings = data['settings'];
+    final simbolo = settings is Map ? settings['currency_symbol'] : null;
     return LocationModel(
       id: doc.id,
       name: data['name'] as String? ?? 'Sucursal',
+      currencySymbol: simbolo is String && simbolo.trim().isNotEmpty
+          ? simbolo.trim()
+          : 'Q',
     );
   }
 }

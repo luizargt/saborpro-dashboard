@@ -51,7 +51,7 @@ class CeldasFila {
     Color colorCosto = Colors.white70;
     switch (p.estado) {
       case EstadoCosto.completo:
-        costo = formatoQ(p.costo!);
+        costo = formatoDinero(p.costo!);
       case EstadoCosto.incompleto:
         costo = 'Falta';
         colorCosto = kAmbar;
@@ -73,12 +73,12 @@ class CeldasFila {
       color = kAmbar;
       significado = 'dato por revisar';
     } else if (d != null && d.pct != null) {
-      ganancia = formatoQ(d.utilidad);
+      ganancia = formatoDinero(d.utilidad);
       pct = formatoPct(d.pct);
       color = colorDeBanda(d.banda);
       significado = etiquetaDeBanda(d);
     } else if (p.margenReceta != null && p.margenRecetaPct != null) {
-      ganancia = formatoQ(p.margenReceta!);
+      ganancia = formatoDinero(p.margenReceta!);
       pct = formatoPct(p.margenRecetaPct);
       color = colorDeMargenReceta(p.margenRecetaPct);
       final salud = evaluarFoodCost(100 - p.margenRecetaPct!);
@@ -96,8 +96,8 @@ class CeldasFila {
     return CeldasFila(
       costo: costo,
       colorCosto: colorCosto,
-      gasto: d == null ? '—' : formatoQ(d.descuento + d.variables + d.fijos),
-      precio: formatoQ(p.precio),
+      gasto: d == null ? '—' : formatoDinero(d.descuento + d.variables + d.fijos),
+      precio: formatoDinero(p.precio),
       ganancia: ganancia,
       pct: pct,
       colorGanancia: color,

@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
+import '../../../core/utils/formato_dinero.dart';
 import '../../../data/models/profitability_data.dart';
 import '../../providers/dashboard_provider.dart';
 import '../../providers/menu_margin_provider.dart';
@@ -21,12 +22,12 @@ const _rojo = Color(0xFFEF4444);
 const _ambar = Color(0xFFFBBF24);
 
 // El mismo patrón que el resto de la app (cajas, gastos, detalle de caja):
-// coma para los miles, punto para los decimales y la Q adelante. El locale
-// es_GT haría lo contrario —"64.733,00 Q"—, que no es como se escribe el
-// quetzal ni como se ve en las demás pantallas.
+// coma para los miles, punto para los decimales y el signo de moneda
+// adelante. El locale es_GT haría lo contrario —"64.733,00 Q"—, que no es
+// como se escribe el quetzal ni como se ve en las demás pantallas.
 final _q = NumberFormat('#,##0.00', 'en_US');
 
-String _money(double v) => 'Q${_q.format(v)}';
+String _money(double v) => '$moneda${_q.format(v)}';
 String _pct(double? v) => v == null ? '—' : '${v.toStringAsFixed(1)}%';
 
 Color _colorDe(Salud s) => switch (s) {
@@ -528,9 +529,9 @@ class _PuntoDeEquilibrio extends StatelessWidget {
                 // Con el margen de contribución en 60%, de cada Q100 vendidos
                 // quedan Q60 — ya sin costos fijos que cubrir, esos son
                 // ganancia limpia.
-                ? 'Pasaste la meta de ${_money(be)}. Desde aquí, de cada Q100 '
+                ? 'Pasaste la meta de ${_money(be)}. Desde aquí, de cada ${moneda}100 '
                     'que vendas te quedan '
-                    'Q${(d.contributionMarginPct ?? 0).toStringAsFixed(0)} '
+                    '$moneda${(d.contributionMarginPct ?? 0).toStringAsFixed(0)} '
                     'de ganancia.'
                 : 'Necesitás vender ${_money(be)} en este período para no '
                     'perder ni ganar.',

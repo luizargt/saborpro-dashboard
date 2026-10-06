@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
+import '../../core/utils/formato_dinero.dart';
 import '../../data/models/dashboard_data.dart';
 
 class SummaryTable extends StatelessWidget {
@@ -10,7 +11,7 @@ class SummaryTable extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final fmt = NumberFormat('#,##0.00', 'en_US');
-    String q(double v) => 'Q${fmt.format(v)}';
+    String q(double v) => '$moneda${fmt.format(v)}';
 
     return Container(
       decoration: BoxDecoration(

@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import '../../data/models/dashboard_data.dart';
 import '../../data/models/inventory_data.dart';
 import '../../core/services/location_service.dart';
+import '../../core/utils/formato_dinero.dart';
 import 'fiscal_reports_service.dart';
 
 class ExportService {
@@ -19,7 +20,7 @@ class ExportService {
     excel.setDefaultSheet('Platillos vendidos');
 
     // Header
-    _header(sheet, ['Nombre', 'Cantidad', 'Total (Q)', 'Var. %']);
+    _header(sheet, ['Nombre', 'Cantidad', 'Total (${moneda.trim()})', 'Var. %']);
 
     // Filas
     for (final p in products) {
@@ -112,7 +113,7 @@ class ExportService {
   }
 
   // ── REPORTE DE CAJA ───────────────────────────────────────────────────────
-  static const _cajaHeaders = [
+  static List<String> get _cajaHeaders => [
     'Cajero',
     'Mesero',
     'Tipo de pedido',
@@ -123,11 +124,11 @@ class ExportService {
     'Tipo de venta',
     'Comprobante',
     'Cant. items',
-    'Subtotal (Q)',
-    'Propinas (Q)',
-    'Descuentos (Q)',
-    'Cortesía / Donación (Q)',
-    'Total (Q)',
+    'Subtotal (${moneda.trim()})',
+    'Propinas (${moneda.trim()})',
+    'Descuentos (${moneda.trim()})',
+    'Cortesía / Donación (${moneda.trim()})',
+    'Total (${moneda.trim()})',
   ];
 
   static void exportCajaReport(
@@ -150,7 +151,7 @@ class ExportService {
 
     // Hoja 2: órdenes canceladas — mismas columnas + Razón de cancelación + Monto cancelado
     final cancelSheet = excel['Órdenes Canceladas'];
-    _header(cancelSheet, [..._cajaHeaders, 'Razón de cancelación', 'Monto cancelado (Q)']);
+    _header(cancelSheet, [..._cajaHeaders, 'Razón de cancelación', 'Monto cancelado (${moneda.trim()})']);
     for (final o in cancelledOrders) {
       final rawFecha = o['cancelled_at'] ?? o['updated_at'] ?? o['created_at'];
       final baseRow = _buildCajaRow(
@@ -352,7 +353,7 @@ class ExportService {
     final excel = Excel.createExcel();
     final sheet = excel['Ventas por Metodo de Pago'];
     excel.setDefaultSheet('Ventas por Metodo de Pago');
-    _header(sheet, ['Fecha', ...ordered, 'Total (Q)']);
+    _header(sheet, ['Fecha', ...ordered, 'Total (${moneda.trim()})']);
 
     final sortedDays = byDay.keys.toList()..sort();
     final grandTotals = <String, double>{for (final m in ordered) m: 0};

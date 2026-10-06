@@ -10,6 +10,7 @@ import '../../core/services/auth_service.dart';
 import '../../core/services/sales_aggregates_service.dart';
 import '../../core/services/monthly_rollup_service.dart';
 import '../../core/utils/date_range.dart';
+import '../../core/utils/formato_dinero.dart';
 import '../../data/models/dashboard_data.dart';
 import '../../data/models/cash_register_summary.dart';
 
@@ -150,10 +151,27 @@ class DashboardProvider extends ChangeNotifier {
     ).name;
   }
 
+  /// Fija la moneda con que se pintan los montos: la de la sucursal elegida o,
+  /// en "Todas", la que usan sus sucursales. Va antes de cada notifyListeners
+  /// que pueda cambiarla, porque las pantallas la leen al reconstruirse.
+  ///
+  /// Si en "Todas" se mezclan monedas, gana la que más sucursales usan: el
+  /// total sumado no tiene una moneda correcta, y el desglose por sucursal
+  /// muestra cada una con la suya.
+  void _actualizarMoneda() {
+    final enVista = _selectedLocationId == null
+        ? _locations
+        : _locations.where((l) => l.id == _selectedLocationId);
+    fijarMoneda(monedaMasUsada(enVista.map((l) => l.currencySymbol)));
+  }
+
   void init(String tenantId, {String? locationId}) {
     _tenantId = tenantId;
     _locationId = locationId;
     _rawCacheValid = false;
+    // La moneda del negocio anterior no vale para este; se vuelve a fijar en
+    // cuanto lleguen sus sucursales.
+    fijarMoneda('Q');
     // Los totales cacheados son de otro negocio: tirarlos antes de nada.
     _aggCache.clear();
     _detalleCache.clear();
@@ -172,6 +190,7 @@ class DashboardProvider extends ChangeNotifier {
       _locations = _allowedLocationIds.isNotEmpty
           ? all.where((l) => _allowedLocationIds.contains(l.id)).toList()
           : all;
+      _actualizarMoneda();
       notifyListeners();
 
       // _fetchCustomMethodNames depende de _locations, que carga en paralelo con
@@ -189,6 +208,7 @@ class DashboardProvider extends ChangeNotifier {
   void selectLocation(String? locationId) {
     if (_selectedLocationId == locationId) return;
     _selectedLocationId = locationId;
+    _actualizarMoneda();
     // En la vista de año las sumas las hace Firestore filtrando por sucursal,
     // así que no hay nada que re-filtrar en memoria: hay que volver a pedirlas.
     // `_aggCache` hace que volver a una pestaña ya vista no cueste ni una

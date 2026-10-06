@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import '../../../core/utils/formato_dinero.dart';
 import '../../../presentation/providers/dashboard_provider.dart';
 import '../../../presentation/widgets/location_selector.dart';
 import '../../../presentation/widgets/max_content_width.dart';
@@ -111,7 +112,7 @@ class _ExpensesBody extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final fmt = NumberFormat('#,##0.00', 'en_US');
-    String q(double v) => 'Q${fmt.format(v)}';
+    String q(double v) => '$moneda${fmt.format(v)}';
 
     // grandTotal se calcula abajo después de separar tipos
 
@@ -459,7 +460,7 @@ class _ExpenseRow extends StatelessWidget {
           Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Text('Q${fmt.format(amount)}',
+              Text('$moneda${fmt.format(amount)}',
                   style: GoogleFonts.inter(
                       color: const Color(0xFFEF4444),
                       fontSize: 14,
@@ -578,7 +579,7 @@ class _PurchaseRow extends StatelessWidget {
           Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Text('Q${fmt.format(total)}',
+              Text('$moneda${fmt.format(total)}',
                   style: GoogleFonts.inter(
                       color: const Color(0xFFF97316),
                       fontSize: 14,

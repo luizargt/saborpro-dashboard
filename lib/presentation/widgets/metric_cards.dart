@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
+import '../../core/utils/formato_dinero.dart';
 import '../../data/models/dashboard_data.dart';
 
 class MetricCards extends StatelessWidget {
@@ -24,9 +25,9 @@ class MetricCards extends StatelessWidget {
             Expanded(
               child: _MetricCard(
                 label: 'Venta Bruta',
-                value: 'Q${fmt.format(metrics.ventaBruta)}',
+                value: '$moneda${fmt.format(metrics.ventaBruta)}',
                 change: metrics.salesChangePercent,
-                prevLabel: 'vs anterior: Q${fmt.format(metrics.prevTotalSales)}',
+                prevLabel: 'vs anterior: $moneda${fmt.format(metrics.prevTotalSales)}',
               ),
             ),
             const SizedBox(width: 10),
@@ -42,9 +43,9 @@ class MetricCards extends StatelessWidget {
             Expanded(
               child: _MetricCard(
                 label: 'Promedio',
-                value: 'Q${fmt.format(metrics.avgTicket)}',
+                value: '$moneda${fmt.format(metrics.avgTicket)}',
                 change: metrics.avgTicketChangePercent,
-                prevLabel: 'vs anterior: Q${fmt.format(metrics.prevAvgTicket)}',
+                prevLabel: 'vs anterior: $moneda${fmt.format(metrics.prevAvgTicket)}',
               ),
             ),
           ],
@@ -58,7 +59,7 @@ class MetricCards extends StatelessWidget {
                 Expanded(
                   child: _CompactMetricCard(
                     label: 'Propinas',
-                    value: 'Q${fmt.format(metrics.tips)}',
+                    value: '$moneda${fmt.format(metrics.tips)}',
                     count: metrics.tipsCount,
                     accent: const Color(0xFFF59E0B),
                   ),
@@ -69,7 +70,7 @@ class MetricCards extends StatelessWidget {
                 Expanded(
                   child: _CompactMetricCard(
                     label: 'Cobro Envío Domicilio',
-                    value: 'Q${fmt.format(metrics.deliveryFees)}',
+                    value: '$moneda${fmt.format(metrics.deliveryFees)}',
                     count: metrics.deliveryCount,
                     accent: const Color(0xFF3B82F6),
                   ),
@@ -83,7 +84,7 @@ class MetricCards extends StatelessWidget {
           const SizedBox(height: 10),
           _CompactMetricCard(
             label: 'Cortesías / Donaciones',
-            value: 'Q${fmt.format(metrics.courtesyTotal)}',
+            value: '$moneda${fmt.format(metrics.courtesyTotal)}',
             count: metrics.courtesyCount,
             accent: const Color(0xFF14B8A6),
           ),

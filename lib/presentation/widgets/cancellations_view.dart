@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 
+import '../../core/utils/formato_dinero.dart';
 import '../../data/models/cancellation_data.dart';
 
 // Paleta del dashboard (misma que Cierres de caja y Gastos).
@@ -139,7 +140,7 @@ class _HeroCard extends StatelessWidget {
             // se lee como "no pasó nada", que es justo lo contrario.
             report.saleWaste.items > 0 && report.saleWaste.amount == 0
                 ? '—'
-                : 'Q${_fmtMoney.format(report.saleWaste.amount)}',
+                : '$moneda${_fmtMoney.format(report.saleWaste.amount)}',
             style: GoogleFonts.inter(
               color: _kLoss,
               fontSize: 30,
@@ -196,7 +197,7 @@ class _HeroCard extends StatelessWidget {
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
-                    'Q${_fmtMoney.format(report.saleWaste.withoutRecipeAmount)} '
+                    '$moneda${_fmtMoney.format(report.saleWaste.withoutRecipeAmount)} '
                     'son ${_fmtInt.format(report.saleWaste.withoutRecipeItems)} '
                     '${report.saleWaste.withoutRecipeItems == 1 ? 'producto' : 'productos'} '
                     'sin receta: no bajan inventario ni tienen costo.',
@@ -281,7 +282,7 @@ class _ValueText extends StatelessWidget {
           fit: BoxFit.scaleDown,
           alignment: Alignment.centerLeft,
           child: Text(
-            money ? 'Q${_fmtMoney.format(value.amount)}' : value.unpricedLabel,
+            money ? '$moneda${_fmtMoney.format(value.amount)}' : value.unpricedLabel,
             style: GoogleFonts.inter(
               color: color,
               fontSize: size,

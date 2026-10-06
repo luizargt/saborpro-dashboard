@@ -164,7 +164,7 @@ void main() {
       expect(p.costo, 30);
       expect(p.margenReceta, 0);
       expect(p.alertas, isEmpty);
-      expect(formatoQ(p.margenReceta!), 'Q0.00');
+      expect(formatoDinero(p.margenReceta!), 'Q0.00');
       expect(formatoPct(p.margenRecetaPct), '0.0%');
     });
 
@@ -877,9 +877,9 @@ void main() {
 
   group('formato', () {
     test('miles con coma, signo de resta tipográfico y cero sin signo', () {
-      expect(formatoQ(125000), 'Q1,250.00');
-      expect(formatoQ(-55800), '−Q558.00');
-      expect(formatoQ(0), 'Q0.00');
+      expect(formatoDinero(125000), 'Q1,250.00');
+      expect(formatoDinero(-55800), '−Q558.00');
+      expect(formatoDinero(0), 'Q0.00');
       expect(formatoPct(-620), '−620.0%');
       expect(formatoPct(-0.04), '0.0%');
     });
