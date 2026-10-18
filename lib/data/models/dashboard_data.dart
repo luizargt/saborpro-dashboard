@@ -37,6 +37,16 @@ class PeriodMetrics {
   final double purchaseCosts;       // compras de insumos recibidas (collection: purchaseOrders)
   final double courtesyTotal;       // valor precio original de ítems de cortesía
 
+  /// Propinas que entraron a la caja como ingreso ("Meter dinero" →
+  /// Propina en el POS). No son ventas: no entran en [totalSales], ni en la
+  /// venta bruta, ni en la utilidad; solo se suman a lo que se muestra como
+  /// propinas.
+  final double tipsOutsideSales;
+  final int tipsOutsideCount;
+
+  /// Todas las propinas: las cobradas en los tickets y las metidas a la caja.
+  double get allTips => tips + tipsOutsideSales;
+
   // Cantidad de órdenes que aportaron a cada concepto (para mostrar "N cobros")
   final int tipsCount;
   final int deliveryCount;
@@ -93,11 +103,15 @@ class PeriodMetrics {
     this.productsByMethod = const {},
     this.detailAvailable = true,
     this.truncated = false,
+    this.tipsOutsideSales = 0,
+    this.tipsOutsideCount = 0,
   });
 
   PeriodMetrics copyWith({
     Map<String, double>? salesByMethod,
     Map<String, List<ProductSummary>>? productsByMethod,
+    double? tipsOutsideSales,
+    int? tipsOutsideCount,
   }) {
     return PeriodMetrics(
       totalSales: totalSales,
@@ -126,6 +140,8 @@ class PeriodMetrics {
       productsByMethod: productsByMethod ?? this.productsByMethod,
       detailAvailable: detailAvailable,
       truncated: truncated,
+      tipsOutsideSales: tipsOutsideSales ?? this.tipsOutsideSales,
+      tipsOutsideCount: tipsOutsideCount ?? this.tipsOutsideCount,
     );
   }
 

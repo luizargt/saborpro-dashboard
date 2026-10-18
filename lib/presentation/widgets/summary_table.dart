@@ -35,6 +35,13 @@ class SummaryTable extends StatelessWidget {
             bold: true,
             highlight: true,
           ),
+          // Entraron a la caja como ingreso: no son parte de lo cobrado.
+          if (metrics.tipsOutsideSales > 0)
+            _Row(
+              label: 'Propinas fuera de ventas',
+              sublabel: 'metidas a la caja',
+              value: q(metrics.tipsOutsideSales),
+            ),
           if (metrics.totalCosts > 0) ...[
             const SizedBox(height: 8),
             _SectionHeader('Costos y gastos'),

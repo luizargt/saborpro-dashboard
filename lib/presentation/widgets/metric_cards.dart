@@ -13,7 +13,8 @@ class MetricCards extends StatelessWidget {
     final fmt = NumberFormat('#,##0.00', 'en_US');
     final fmtInt = NumberFormat('#,##0', 'en_US');
 
-    final showTips     = metrics.tips > 0;
+    // Con las propinas metidas a la caja como ingreso (no son ventas).
+    final showTips     = metrics.allTips > 0;
     final showDelivery = metrics.deliveryFees > 0;
     final showCourtesy = metrics.courtesyTotal > 0;
 
@@ -59,7 +60,8 @@ class MetricCards extends StatelessWidget {
                 Expanded(
                   child: _CompactMetricCard(
                     label: 'Propinas',
-                    value: '$moneda${fmt.format(metrics.tips)}',
+                    value: '$moneda${fmt.format(metrics.allTips)}',
+                    // "N cobros" son tickets: las de la caja no son cobros.
                     count: metrics.tipsCount,
                     accent: const Color(0xFFF59E0B),
                   ),

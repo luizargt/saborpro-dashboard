@@ -430,11 +430,15 @@ class DashboardProvider extends ChangeNotifier {
         : [];
 
     _buildCashRegisterSummaries(_rawCashRegisters);
+    // Las propinas metidas a la caja como ingreso: se muestran con las
+    // propinas, pero no son ventas (ni venta bruta, ni utilidad).
+    final propinasFuera = _extractTipDeposits(_rawCashRegisters, _range.start, _range.end);
+    final totalPropinasFuera = propinasFuera.fold<double>(0, (s, m) => s + m);
     if (_usaAgregados) {
       _metrics = _buildMetricsFromAggregate(
         expenses: expenses,
         purchaseCosts: purchaseCosts,
-      );
+      ).copyWith(tipsOutsideSales: totalPropinasFuera, tipsOutsideCount: propinasFuera.length);
       if (notify) notifyListeners();
       return;
     }
@@ -449,7 +453,7 @@ class DashboardProvider extends ChangeNotifier {
       productClassificationMap: _cachedProductClassificationMap ?? const {},
       productCategoryNameMap: _cachedProductCategoryNameMap ?? const {},
       categoryNameById: _rawCategoryNameById,
-    );
+    ).copyWith(tipsOutsideSales: totalPropinasFuera, tipsOutsideCount: propinasFuera.length);
 
     if (notify) notifyListeners();
   }
@@ -639,6 +643,33 @@ class DashboardProvider extends ChangeNotifier {
       _expenseSampleDate = 'error: $e';
       return [];
     }
+  }
+
+  /// Los montos de las propinas metidas a la caja como ingreso (en el POS,
+  /// "Meter dinero" → Propina: un depósito con `expenseCategoryId` =
+  /// 'propina'), en el rango y la sucursal elegidos. Sin query adicional.
+  List<double> _extractTipDeposits(
+      List<Map<String, dynamic>> registers, DateTime start, DateTime end) {
+    final startDay = DateTime(start.year, start.month, start.day);
+    final endDay = DateTime(end.year, end.month, end.day, 23, 59, 59, 999);
+    final results = <double>[];
+    for (final data in registers) {
+      if (!_passesLocationFilter(data['locationId'] as String?)) continue;
+      final movementsList = data['movements'] as List<dynamic>? ?? [];
+      for (final raw in movementsList) {
+        if (raw is! Map) continue;
+        if (raw['type'] != 'deposit' || raw['expenseCategoryId'] != 'propina') continue;
+        final rawDate = raw['createdAt'];
+        DateTime? dt;
+        if (rawDate is String) dt = DateTime.tryParse(rawDate);
+        if (rawDate is Timestamp) dt = rawDate.toDate();
+        if (dt == null) continue;
+        if (dt.isUtc) dt = dt.toLocal();
+        if (dt.isBefore(startDay) || dt.isAfter(endDay)) continue;
+        results.add((raw['amount'] as num? ?? 0).toDouble());
+      }
+    }
+    return results;
   }
 
   /// Extrae retiros de caja (withdrawal) desde datos ya fetchados de cashRegisters.
@@ -1188,6 +1219,8 @@ class DashboardProvider extends ChangeNotifier {
       // esconderlos y el año se ve igual que un mes.
       detailAvailable: true,
       truncated: m.truncated,
+      tipsOutsideSales: m.tipsOutsideSales,
+      tipsOutsideCount: m.tipsOutsideCount,
     );
   }
 
