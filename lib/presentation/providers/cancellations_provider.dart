@@ -42,12 +42,12 @@ class CancellationsProvider extends ChangeNotifier {
   /// reconstruye sin que hayan cambiado ni el rango ni la sucursal.
   String? _lastKey;
 
-  static String _keyOf(DateRange r, String? locationId) =>
-      '${r.start.toIso8601String()}|${r.end.toIso8601String()}|${locationId ?? "*"}';
+  static String _keyOf(DateRange r, String? locationId, String firmaMoneda) =>
+      '${r.start.toIso8601String()}|${r.end.toIso8601String()}|${locationId ?? "*"}|$firmaMoneda';
 
-  /// Recarga solo si cambió el rango o la sucursal del dashboard.
+  /// Recarga solo si cambió el rango, la sucursal o la moneda del dashboard.
   Future<void> loadIfNeeded(DashboardProvider dp) {
-    final key = _keyOf(dp.range, dp.selectedLocationId);
+    final key = _keyOf(dp.range, dp.selectedLocationId, dp.firmaMoneda);
     if (key == _lastKey && !_loading) return Future.value();
     return load(dp);
   }
@@ -58,7 +58,7 @@ class CancellationsProvider extends ChangeNotifier {
     final tenantId = dp.tenantId ?? AuthService().tenantId;
     if (tenantId == null || tenantId.isEmpty) return;
 
-    _lastKey = _keyOf(dp.range, dp.selectedLocationId);
+    _lastKey = _keyOf(dp.range, dp.selectedLocationId, dp.firmaMoneda);
     _loading = true;
     _error = null;
     notifyListeners();
@@ -66,7 +66,7 @@ class CancellationsProvider extends ChangeNotifier {
     try {
       final results = await Future.wait([
         _fetchMovements(tenantId, dp.range),
-        _fetchIngredientCosts(tenantId),
+        _fetchIngredientCosts(tenantId, dp.factorDe),
         dp.fetchCancelledOrders(),
       ]);
 
@@ -87,6 +87,9 @@ class CancellationsProvider extends ChangeNotifier {
         // peligrosa justo en el reporte que existe para ver lo que se pierde.
         // Solo se oculta cuando se está mirando una sucursal en concreto.
         if (locationId.isEmpty) return selected == null || selected.isEmpty;
+        // Una sucursal cuya moneda no tiene tipo de cambio no se suma con las
+        // demás (la pantalla lo avisa).
+        if (dp.factorDe(locationId, null) == null) return false;
         if (selected != null && selected.isNotEmpty) {
           return locationId == selected;
         }
@@ -191,7 +194,13 @@ class CancellationsProvider extends ChangeNotifier {
   /// Ojo con el nombre del campo: `ingredients` filtra por `tenant_id` en
   /// snake_case mientras que `inventoryMovements` usa `tenantId`. No es un
   /// error de tipeo, son dos convenciones que conviven en la base.
-  Future<Map<String, IngredientCost>> _fetchIngredientCosts(String tenantId) async {
+  /// El precio de cada ingrediente en la moneda de la vista: el de hoy, con
+  /// el tipo de cambio de hoy (el reporte ya valoriza la merma a precio
+  /// actual).
+  Future<Map<String, IngredientCost>> _fetchIngredientCosts(
+    String tenantId,
+    double? Function(String? locationId, DateTime? fecha) factorDe,
+  ) async {
     final snap = await _firestore.instance
         .collection('ingredients')
         .where('tenant_id', isEqualTo: tenantId)
@@ -201,12 +210,13 @@ class CancellationsProvider extends ChangeNotifier {
     for (final doc in snap.docs) {
       final data = doc.data();
       final price = data['lastPurchasePrice'];
+      final factor = factorDe(data['location_id'] as String?, null);
       out[doc.id] = IngredientCost(
         name: (data['name'] as String? ?? '').trim(),
         unit: (data['unit'] as String? ?? 'u').trim().isEmpty
             ? 'u'
             : (data['unit'] as String).trim(),
-        price: price is num ? price.toDouble() : null,
+        price: price is num && factor != null ? price.toDouble() * factor : null,
       );
     }
     return out;

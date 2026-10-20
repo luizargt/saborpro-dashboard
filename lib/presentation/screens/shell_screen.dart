@@ -20,6 +20,7 @@ import '../../presentation/screens/inventory/inventory_screen.dart';
 import '../../presentation/screens/notifications/notifications_screen.dart';
 import '../../presentation/providers/notifications_provider.dart';
 import '../../presentation/screens/reports/reports_list_screen.dart';
+import '../../presentation/screens/settings/moneda_settings_screen.dart';
 import '../../presentation/screens/settings/notification_settings_screen.dart';
 import '../../presentation/widgets/period_selector.dart';
 
@@ -1104,7 +1105,8 @@ class _MenuModalState extends State<_MenuModal> {
       // que exportar inventario no arrastre un año de órdenes que no mira.
       switch (_selected) {
         case _ReportType.caja:
-          final orders = await dp.ensureDetailedOrders();
+          // Sin convertir: este reporte se cuadra contra la caja.
+          final orders = await dp.ensureDetailedOrdersLocal();
           final orderDocIds = orders
               .map((o) => o['_docId'] as String? ?? '')
               .where((id) => id.isNotEmpty)
@@ -1118,7 +1120,7 @@ class _MenuModalState extends State<_MenuModal> {
           final results = await Future.wait([
             dp.fetchCertifiedInvoiceOrderIds(orderDocIds),
             dp.fetchUserNamesById(userIdsToResolve),
-            dp.fetchCancelledOrders(),
+            dp.fetchCancelledOrders(local: true),
           ]);
           final certifiedIds    = results[0] as Set<String>;
           final userNamesById   = results[1] as Map<String, String>;
@@ -1129,6 +1131,7 @@ class _MenuModalState extends State<_MenuModal> {
             userNamesById,
             dp.range.label,
             cancelledOrders: cancelledOrders,
+            simbolos: dp.simbolosPorMoneda,
           );
         case _ReportType.metodoPago:
           ExportService.exportPaymentMethodReport(
@@ -1379,6 +1382,43 @@ class _MenuModalState extends State<_MenuModal> {
           ),
           Divider(color: Colors.white.withOpacity(0.06)),
           const SizedBox(height: 4),
+
+          // Moneda y tipo de cambio: solo si hay sucursales que venden en
+          // monedas distintas (a las demás no les dice nada).
+          if (context.watch<DashboardProvider>().hayOtraMoneda) ...[
+            GestureDetector(
+              onTap: () {
+                final navigator = Navigator.of(context);
+                navigator.pop();
+                navigator.push(
+                  MaterialPageRoute(builder: (_) => const MonedaSettingsScreen()),
+                );
+              },
+              behavior: HitTestBehavior.opaque,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                child: Row(
+                  children: [
+                    const Icon(Icons.currency_exchange_rounded, color: Colors.white38, size: 20),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Moneda y tipo de cambio',
+                        style: GoogleFonts.inter(
+                          color: Colors.white70,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                    const Icon(Icons.chevron_right_rounded, color: Colors.white38, size: 20),
+                  ],
+                ),
+              ),
+            ),
+            Divider(color: Colors.white.withOpacity(0.06)),
+            const SizedBox(height: 4),
+          ],
 
           // Botón Salir
           GestureDetector(

@@ -12,6 +12,9 @@ class CajasScreen extends StatelessWidget {
   final List<CashRegisterSummary> closed;
   final List<Map<String, dynamic>> orders;
   final List<Map<String, dynamic>> expenseItems;
+  /// Signo de moneda de cada sucursal: cada caja se pinta con el suyo, aunque
+  /// el resto del reporte esté convertido a la moneda principal.
+  final Map<String, String> locationSymbols;
   final Map<String, String> locationNames;
   final String? tenantId;
   final VoidCallback? onRegisterClosed;
@@ -23,6 +26,7 @@ class CajasScreen extends StatelessWidget {
     required this.orders,
     required this.expenseItems,
     required this.locationNames,
+    this.locationSymbols = const {},
     this.tenantId,
     this.onRegisterClosed,
   });
@@ -47,18 +51,24 @@ class CajasScreen extends StatelessWidget {
         if (open.isNotEmpty) ...[
           _sectionLabel('En caja ahora'),
           const SizedBox(height: 8),
-          ...open.map((r) => _OpenRegisterCard(register: r, onClosed: onRegisterClosed)),
+          ...open.map((r) => MonedaLocal(
+                simbolo: locationSymbols[r.locationId] ?? moneda,
+                child: _OpenRegisterCard(register: r, onClosed: onRegisterClosed),
+              )),
           const SizedBox(height: 20),
         ],
         if (closed.isNotEmpty) ...[
           _sectionLabel('Cierres del período'),
           const SizedBox(height: 8),
-          ...closed.map((r) => _ClosedRegisterCard(
-                register: r,
-                orders: orders,
-                expenseItems: expenseItems,
-                locationNames: locationNames,
-                tenantId: tenantId,
+          ...closed.map((r) => MonedaLocal(
+                simbolo: locationSymbols[r.locationId] ?? moneda,
+                child: _ClosedRegisterCard(
+                  register: r,
+                  orders: orders,
+                  expenseItems: expenseItems,
+                  locationNames: locationNames,
+                  tenantId: tenantId,
+                ),
               )),
         ],
       ],
@@ -350,7 +360,7 @@ class _ClosedRegisterCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     Text(
-                      '$moneda${fmt.format(totalSales)}',
+                      '${MonedaLocal.de(context)}${fmt.format(totalSales)}',
                       style: GoogleFonts.inter(
                         color: const Color(0xFF7444fd),
                         fontSize: 15,
@@ -493,6 +503,7 @@ class _ClosedRegisterCard extends StatelessWidget {
                   expenseItems: expenseItems,
                   locationNames: locationNames,
                   tenantId: tenantId,
+                  simbolo: MonedaLocal.de(context),
                 ),
               ),
             ),
@@ -603,11 +614,11 @@ class CierresNoAplicadosBlock extends StatelessWidget {
 
   static String _cuando(DateTime f) => '${_dos(f.day)}/${_dos(f.month)} a las ${_hora.format(f)}';
 
-  static String _monto(dynamic v) => '$moneda${_fmt.format(v is num ? v.toDouble() : 0.0)}';
+  static String _monto(dynamic v, String signo) => '$signo${_fmt.format(v is num ? v.toDouble() : 0.0)}';
 
   static bool _usado(dynamic v) => v is num && v.abs() > 0.004;
 
-  String _cierre(Map<String, dynamic> c) {
+  String _cierre(Map<String, dynamic> c, String signo) {
     final modelo = c['device_model'];
     final en = modelo is String &&
             modelo.trim().isNotEmpty &&
@@ -634,13 +645,13 @@ class CierresNoAplicadosBlock extends StatelessWidget {
     }
 
     final contado = [
-      'efectivo ${_monto(c['actualCash'])}',
-      if (_usado(c['actualCard'])) 'tarjeta ${_monto(c['actualCard'])}',
-      if (_usado(c['actualTransfer'])) 'transferencia ${_monto(c['actualTransfer'])}',
-      if (_usado(c['actualPedidosya'])) 'PedidosYa ${_monto(c['actualPedidosya'])}',
-      if (_usado(c['actualUbereats'])) 'Uber Eats ${_monto(c['actualUbereats'])}',
-      for (final e in propios.entries) '${e.key} ${_monto(e.value)}',
-      if (_usado(sinNombre)) 'otros ${_monto(sinNombre)}',
+      'efectivo ${_monto(c['actualCash'], signo)}',
+      if (_usado(c['actualCard'])) 'tarjeta ${_monto(c['actualCard'], signo)}',
+      if (_usado(c['actualTransfer'])) 'transferencia ${_monto(c['actualTransfer'], signo)}',
+      if (_usado(c['actualPedidosya'])) 'PedidosYa ${_monto(c['actualPedidosya'], signo)}',
+      if (_usado(c['actualUbereats'])) 'Uber Eats ${_monto(c['actualUbereats'], signo)}',
+      for (final e in propios.entries) '${e.key} ${_monto(e.value, signo)}',
+      if (_usado(sinNombre)) 'otros ${_monto(sinNombre, signo)}',
     ].join(', ');
     final fecha = _fecha(c['closed_at']);
     if (fecha == null) return 'Contó $contado.';
@@ -688,7 +699,7 @@ class CierresNoAplicadosBlock extends StatelessWidget {
           for (final c in cierres)
             Padding(
               padding: const EdgeInsets.only(left: 8, bottom: 2),
-              child: Text(_cierre(c), style: texto),
+              child: Text(_cierre(c, MonedaLocal.de(context)), style: texto),
             ),
         ],
       ),
@@ -774,9 +785,9 @@ class _SummaryRow extends StatelessWidget {
     if (value == 0 && !total) {
       valueText = '-';
     } else if (negative && value > 0) {
-      valueText = '-$moneda${fmt.format(value)}';
+      valueText = '-${MonedaLocal.de(context)}${fmt.format(value)}';
     } else {
-      valueText = '$moneda${fmt.format(value)}';
+      valueText = '${MonedaLocal.de(context)}${fmt.format(value)}';
     }
 
     return Row(
@@ -896,7 +907,7 @@ class _MethodRow extends StatelessWidget {
           Expanded(
             flex: 2,
             child: Text(
-              '$moneda${fmt.format(method.expected)}',
+              '${MonedaLocal.de(context)}${fmt.format(method.expected)}',
               textAlign: TextAlign.right,
               style: GoogleFonts.inter(color: Colors.white70, fontSize: 12),
             ),
@@ -904,7 +915,7 @@ class _MethodRow extends StatelessWidget {
           Expanded(
             flex: 2,
             child: Text(
-              method.actual != null ? '$moneda${fmt.format(method.actual!)}' : '—',
+              method.actual != null ? '${MonedaLocal.de(context)}${fmt.format(method.actual!)}' : '—',
               textAlign: TextAlign.right,
               style: GoogleFonts.inter(color: Colors.white70, fontSize: 12),
             ),
@@ -913,7 +924,7 @@ class _MethodRow extends StatelessWidget {
             flex: 2,
             child: Text(
               diff != null
-                  ? '${diff >= 0 ? '+' : ''}$moneda${fmt.format(diff)}'
+                  ? '${diff >= 0 ? '+' : ''}${MonedaLocal.de(context)}${fmt.format(diff)}'
                   : '—',
               textAlign: TextAlign.right,
               style: GoogleFonts.inter(

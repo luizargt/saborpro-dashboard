@@ -222,4 +222,40 @@ void main() {
     await vaciarMicrotareas();
     expect(p.descartados, 0, reason: 'un precio vacío no es un error');
   });
+
+  test('"Todas" acotada a unas sucursales no usa costos de las otras', () async {
+    // "Todas" con monedas distintas se calcula con las sucursales de una sola
+    // moneda: un costo en pesos no puede entrar en un platillo en quetzales.
+    final f = FuenteFalsa();
+    final p = MenuMarginProvider(fuente: f, sucursalesPermitidas: () => {});
+    final carga = p.cargarSiHaceFalta('t1');
+    f.responder(menuDe('Pollo frito'));
+    await carga;
+
+    final conS1 = p.platillosPara(null, soloSucursales: {'s1'})!.single;
+    expect(conS1.costo, 1000, reason: 'el pollo de s1 a Q10');
+
+    final conS2 = p.platillosPara(null, soloSucursales: {'s2'})!.single;
+    expect(conS2.costo, isNull, reason: 'la receta pide el pollo de s1, que quedó fuera');
+    expect(conS2.noEnSucursal, ['Pollo']);
+
+    // Sin acotar, igual que siempre.
+    expect(p.platillosPara(null)!.single.costo, 1000);
+  });
+
+  test('aMoneda pasa precio y costo con el mismo factor', () {
+    final m = MargenPlatillo(
+      productoId: 'p',
+      presentacionId: 'pr',
+      producto: 'Empanada',
+      precio: 125000,
+      estado: EstadoCosto.completo,
+      lineas: const [LineaCosto(ingrediente: 'Carne', cantidad: 2, precio: 250)],
+    );
+    final q = m.aMoneda(1 / 125);
+    expect(q.precio, 1000);
+    expect(q.costo, 400);
+    expect(q.margenRecetaPct, closeTo(m.margenRecetaPct!, 1e-9));
+    expect(identical(m.aMoneda(1), m), isTrue);
+  });
 }

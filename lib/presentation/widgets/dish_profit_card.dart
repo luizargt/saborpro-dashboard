@@ -23,9 +23,20 @@ UtilidadMenu? construirUtilidad(
   ProfitabilityProvider rentabilidad,
   MenuMarginProvider menu,
 ) {
-  final platillos = menu.platillosPara(sucursalEfectiva(
-      dash.selectedLocationId, [for (final l in dash.locations) l.id]));
+  final sucursal = sucursalEfectiva(
+      dash.selectedLocationId, [for (final l in dash.locations) l.id]);
+  final grupo = sucursal == null ? grupoDePlatillosEnTodas(dash) : null;
+  var platillos = menu.platillosPara(sucursal, soloSucursales: grupo?.ids);
   if (platillos == null) return null;
+  // Los precios del menú están en la moneda de la sucursal; los gastos que se
+  // reparten vienen en la de la vista. Se pasan a la misma con el tipo de
+  // cambio de hoy (es el menú de hoy).
+  final factor = grupo != null ? grupo.factor : (sucursal == null ? 1.0 : dash.factorDe(sucursal, null));
+  if (factor == null) {
+    platillos = const [];
+  } else if (factor != 1) {
+    platillos = [for (final p in platillos) p.aMoneda(factor)];
+  }
 
   RepartoGastos? reparto;
   // Solo con los números de Rentabilidad de ESTE período y ESTA sucursal:
@@ -60,6 +71,44 @@ bool calculandoGastos(DashboardProvider dash, ProfitabilityProvider r) =>
 
 bool esVistaTodas(DashboardProvider dash) =>
     dash.selectedLocationId == null && dash.locations.length > 1;
+
+/// "Todas" con sucursales en monedas distintas: el precio base y los costos de
+/// cada ingrediente no se pueden mezclar, así que se calcula con las sucursales
+/// de UNA moneda (la principal si alguna la usa; si no, la que más sucursales
+/// tienen) y se pasa a la principal con el tipo de cambio de hoy. Nulo cuando
+/// no hace falta (una sola moneda en vista).
+({Set<String> ids, double? factor, List<String> fuera, String simbolo})? grupoDePlatillosEnTodas(
+    DashboardProvider dash) {
+  if (dash.selectedLocationId != null || !dash.convierte) return null;
+  final porMoneda = <String, List<String>>{};
+  for (final l in dash.locations) {
+    porMoneda.putIfAbsent(l.currencyCode, () => []).add(l.id);
+  }
+  if (porMoneda.isEmpty) return null;
+  // Con una sola moneda a la vista igual hay que convertir si no es la
+  // principal (dueño que eligió ver todo en dólares, por ejemplo).
+  final principal = dash.codigoPrincipal;
+  final codigo = porMoneda.containsKey(principal)
+      ? principal
+      : porMoneda.entries.reduce((a, b) => b.value.length > a.value.length ? b : a).key;
+  final ids = porMoneda[codigo]!.toSet();
+  return (
+    ids: ids,
+    factor: dash.factorDe(ids.first, null),
+    fuera: [for (final l in dash.locations) if (!ids.contains(l.id)) l.name],
+    simbolo: dash.simboloDe(codigo),
+  );
+}
+
+/// El aviso de qué sucursales no entran en "Todas" por vender en otra moneda.
+String? notaMonedaPlatillos(DashboardProvider dash) {
+  final g = grupoDePlatillosEnTodas(dash);
+  if (g == null || g.fuera.isEmpty) return null;
+  final varias = g.fuera.length > 1;
+  return 'Acá entran solo las sucursales en ${g.simbolo}: ${g.fuera.join(', ')} '
+      '${varias ? 'venden' : 'vende'} en otra moneda. Elegí su pestaña para '
+      '${varias ? 'verlas' : 'verla'}.';
+}
 
 /// Abre la lista completa con los MISMOS providers: sin volver a descargar el
 /// menú, y sin liberarlos al volver.
@@ -96,6 +145,7 @@ class UtilidadPlatillosSeccion extends StatelessWidget {
       calculandoGastos: calculandoGastos(dash, rentabilidad),
       errorGastos: rentabilidad.error != null,
       vistaTodas: esVistaTodas(dash),
+      notaMoneda: notaMonedaPlatillos(dash),
       onReintentar: menu.recargar,
       onVerTodos: () => abrirUtilidadPlatillos(context),
     );
@@ -111,6 +161,7 @@ class UtilidadPlatillosCard extends StatelessWidget {
   final bool calculandoGastos;
   final bool errorGastos;
   final bool vistaTodas;
+  final String? notaMoneda;
   final VoidCallback onReintentar;
   final VoidCallback onVerTodos;
 
@@ -123,6 +174,7 @@ class UtilidadPlatillosCard extends StatelessWidget {
     this.calculandoGastos = false,
     this.errorGastos = false,
     this.vistaTodas = false,
+    this.notaMoneda,
     required this.onReintentar,
     required this.onVerTodos,
   });
@@ -197,6 +249,7 @@ class UtilidadPlatillosCard extends StatelessWidget {
         calculando: calculandoGastos,
         errorGastos: errorGastos,
         vistaTodas: vistaTodas,
+        notaMoneda: notaMoneda,
         compacto: true,
       ),
       const SizedBox(height: 12),

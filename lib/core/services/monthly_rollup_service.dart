@@ -20,6 +20,9 @@ class MonthlyRollup {
     required this.cancelledCount,
     required this.lastPaidAt,
     required this.metrics,
+    this.enMoneda,
+    this.firma = '',
+    this.alcanceVerificado = true,
   });
 
   final int year;
@@ -40,6 +43,20 @@ class MonthlyRollup {
   /// pantalla, para que leerlo sea idéntico a haberlo calculado.
   final PeriodMetrics metrics;
 
+  /// Moneda a la que se convirtió el mes, cuando la vista junta sucursales de
+  /// monedas distintas. Nula = cada orden tal cual (una sola moneda).
+  final String? enMoneda;
+
+  /// Huella de los tipos de cambio usados (ver ConfigMoneda.firma). Si el
+  /// dueño cambia uno que toca este mes, deja de coincidir y se rehace.
+  final String firma;
+
+  /// Los de todo el negocio ("all") escritos antes de 2026-10 los pudo
+  /// guardar alguien que solo veía algunas sucursales: con las ventas de las
+  /// suyas pero la huella de todo el negocio, así que se daban por buenos.
+  /// Los que no traen esta marca se rehacen una vez.
+  final bool alcanceVerificado;
+
   Map<String, dynamic> toMap(String tenantId) => {
         'tenant_id': tenantId,
         'location_id': locationId,
@@ -50,6 +67,9 @@ class MonthlyRollup {
         'last_paid_at': lastPaidAt == null ? null : Timestamp.fromDate(lastPaidAt!),
         'computed_at': FieldValue.serverTimestamp(),
         'schema': kSchema,
+        'currency': enMoneda,
+        'fx_signature': firma,
+        'scope_verified': true,
         'total_sales': metrics.totalSales,
         'total_orders': metrics.totalOrders,
         'gross_sales': metrics.grossSales,
@@ -98,6 +118,9 @@ class MonthlyRollup {
       orderCount: (d['order_count'] as num?)?.toInt() ?? 0,
       cancelledCount: (d['cancelled_count'] as num?)?.toInt() ?? 0,
       lastPaidAt: rawLast is Timestamp ? rawLast.toDate() : null,
+      enMoneda: d['currency'] as String?,
+      firma: d['fx_signature'] as String? ?? '',
+      alcanceVerificado: d['scope_verified'] == true,
       metrics: PeriodMetrics(
         totalSales: (d['total_sales'] as num?)?.toDouble() ?? 0,
         totalOrders: (d['total_orders'] as num?)?.toInt() ?? 0,
@@ -185,16 +208,19 @@ class MonthlyRollupService {
 
   static const String kCollection = 'salesRollups';
 
-  /// `locationId` vacío significa "todas las sucursales del negocio".
-  String docId(String tenantId, String locationId, int year, int month) =>
-      '${tenantId}__${locationId.isEmpty ? 'all' : locationId}__$year-${month.toString().padLeft(2, '0')}';
+  /// `locationId` vacío significa "todas las sucursales del negocio". Los
+  /// convertidos a una moneda ([enMoneda]) van en su propio documento: el de
+  /// cada sucursal en su moneda sigue sirviendo para verla sola.
+  String docId(String tenantId, String locationId, int year, int month, {String? enMoneda}) =>
+      '${tenantId}__${locationId.isEmpty ? 'all' : locationId}__$year-${month.toString().padLeft(2, '0')}'
+      '${enMoneda == null ? '' : '__en-$enMoneda'}';
 
   Future<MonthlyRollup?> read(
-      String tenantId, String locationId, int year, int month) async {
+      String tenantId, String locationId, int year, int month, {String? enMoneda}) async {
     try {
       final doc = await _db
           .collection(kCollection)
-          .doc(docId(tenantId, locationId, year, month))
+          .doc(docId(tenantId, locationId, year, month, enMoneda: enMoneda))
           .get();
       if (!doc.exists) return null;
       return MonthlyRollup.fromMap(doc.data()!);
@@ -208,7 +234,8 @@ class MonthlyRollupService {
     try {
       await _db
           .collection(kCollection)
-          .doc(docId(tenantId, rollup.locationId, rollup.year, rollup.month))
+          .doc(docId(tenantId, rollup.locationId, rollup.year, rollup.month,
+              enMoneda: rollup.enMoneda))
           .set(rollup.toMap(tenantId));
     } catch (e) {
       // Que no se pueda guardar no puede tumbar el reporte: el mes ya está
@@ -226,8 +253,10 @@ class MonthlyRollupService {
     required String locationId,
     required int year,
     required int month,
+    String? enMoneda,
+    String firma = '',
   }) async {
-    final guardado = await read(tenantId, locationId, year, month);
+    final guardado = await read(tenantId, locationId, year, month, enMoneda: enMoneda);
 
     Query<Map<String, dynamic>> base() {
       Query<Map<String, dynamic>> q =
@@ -261,6 +290,16 @@ class MonthlyRollupService {
 
     if (guardado == null) {
       return RollupChequeo(RollupEstado.falta, null, total, canceladas);
+    }
+    // Convertido con otros tipos de cambio: los montos ya no valen.
+    if (guardado.firma != firma) {
+      return RollupChequeo(RollupEstado.rehacer, guardado, total, canceladas);
+    }
+    // Uno de todo el negocio de antes de la marca: se rehace una vez (ver
+    // MonthlyRollup.alcanceVerificado). Los de una sucursal no tienen ese
+    // problema.
+    if (locationId.isEmpty && !guardado.alcanceVerificado) {
+      return RollupChequeo(RollupEstado.rehacer, guardado, total, canceladas);
     }
     if (guardado.orderCount == total && guardado.cancelledCount == canceladas) {
       return RollupChequeo(RollupEstado.alDia, guardado, total, canceladas);

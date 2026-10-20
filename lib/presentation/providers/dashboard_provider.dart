@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../../core/services/config_moneda_service.dart';
 import '../../core/services/firestore_service.dart';
 import '../../core/services/location_service.dart';
 import '../../core/services/auth_service.dart';
@@ -11,6 +13,8 @@ import '../../core/services/sales_aggregates_service.dart';
 import '../../core/services/monthly_rollup_service.dart';
 import '../../core/utils/date_range.dart';
 import '../../core/utils/formato_dinero.dart';
+import '../../data/models/config_moneda.dart';
+import '../../data/models/vista_moneda.dart';
 import '../../data/models/dashboard_data.dart';
 import '../../data/models/cash_register_summary.dart';
 
@@ -66,6 +70,14 @@ class DashboardProvider extends ChangeNotifier {
 
   List<Map<String, dynamic>> _expenseItems = [];
   List<Map<String, dynamic>> get expenseItems => _expenseItems;
+
+  // Lo mismo que currentOrders y expenseItems, pero SIN convertir a la moneda
+  // principal. Las cajas se cuadran en la moneda en que de verdad entró el
+  // dinero: convertir lo vendido y no lo contado daría diferencias falsas.
+  List<Map<String, dynamic>> _currentOrdersLocal = [];
+  List<Map<String, dynamic>> get currentOrdersLocal => _currentOrdersLocal;
+  List<Map<String, dynamic>> _expenseItemsLocal = [];
+  List<Map<String, dynamic>> get expenseItemsLocal => _expenseItemsLocal;
 
   List<Map<String, dynamic>> _purchaseItems = [];
   List<Map<String, dynamic>> get purchaseItems => _purchaseItems;
@@ -151,19 +163,234 @@ class DashboardProvider extends ChangeNotifier {
     ).name;
   }
 
-  /// Fija la moneda con que se pintan los montos: la de la sucursal elegida o,
-  /// en "Todas", la que usan sus sucursales. Va antes de cada notifyListeners
-  /// que pueda cambiarla, porque las pantallas la leen al reconstruirse.
-  ///
-  /// Si en "Todas" se mezclan monedas, gana la que más sucursales usan: el
-  /// total sumado no tiene una moneda correcta, y el desglose por sucursal
-  /// muestra cada una con la suya.
-  void _actualizarMoneda() {
-    final enVista = _selectedLocationId == null
-        ? _locations
-        : _locations.where((l) => l.id == _selectedLocationId);
-    fijarMoneda(monedaMasUsada(enVista.map((l) => l.currencySymbol)));
+  // ── MONEDA ──────────────────────────────────────────────────────────────────
+  // Un negocio puede tener sucursales que venden en monedas distintas (una en
+  // Guatemala y otra en Argentina). Sumar quetzales con pesos no da nada, así
+  // que todo se convierte a la moneda principal con el tipo de cambio que puso
+  // el dueño, vigente el día de cada venta (ver ConfigMoneda). Una sucursal
+  // sola, o un grupo con una sola moneda, también se puede ver en la suya.
+  //
+  // La conversión se hace sobre los datos crudos, antes de armar cualquier
+  // cifra: así todas las pantallas reciben montos ya convertidos y nadie
+  // tiene que acordarse de convertir.
+
+  final ConfigMonedaService _configMonedaService = ConfigMonedaService();
+  ConfigMoneda _configMoneda = ConfigMoneda.vacia;
+  ConfigMoneda get configMoneda => _configMoneda;
+
+  static const String _kVerEnLocal = 'ver_en_moneda_local';
+  bool _verEnLocal = false;
+
+  /// El dueño prefiere ver cada sucursal en su propia moneda.
+  bool get verEnLocal => _verEnLocal;
+
+  VistaMoneda? _vistaCache;
+
+  /// Sucursales inactivas: no salen en las pestañas, pero sus ventas viejas
+  /// entran en "Todas" y hay que saber en qué moneda están. Para quien ve
+  /// solo algunas sucursales, solo las suyas.
+  List<LocationModel> _ocultas = const [];
+
+  /// Bodegas (ver VistaMoneda.bodegas). Para quien ve solo algunas, las suyas.
+  List<LocationModel> _bodegas = const [];
+
+  /// Todas las sucursales cuya moneda importa en los reportes, para la
+  /// pantalla de tipos de cambio.
+  List<LocationModel> get sucursalesParaMoneda => [..._locations, ..._ocultas, ..._bodegas];
+
+  /// Las que no tienen pestaña (inactivas y bodegas), para que el desglose
+  /// por sucursal muestre lo que vendieron y cuadre con el total.
+  List<LocationModel> get sucursalesOcultas => [..._ocultas, ..._bodegas];
+
+  /// Falso si no se pudo leer la configuración: guardar encima borraría los
+  /// tipos de cambio, así que la pantalla no deja editar.
+  bool _configMonedaLeida = false;
+  bool get configMonedaLeida => _configMonedaLeida;
+
+  /// En qué moneda se ve la vista actual y cómo se convierte (ver
+  /// VistaMoneda). Se rehace solo cuando cambia algo de lo que depende.
+  VistaMoneda get vistaMoneda {
+    final v = _vistaCache;
+    if (v != null &&
+        identical(v.sucursales, _locations) &&
+        identical(v.ocultas, _ocultas) &&
+        identical(v.bodegas, _bodegas) &&
+        v.seleccionada == _selectedLocationId &&
+        identical(v.config, _configMoneda) &&
+        v.verEnLocal == _verEnLocal) {
+      return v;
+    }
+    return _vistaCache = VistaMoneda(
+      sucursales: _locations,
+      ocultas: _ocultas,
+      bodegas: _bodegas,
+      seleccionada: _selectedLocationId,
+      config: _configMoneda,
+      verEnLocal: _verEnLocal,
+    );
   }
+
+  /// La moneda principal: la que eligió el dueño o, si no eligió, la que más
+  /// sucursales usan.
+  String get codigoPrincipal => vistaMoneda.principal;
+
+  /// Hay sucursales que no venden en la moneda principal.
+  bool get hayOtraMoneda => vistaMoneda.hayOtraMoneda;
+
+  /// Solo quien ve todas las sucursales (el dueño) cambia la moneda principal
+  /// y los tipos de cambio.
+  bool get puedeEditarMoneda => _allowedLocationIds.isEmpty;
+
+  /// Se muestra en la principal convirtiendo lo que está en otra moneda.
+  bool get convierte => vistaMoneda.convierte;
+
+  /// La moneda en que se ven los montos ahora.
+  String get codigoVista => vistaMoneda.codigoVista;
+
+  /// Se puede alternar entre la moneda principal y la de la sucursal.
+  bool get puedeVerEnLocal => vistaMoneda.puedeVerEnLocal;
+
+  /// Sucursales que quedan fuera de los totales porque su moneda no tiene
+  /// tipo de cambio. La pantalla lo avisa en vez de sumarlas mal.
+  List<LocationModel> get sucursalesSinTasa => vistaMoneda.sinTasa;
+
+  /// Una sola sucursal (o moneda) en vista, distinta de la principal y sin
+  /// tipo de cambio: se ve en la suya porque no hay cómo convertirla.
+  bool get faltaTasaEnVista => vistaMoneda.faltaTasaEnVista;
+
+  /// El signo de una moneda: el de las sucursales que la usan o, si ninguna,
+  /// el de siempre ("US\$" para el dólar).
+  String simboloDe(String codigo) => vistaMoneda.simboloDe(codigo);
+
+  /// El signo de la sucursal de un registro que nunca se convierte (una caja:
+  /// se cuadra en lo que de verdad entró).
+  String simboloDeSucursal(String? locationId) {
+    for (final l in _locations) {
+      if (l.id == locationId) return l.currencySymbol;
+    }
+    return simboloDe(codigoPrincipal);
+  }
+
+  /// Por cuánto se multiplica un monto de [locationId] cobrado en [fecha]
+  /// para verlo en la moneda de la vista. Nulo = no hay tipo de cambio y ese
+  /// monto no se suma.
+  double? factorDe(String? locationId, DateTime? fecha) =>
+      vistaMoneda.factorDe(locationId, fecha);
+
+  /// [filas] convertidas a la moneda de la vista. Las de una moneda sin tipo
+  /// de cambio se quedan fuera (ver [sucursalesSinTasa]).
+  List<Map<String, dynamic>> convertirFilas(
+    List<Map<String, dynamic>> filas, {
+    required String llaveFecha,
+    String llaveSucursal = 'location_id',
+    VistaMoneda? con,
+  }) {
+    final vista = con ?? vistaMoneda;
+    if (!vista.convierte) return filas;
+    final r = <Map<String, dynamic>>[];
+    for (final f in filas) {
+      final factor = vista.factorDe(f[llaveSucursal] as String?, _toDateTime(f[llaveFecha]));
+      if (factor == null) continue;
+      r.add(convertirFila(f, factor));
+    }
+    return r;
+  }
+
+  String get _firmaMoneda => vistaMoneda.firma;
+
+  /// Identifica la conversión de la vista, para quien cachea cifras armadas
+  /// con estos datos (Rentabilidad, Cancelados).
+  String get firmaMoneda => _firmaMoneda;
+
+  /// La firma con que se armaron las cifras que están en pantalla.
+  String _firmaConstruida = '';
+
+  /// Fija el signo con que se pintan los montos: el de la moneda de la vista.
+  /// Va antes de cada notifyListeners que pueda cambiarla, porque las
+  /// pantallas la leen al reconstruirse.
+  void _actualizarMoneda() {
+    fijarMoneda(simboloDe(codigoVista));
+  }
+
+  /// Después de que cambian las sucursales, la configuración o la preferencia:
+  /// si la conversión de la vista cambió, se rehace lo que está en pantalla.
+  void _alCambiarMoneda() {
+    _actualizarMoneda();
+    // Lo que se está cargando revisa la firma al terminar (ver load()).
+    if (_loading || _firmaMoneda == _firmaConstruida) {
+      notifyListeners();
+      return;
+    }
+    if (_usaAgregados) {
+      load();
+    } else if (_rawCacheValid) {
+      _rebuildFromRaw();
+    } else {
+      notifyListeners();
+    }
+  }
+
+  /// Lee la configuración y la preferencia sin rehacer nada.
+  Future<void> _leerConfigMoneda() async {
+    if (_tenantId == null) return;
+    final tenant = _tenantId!;
+    final results = await Future.wait<Object?>([
+      _configMonedaService.leer(tenant),
+      SharedPreferences.getInstance()
+          .then<bool?>((p) => p.getBool(_kVerEnLocal))
+          .catchError((_) => null),
+    ]);
+    if (_tenantId != tenant) return; // cambió de negocio mientras tanto
+    final leida = results[0] as ConfigMoneda?;
+    // Si falló, se queda la que había: mejor la de hace un rato que ninguna.
+    if (leida != null) _configMoneda = leida;
+    _configMonedaLeida = leida != null || _configMonedaLeida;
+    _verEnLocal = (results[1] as bool?) ?? false;
+  }
+
+  Future<void> _cargarConfigMoneda() async {
+    final tenant = _tenantId;
+    await _leerConfigMoneda();
+    if (_tenantId != tenant) return;
+    _alCambiarMoneda();
+  }
+
+  /// Ver la sucursal (o grupo de una sola moneda) en la suya o en la
+  /// principal. Es una preferencia de esta persona en este aparato.
+  Future<void> setVerEnLocal(bool valor) async {
+    if (_verEnLocal == valor) return;
+    _verEnLocal = valor;
+    _alCambiarMoneda();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_kVerEnLocal, valor);
+    } catch (_) {}
+  }
+
+  /// Cambia la moneda principal o los tipos de cambio para todo el negocio.
+  /// [cambio] se aplica sobre lo guardado en ese momento (ver
+  /// ConfigMonedaService.actualizar), no sobre lo que esta pantalla tenía.
+  Future<void> cambiarConfigMoneda(ConfigMoneda Function(ConfigMoneda actual) cambio) async {
+    if (_tenantId == null) return;
+    if (!_configMonedaLeida) {
+      throw StateError('No se pudo leer el tipo de cambio guardado. Revisa la conexión.');
+    }
+    final nueva = await _configMonedaService.actualizar(_tenantId!, cambio,
+        quien: AuthService().sessionEmail);
+    _configMoneda = nueva;
+    _aggCache.clear();
+    _detalleCache.clear();
+    _alCambiarMoneda();
+  }
+
+  /// Signo de cada sucursal, para lo que se ve siempre en su moneda (cajas).
+  Map<String, String> get locationSymbols =>
+      {for (final l in sucursalesParaMoneda) l.id: l.currencySymbol};
+
+  /// Signo de la MONEDA de cada sucursal (el más usado para ese código): "Q"
+  /// y "Q." son la misma moneda y un reporte no debe partirse en dos por eso.
+  Map<String, String> get simbolosPorMoneda =>
+      {for (final l in sucursalesParaMoneda) l.id: simboloDe(l.currencyCode)};
 
   void init(String tenantId, {String? locationId}) {
     _tenantId = tenantId;
@@ -178,20 +405,34 @@ class DashboardProvider extends ChangeNotifier {
     // Fijar sucursales permitidas de forma síncrona (load() corre en paralelo
     // con _loadLocations, así el filtro aplica desde la primera carga).
     _allowedLocationIds = AuthService().assignedLocationIds.toSet();
+    _configMoneda = ConfigMoneda.vacia;
+    _configMonedaLeida = false;
+    _ocultas = const [];
+    _bodegas = const [];
     _loadLocations();
+    _cargarConfigMoneda();
     load();
   }
 
   Future<void> _loadLocations() async {
     if (_tenantId == null) return;
     try {
-      final all = await _locationService.getLocations(_tenantId!);
+      final tenant = _tenantId!;
+      final todas = await _locationService.getTodas(tenant);
+      if (_tenantId != tenant) return;
+      // Las pestañas: activas y sin bodegas, por nombre (igual que siempre).
+      final all = todas.where((l) => l.visible).toList()..sort((a, b) => a.name.compareTo(b.name));
       // Restringir a las sucursales asignadas al usuario (vacío = todas)
       _locations = _allowedLocationIds.isNotEmpty
           ? all.where((l) => _allowedLocationIds.contains(l.id)).toList()
           : all;
-      _actualizarMoneda();
-      notifyListeners();
+      bool suya(LocationModel l) =>
+          _allowedLocationIds.isEmpty || _allowedLocationIds.contains(l.id);
+      _ocultas = todas.where((l) => !l.visible && !l.esBodega && suya(l)).toList();
+      _bodegas = todas.where((l) => !l.visible && l.esBodega && suya(l)).toList();
+      // Las sucursales llegan en paralelo con las órdenes: si alguna vende en
+      // otra moneda, lo ya armado se rehace con la conversión.
+      _alCambiarMoneda();
 
       // _fetchCustomMethodNames depende de _locations, que carga en paralelo con
       // load(): si llegó tarde, los nombres quedaron vacíos. Como ya no se
@@ -238,6 +479,10 @@ class DashboardProvider extends ChangeNotifier {
     _aggCache.clear();
     _detalleCache.clear();
     _rawCacheValid = false;
+    // El tipo de cambio también: otra persona pudo ajustarlo desde que se
+    // abrió la pantalla, y cada aparato vería cifras distintas.
+    await _leerConfigMoneda();
+    _actualizarMoneda();
     await load();
   }
 
@@ -288,7 +533,11 @@ class DashboardProvider extends ChangeNotifier {
       // el resto del año sin avisar. Ahora los totales los suma el servidor.
       var currentOrders = const <Map<String, dynamic>>[];
       var prevOrders = const <Map<String, dynamic>>[];
+      // Las sumas del año se piden ya convertidas: si mientras tanto llegan
+      // las sucursales o los tipos de cambio, hay que volver a pedirlas.
+      String? firmaAgregados;
       if (_usaAgregados) {
+        firmaAgregados = _firmaMoneda;
         final aggs = await Future.wait([
           _loadYearAggregate(_range.start.year),
           _loadYearAggregate(prev.start.year),
@@ -363,6 +612,7 @@ class DashboardProvider extends ChangeNotifier {
 
       // Etapa 4: filtrar por sucursal y construir métricas (sin Firestore adicional).
       _rebuildFromRaw(notify: false);
+      if (firmaAgregados != null) _firmaConstruida = firmaAgregados;
       _mark('metrics+summaries');
 
       // Etapa 5, solo en la vista de año: ver qué meses ya están resumidos en
@@ -388,6 +638,9 @@ class DashboardProvider extends ChangeNotifier {
 
     _loading = false;
     notifyListeners();
+    // La moneda cambió mientras se cargaba (llegaron las sucursales o los
+    // tipos de cambio): rehacer con la conversión que corresponde.
+    if (_rawCacheValid && _firmaConstruida != _firmaMoneda) _alCambiarMoneda();
   }
 
   /// Aplica el filtro de sucursal actual sobre el cache crudo y recalcula todo
@@ -397,36 +650,38 @@ class DashboardProvider extends ChangeNotifier {
     bool passes(Map<String, dynamic> row, String key) =>
         _passesLocationFilter(row[key] as String?);
 
-    final currentOrders =
-        _rawCurrentOrders.where((o) => passes(o, 'location_id')).toList();
-    final prevOrders =
-        _rawPrevOrders.where((o) => passes(o, 'location_id')).toList();
+    _firmaConstruida = _firmaMoneda;
+    _actualizarMoneda();
+    // Cada fila se pasa a la moneda de la vista antes de sumar nada (ver
+    // MONEDA arriba). Con una sola moneda esto no copia ni toca nada.
+    List<Map<String, dynamic>> enVista(List<Map<String, dynamic>> filas, String llaveFecha) =>
+        convertirFilas(filas.where((r) => passes(r, 'location_id')).toList(), llaveFecha: llaveFecha);
+
+    _currentOrdersLocal = _rawCurrentOrders.where((o) => passes(o, 'location_id')).toList();
+    final currentOrders = convertirFilas(_currentOrdersLocal, llaveFecha: 'paid_at');
+    final prevOrders = enVista(_rawPrevOrders, 'paid_at');
     _currentOrders = currentOrders;
 
-    final withdrawals =
-        _extractWithdrawals(_rawCashRegisters, _range.start, _range.end);
+    final withdrawalsLocal = _extractWithdrawals(_rawCashRegisters, _range.start, _range.end);
+    final gastosLocal = _rawExpenses.where((e) => passes(e, 'location_id')).toList();
+    _expenseItemsLocal = [...gastosLocal, ...withdrawalsLocal];
+    final withdrawals = convertirFilas(withdrawalsLocal, llaveFecha: 'date');
     // _rawExpenses = gastos manuales; withdrawals = retiros de caja (ya filtrados)
     _expenseItems = [
-      ..._rawExpenses.where((e) => passes(e, 'location_id')),
+      ...convertirFilas(gastosLocal, llaveFecha: 'date'),
       ...withdrawals,
     ];
-    _purchaseItems =
-        _rawPurchases.where((p) => passes(p, 'location_id')).toList();
+    _purchaseItems = enVista(_rawPurchases, 'received_at');
     final expenses = _expenseItems.fold<double>(
         0, (s, e) => s + (e['amount'] as num? ?? 0).toDouble());
     final purchaseCosts = _purchaseItems.fold<double>(
         0, (s, e) => s + (e['total'] as num? ?? 0).toDouble());
 
     _weeklyHourly = _range.mode == PeriodMode.day
-        ? _groupByHourPerDay(
-            _rawWeeklyOrders.where((o) => passes(o, 'location_id')).toList(),
-            _rawWeekStart)
+        ? _groupByHourPerDay(enVista(_rawWeeklyOrders, 'paid_at'), _rawWeekStart)
         : [];
     _monthlyDailyPoints = _range.mode == PeriodMode.week
-        ? _groupByDayOfMonth(
-            _rawMonthlyOrders.where((o) => passes(o, 'location_id')).toList(),
-            _rawMonthStart,
-            _rawNow)
+        ? _groupByDayOfMonth(enVista(_rawMonthlyOrders, 'paid_at'), _rawMonthStart, _rawNow)
         : [];
 
     _buildCashRegisterSummaries(_rawCashRegisters);
@@ -666,7 +921,9 @@ class DashboardProvider extends ChangeNotifier {
         if (dt == null) continue;
         if (dt.isUtc) dt = dt.toLocal();
         if (dt.isBefore(startDay) || dt.isAfter(endDay)) continue;
-        results.add((raw['amount'] as num? ?? 0).toDouble());
+        final factor = factorDe(data['locationId'] as String?, dt);
+        if (factor == null) continue; // moneda sin tipo de cambio
+        results.add((raw['amount'] as num? ?? 0).toDouble() * factor);
       }
     }
     return results;
@@ -767,12 +1024,21 @@ class DashboardProvider extends ChangeNotifier {
   Future<List<Map<String, dynamic>>> ensureDetailedOrders() async {
     if (!_usaAgregados) return _currentOrders;
     if (_tenantId == null) return const [];
+    return convertirFilas(await _fetchOrdersPaged(_range.start, _range.end), llaveFecha: 'paid_at');
+  }
+
+  /// Como [ensureDetailedOrders], pero SIN convertir: cada pedido en la
+  /// moneda en que se cobró. Es lo que lleva el reporte de caja, que se cuadra
+  /// contra lo que de verdad entró.
+  Future<List<Map<String, dynamic>>> ensureDetailedOrdersLocal() async {
+    if (!_usaAgregados) return _currentOrdersLocal;
+    if (_tenantId == null) return const [];
     return _fetchOrdersPaged(_range.start, _range.end);
   }
 
   /// Baja las órdenes de un rango paginando hasta agotarlo, sin ningún tope.
   Future<List<Map<String, dynamic>>> _fetchOrdersPaged(
-      DateTime inicio, DateTime fin) async {
+      DateTime inicio, DateTime fin, {bool Function(String? locationId)? pasa}) async {
     final todas = <Map<String, dynamic>>[];
     final vistos = <String>{};
 
@@ -815,7 +1081,8 @@ class DashboardProvider extends ChangeNotifier {
     }
 
     debugPrint('[AGG] detalle bajo demanda: ${todas.length} órdenes');
-    return todas.where((o) => _passesLocationFilter(o['location_id'] as String?)).toList();
+    final filtro = pasa ?? _passesLocationFilter;
+    return todas.where((o) => filtro(o['location_id'] as String?)).toList();
   }
 
   // ── DETALLE DEL AÑO: RESÚMENES MENSUALES COMPARTIDOS ────────────────────────
@@ -851,10 +1118,45 @@ class DashboardProvider extends ChangeNotifier {
   YearDetail? get yearDetail =>
       _usaAgregados ? _detalleCache[_claveDetalle] : null;
 
-  String get _claveDetalle => '${_range.start.year}|${_selectedLocationId ?? ''}';
+  String get _claveDetalle =>
+      '$_tenantId|${_range.start.year}|${_selectedLocationId ?? ''}|$_firmaMoneda';
 
-  /// Sucursal con la que se guardan y leen los resúmenes. Vacío = todas.
-  String get _scopeRollup => _selectedLocationId ?? '';
+  /// La vista actual congelada para calcular su detalle (ver _CtxDetalle).
+  _CtxDetalle _ctxDetalle() {
+    final vista = vistaMoneda;
+    final sel = _selectedLocationId;
+    final List<_Alcance> alcances;
+    if (sel != null && sel.isNotEmpty) {
+      alcances = [_Alcance(scope: sel, vista: vista, pasa: (l) => l == sel)];
+    } else if (_allowedLocationIds.isNotEmpty) {
+      // Quien ve solo algunas sucursales NO lee ni escribe el resumen del
+      // negocio entero ("all"): antes lo guardaba con solo las suyas y el
+      // dueño lo daba por bueno. Suma los de cada una de sus sucursales, que
+      // son los mismos que usa el dueño al mirarlas de a una.
+      final sinTasa = {for (final l in vista.sinTasa) l.id};
+      alcances = [
+        for (final id in (_allowedLocationIds.toList()..sort()))
+          if (!sinTasa.contains(id))
+            _Alcance(
+              scope: id,
+              // Convertida igual que "Todas": a la principal si "Todas"
+              // convierte, tal cual si no.
+              vista: VistaMoneda(
+                sucursales: vista.sucursales,
+                ocultas: vista.ocultas,
+                bodegas: vista.bodegas,
+                seleccionada: id,
+                config: vista.config,
+                verEnLocal: !vista.convierte,
+              ),
+              pasa: (l) => l == id,
+            ),
+      ];
+    } else {
+      alcances = [_Alcance(scope: '', vista: vista, pasa: (_) => true)];
+    }
+    return _CtxDetalle(year: _range.start.year, clave: _claveDetalle, alcances: alcances);
+  }
 
   /// Mira qué meses del año ya están resumidos y arma el detalle con los que
   /// estén al día. Corre al abrir la vista de año.
@@ -864,19 +1166,27 @@ class DashboardProvider extends ChangeNotifier {
   /// cambió sin rehacerlo a ciegas.
   Future<void> _cargarResumenesDelAnio() async {
     if (!_usaAgregados || _tenantId == null) return;
-    final year = _range.start.year;
+    final ctx = _ctxDetalle();
+    final year = ctx.year;
     final ahora = DateTime.now();
     final ultimoMes = year < ahora.year ? 12 : ahora.month;
 
     final chequeos = await Future.wait([
       for (var m = 1; m <= ultimoMes; m++)
-        _rollups.chequear(
-          tenantId: _tenantId!,
-          locationId: _scopeRollup,
-          year: year,
-          month: m,
-        ),
+        for (final a in ctx.alcances)
+          _rollups.chequear(
+            tenantId: _tenantId!,
+            locationId: a.scope,
+            year: year,
+            month: m,
+            enMoneda: a.enMoneda,
+            firma: a.firma(year, m),
+          ),
     ]);
+    // La vista cambió mientras se preguntaba (otra sucursal, otra moneda): lo
+    // que llegó es de la anterior, y la carga de la nueva hará su propio
+    // chequeo. Seguir mezclaría descuentos de una con ventas de otra.
+    if (ctx.clave != _claveDetalle) return;
 
     final listos = <MonthlyRollup>[];
     var pendientes = 0;
@@ -902,7 +1212,7 @@ class DashboardProvider extends ChangeNotifier {
 
     if (pendientes == 0) {
       if (listos.isNotEmpty) {
-        _detalleCache[_claveDetalle] = _sumarResumenes(listos);
+        _detalleCache[ctx.clave] = _sumarResumenes(listos);
         _completarMetricas(listos);
       }
       notifyListeners();
@@ -912,7 +1222,7 @@ class DashboardProvider extends ChangeNotifier {
     // Con meses sin resumir el detalle saldría incompleto, y un top de
     // productos al que le falten meses miente peor que no mostrarlo: parecería
     // que eso fue todo lo que se vendió.
-    _detalleCache.remove(_claveDetalle);
+    _detalleCache.remove(ctx.clave);
     notifyListeners();
 
     // Se calcula solo, sin preguntar. La vista de mes tampoco pide permiso
@@ -943,7 +1253,12 @@ class DashboardProvider extends ChangeNotifier {
     _mesDetalle = 0;
     notifyListeners();
 
-    final year = _range.start.year;
+    // Todo lo que define el cálculo se toma ahora: si a la mitad alguien
+    // cambia de sucursal o de moneda, cada mes se termina coherente consigo
+    // mismo (órdenes, conversión, firma e id del documento) en vez de guardar
+    // un resumen con montos de una moneda bajo el nombre de otra.
+    final ctx = _ctxDetalle();
+    final year = ctx.year;
     final ahora = DateTime.now();
     final ultimoMes = year < ahora.year ? 12 : ahora.month;
     final listos = <MonthlyRollup>[];
@@ -953,34 +1268,39 @@ class DashboardProvider extends ChangeNotifier {
         _mesDetalle = m;
         notifyListeners();
 
-        final chequeo = await _rollups.chequear(
-          tenantId: _tenantId!,
-          locationId: _scopeRollup,
-          year: year,
-          month: m,
-        );
+        for (final a in ctx.alcances) {
+          final chequeo = await _rollups.chequear(
+            tenantId: _tenantId!,
+            locationId: a.scope,
+            year: year,
+            month: m,
+            enMoneda: a.enMoneda,
+            firma: a.firma(year, m),
+          );
 
-        if (chequeo.estado == RollupEstado.alDia && chequeo.rollup != null) {
-          listos.add(chequeo.rollup!);
-          continue;
+          if (chequeo.estado == RollupEstado.alDia && chequeo.rollup != null) {
+            listos.add(chequeo.rollup!);
+            continue;
+          }
+          if (chequeo.orderCount == 0) continue; // mes sin ventas
+
+          // Mes en curso al que solo le entraron ventas: se le suman esas y
+          // listo, en vez de volver a bajar el mes entero cada vez que alguien
+          // abre la pantalla. Es lo que hace que el mes de hoy salga solo.
+          final rollup = chequeo.estado == RollupEstado.soloNuevas
+              ? await _completarMesConLoNuevo(year, a, m, chequeo)
+              : await _calcularMes(year, a, m, chequeo);
+          if (rollup == null) continue;
+          listos.add(rollup);
+          await _rollups.write(_tenantId!, rollup);
         }
-        if (chequeo.orderCount == 0) continue; // mes sin ventas
-
-        // Mes en curso al que solo le entraron ventas: se le suman esas y
-        // listo, en vez de volver a bajar el mes entero cada vez que alguien
-        // abre la pantalla. Es lo que hace que el mes de hoy salga solo.
-        final rollup = chequeo.estado == RollupEstado.soloNuevas
-            ? await _completarMesConLoNuevo(year, m, chequeo)
-            : await _calcularMes(year, m, chequeo);
-        if (rollup == null) continue;
-        listos.add(rollup);
-        await _rollups.write(_tenantId!, rollup);
       }
 
-      _mesesPendientes = 0;
-      if (listos.isNotEmpty) {
-        _detalleCache[_claveDetalle] = _sumarResumenes(listos);
-        _completarMetricas(listos);
+      if (listos.isNotEmpty) _detalleCache[ctx.clave] = _sumarResumenes(listos);
+      // Solo si lo que se calculó es lo que está en pantalla.
+      if (ctx.clave == _claveDetalle) {
+        _mesesPendientes = 0;
+        if (listos.isNotEmpty) _completarMetricas(listos);
       }
     } catch (e, st) {
       _error = 'No se pudo calcular el detalle del año: $e';
@@ -993,6 +1313,11 @@ class DashboardProvider extends ChangeNotifier {
       _mesDetalle = 0;
       notifyListeners();
     }
+    // La vista cambió mientras se calculaba: su chequeo se frenó porque había
+    // un cálculo en curso, así que se le da ahora.
+    if (_usaAgregados && ctx.clave != _claveDetalle) {
+      unawaited(_cargarResumenesDelAnio());
+    }
   }
 
   /// Baja un mes entero y lo reduce a un resumen guardable.
@@ -1004,10 +1329,14 @@ class DashboardProvider extends ChangeNotifier {
   /// siempre. Tomándola antes, el desfase se ve como "entraron órdenes nuevas"
   /// y el mes se rehace. Peca de rehacer de más, nunca de mostrar de menos.
   Future<MonthlyRollup?> _calcularMes(
-      int year, int month, RollupChequeo chequeo) async {
+      int year, _Alcance a, int month, RollupChequeo chequeo) async {
     final inicio = DateTime(year, month, 1);
     final fin = DateTime(year, month + 1, 1).subtract(const Duration(milliseconds: 1));
-    final ordenes = await _fetchOrdersPaged(inicio, fin);
+    final ordenes = convertirFilas(
+      await _fetchOrdersPaged(inicio, fin, pasa: a.pasa),
+      llaveFecha: 'paid_at',
+      con: a.vista,
+    );
 
     // Las clasificaciones (Comidas, Bebidas, Servicios) no se cargaron al
     // entrar porque en la vista de año no había órdenes de donde sacar los ids.
@@ -1041,11 +1370,13 @@ class DashboardProvider extends ChangeNotifier {
     return MonthlyRollup(
       year: year,
       month: month,
-      locationId: _scopeRollup,
+      locationId: a.scope,
       orderCount: chequeo.orderCount,
       cancelledCount: chequeo.cancelledCount,
       lastPaidAt: ultima,
       metrics: metrics,
+      enMoneda: a.enMoneda,
+      firma: a.firma(year, month),
     );
   }
 
@@ -1056,20 +1387,48 @@ class DashboardProvider extends ChangeNotifier {
   /// tocado el tope de productos: ahí la cola quedó recortada y sumarle encima
   /// propagaría el recorte en vez de corregirlo.
   Future<MonthlyRollup?> _completarMesConLoNuevo(
-      int year, int month, RollupChequeo chequeo) async {
+      int year, _Alcance alc, int month, RollupChequeo chequeo) async {
     final previo = chequeo.rollup;
     final desdeQue = previo?.lastPaidAt;
-    if (previo == null || desdeQue == null) return _calcularMes(year, month, chequeo);
+    if (previo == null || desdeQue == null) return _calcularMes(year, alc, month, chequeo);
     if (previo.metrics.topProducts.length >= MonthlyRollup.kMaxProductos) {
-      return _calcularMes(year, month, chequeo);
+      return _calcularMes(year, alc, month, chequeo);
     }
 
     final finMes = DateTime(year, month + 1, 1).subtract(const Duration(milliseconds: 1));
-    final nuevas = await _fetchOrdersPaged(
-      desdeQue.add(const Duration(milliseconds: 1)),
-      finMes,
-    );
-    if (nuevas.isEmpty) return previo;
+    final crudas = await _fetchOrdersPaged(desdeQue.add(const Duration(milliseconds: 1)), finMes,
+        pasa: alc.pasa);
+    // La última orden se toma de las crudas: las de una sucursal sin tipo de
+    // cambio no entran en el resumen, pero ya se miraron. Sin esto, cada
+    // apertura volvía a bajarlas porque la huella seguía viéndolas "nuevas".
+    var ultima = desdeQue;
+    for (final o in crudas) {
+      final dt = _toDateTime(o['paid_at']);
+      if (dt != null && dt.isAfter(ultima)) ultima = dt;
+    }
+    // Las nuevas tienen que explicar TODO lo que creció el conteo. Si faltan,
+    // entró una venta con hora anterior a la última ya resumida (se cobró sin
+    // red y sincronizó tarde, o el reloj del aparato iba atrasado): sumar
+    // solo lo posterior cerraría el mes sin ella para siempre. Se rehace.
+    if (crudas.length < chequeo.orderCount - previo.orderCount) {
+      return _calcularMes(year, alc, month, chequeo);
+    }
+    final nuevas = convertirFilas(crudas, llaveFecha: 'paid_at', con: alc.vista);
+    if (nuevas.isEmpty) {
+      // Todas las nuevas son de una sucursal sin tipo de cambio: no entran,
+      // pero ya se miraron (ver arriba la última orden).
+      return MonthlyRollup(
+        year: previo.year,
+        month: previo.month,
+        locationId: previo.locationId,
+        orderCount: chequeo.orderCount,
+        cancelledCount: chequeo.cancelledCount,
+        lastPaidAt: ultima,
+        metrics: previo.metrics,
+        enMoneda: previo.enMoneda,
+        firma: previo.firma,
+      );
+    }
 
     final ids = _extractCategoryIds(nuevas);
     final maps = ids.isEmpty
@@ -1096,21 +1455,17 @@ class DashboardProvider extends ChangeNotifier {
     final metodos = <String, double>{...previo.metrics.salesByMethod};
     delta.salesByMethod.forEach((k, v) => metodos[k] = (metodos[k] ?? 0) + v);
 
-    var ultima = desdeQue;
-    for (final o in nuevas) {
-      final dt = _toDateTime(o['paid_at']);
-      if (dt != null && dt.isAfter(ultima)) ultima = dt;
-    }
-
     final a = previo.metrics;
     debugPrint('[ROLLUP] $year-$month completado con ${nuevas.length} órdenes nuevas');
     return MonthlyRollup(
       year: year,
       month: month,
-      locationId: _scopeRollup,
+      locationId: alc.scope,
       orderCount: chequeo.orderCount,
       cancelledCount: chequeo.cancelledCount,
       lastPaidAt: ultima,
+      enMoneda: alc.enMoneda,
+      firma: alc.firma(year, month),
       metrics: PeriodMetrics(
         totalSales: a.totalSales + delta.totalSales,
         totalOrders: a.totalOrders + delta.totalOrders,
@@ -1283,7 +1638,7 @@ class DashboardProvider extends ChangeNotifier {
   /// cambiar de pestaña no repita las consultas.
   Future<YearAggregate> _loadYearAggregate(int year) async {
     final scope = _selectedLocationId ?? '';
-    final key = '$year|$scope|${_allowedLocationIds.length}';
+    final key = '$year|$scope|${_allowedLocationIds.length}|$_firmaMoneda';
     final cached = _aggCache[key];
     if (cached != null) return cached;
 
@@ -1292,10 +1647,37 @@ class DashboardProvider extends ChangeNotifier {
       year: year,
       locationId: _selectedLocationId,
       allowedLocationIds: _allowedLocationIds,
-      desglosePorSucursal: [for (final l in _locations) l.id],
+      // También las ocultas: su venta está en el total y la tabla tiene que
+      // poder mostrarla.
+      // La tabla solo se muestra con más de una pestaña: sin eso no se pide.
+      desglosePorSucursal: _locations.length > 1
+          ? [for (final l in [..._locations, ..._ocultas, ..._bodegas]) l.id]
+          : const [],
+      conversiones: _conversionesAnio(),
     );
     _aggCache[key] = agg;
     return agg;
+  }
+
+  /// Cómo convertir cada sucursal de otra moneda en las sumas del año.
+  Map<String, ConversionSucursal> _conversionesAnio() {
+    if (!convierte) return const {};
+    final principal = codigoPrincipal;
+    final config = _configMoneda;
+    final r = <String, ConversionSucursal>{};
+    for (final l in vistaMoneda.enVista) {
+      final c = l.currencyCode;
+      if (c == principal) continue;
+      if (!config.tieneTasa(c)) {
+        r[l.id] = ConversionSucursal.excluida();
+        continue;
+      }
+      r[l.id] = ConversionSucursal(
+        cortes: [for (final t in config.tasas[c]!) t.desde],
+        factorEn: (d) => config.factor(c, principal, d) ?? 0,
+      );
+    }
+    return r;
   }
 
   /// Venta por sucursal en la vista de año. Vacío en los demás períodos, donde
@@ -2044,7 +2426,8 @@ class DashboardProvider extends ChangeNotifier {
   }
 
   /// Devuelve las órdenes canceladas del rango actual, filtrando en memoria por fecha.
-  Future<List<Map<String, dynamic>>> fetchCancelledOrders() async {
+  /// [local]: sin convertir, para el reporte de caja.
+  Future<List<Map<String, dynamic>>> fetchCancelledOrders({bool local = false}) async {
     if (_tenantId == null) return [];
     try {
       final snap = await _firestore.orders
@@ -2056,7 +2439,7 @@ class DashboardProvider extends ChangeNotifier {
       final start = _range.start;
       final end   = _range.end;
 
-      return snap.docs.map((d) {
+      final enRango = snap.docs.map((d) {
         final data = d.data();
         data['_docId'] = d.id;
         return data;
@@ -2068,6 +2451,16 @@ class DashboardProvider extends ChangeNotifier {
         if (dt == null) return false;
         return !dt.isBefore(start) && !dt.isAfter(end);
       }).toList();
+      // A la moneda de la vista, con el tipo de cambio del día en que se
+      // cancelaron.
+      if (local || !convierte) return enRango;
+      return [
+        for (final o in enRango)
+          if (factorDe(o['location_id'] as String?,
+                  _toDateTime(o['cancelled_at'] ?? o['updated_at'] ?? o['created_at']))
+              case final f?)
+            convertirFila(o, f),
+      ];
     } catch (_) {
       return [];
     }
@@ -2121,4 +2514,35 @@ class _ProductAcc {
     qty += q;
     amount += a;
   }
+}
+
+/// Lo que define un cálculo del detalle del año, tomado AL EMPEZAR. Bajar un
+/// mes tarda; si mientras tanto alguien cambia de sucursal o de moneda (el
+/// botón "Ver en $" está en la misma pantalla), lo que se guarde tiene que
+/// seguir siendo de la vista con que empezó: órdenes de su sucursal,
+/// convertidas con su tipo de cambio, con su firma y bajo su id.
+class _CtxDetalle {
+  _CtxDetalle({required this.year, required this.clave, required this.alcances});
+
+  final int year;
+
+  /// La clave del detalle en pantalla cuando empezó (ver _claveDetalle).
+  final String clave;
+
+  /// Qué resúmenes se suman: uno ("all" o la sucursal elegida) o, para quien
+  /// ve solo algunas sucursales, uno por cada una de ellas.
+  final List<_Alcance> alcances;
+}
+
+/// Un resumen mensual que se lee o se calcula: de qué sucursal ('' = todo el
+/// negocio), con qué conversión y qué órdenes entran.
+class _Alcance {
+  _Alcance({required this.scope, required this.vista, required this.pasa});
+
+  final String scope;
+  final VistaMoneda vista;
+  final bool Function(String? locationId) pasa;
+
+  String? get enMoneda => vista.enMoneda;
+  String firma(int year, int month) => vista.firmaMes(year, month);
 }

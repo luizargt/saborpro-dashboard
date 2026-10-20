@@ -113,7 +113,11 @@ class ExportService {
   }
 
   // ── REPORTE DE CAJA ───────────────────────────────────────────────────────
-  static List<String> get _cajaHeaders => [
+  /// [signo] nulo: el reporte junta monedas distintas, así que los
+  /// encabezados no llevan signo y cada fila dice el suyo en "Moneda".
+  static List<String> _cajaHeaders(String? signo) {
+    final s = signo == null ? '' : ' ($signo)';
+    return [
     'Cajero',
     'Mesero',
     'Tipo de pedido',
@@ -124,12 +128,14 @@ class ExportService {
     'Tipo de venta',
     'Comprobante',
     'Cant. items',
-    'Subtotal (${moneda.trim()})',
-    'Propinas (${moneda.trim()})',
-    'Descuentos (${moneda.trim()})',
-    'Cortesía / Donación (${moneda.trim()})',
-    'Total (${moneda.trim()})',
+    'Subtotal$s',
+    'Propinas$s',
+    'Descuentos$s',
+    'Cortesía / Donación$s',
+    'Total$s',
+    if (signo == null) 'Moneda',
   ];
+  }
 
   static void exportCajaReport(
     List<Map<String, dynamic>> orders,
@@ -137,21 +143,36 @@ class ExportService {
     Map<String, String> userNamesById,
     String periodLabel, {
     List<Map<String, dynamic>> cancelledOrders = const [],
+    Map<String, String> simbolos = const {},
   }) {
     final excel = Excel.createExcel();
     final dateFmt = DateFormat('dd/MM/yyyy HH:mm', 'es');
 
+    // Cada pedido va en la moneda en que se cobró: este reporte se cuadra
+    // contra la caja, que nunca se convierte. Si junta sucursales de monedas
+    // distintas, cada fila dice la suya.
+    String signoDe(Map<String, dynamic> o) =>
+        (simbolos[o['location_id']] ?? moneda).trim();
+    final usados = {for (final o in [...orders, ...cancelledOrders]) signoDe(o)};
+    final String? signo = usados.length > 1 ? null : (usados.isEmpty ? moneda.trim() : usados.single);
+    List<CellValue> conMoneda(List<CellValue> fila, Map<String, dynamic> o) =>
+        signo == null ? [...fila, TextCellValue(signoDe(o))] : fila;
+
     // Hoja 1: órdenes completadas
     final sheet = excel['Reporte de Caja'];
     excel.setDefaultSheet('Reporte de Caja');
-    _header(sheet, _cajaHeaders);
+    _header(sheet, _cajaHeaders(signo));
     for (final o in orders) {
-      sheet.appendRow(_buildCajaRow(o, certifiedInvoiceOrderIds, userNamesById, dateFmt));
+      sheet.appendRow(conMoneda(_buildCajaRow(o, certifiedInvoiceOrderIds, userNamesById, dateFmt), o));
     }
 
     // Hoja 2: órdenes canceladas — mismas columnas + Razón de cancelación + Monto cancelado
     final cancelSheet = excel['Órdenes Canceladas'];
-    _header(cancelSheet, [..._cajaHeaders, 'Razón de cancelación', 'Monto cancelado (${moneda.trim()})']);
+    _header(cancelSheet, [
+      ..._cajaHeaders(signo),
+      'Razón de cancelación',
+      signo == null ? 'Monto cancelado' : 'Monto cancelado ($signo)',
+    ]);
     for (final o in cancelledOrders) {
       final rawFecha = o['cancelled_at'] ?? o['updated_at'] ?? o['created_at'];
       final baseRow = _buildCajaRow(
@@ -163,7 +184,7 @@ class ExportService {
       );
       final razon = o['cancellation_reason'] as String? ?? '';
       final monto = (o['total_amount'] as num? ?? 0).toDouble();
-      cancelSheet.appendRow([...baseRow, TextCellValue(razon), DoubleCellValue(monto)]);
+      cancelSheet.appendRow([...conMoneda(baseRow, o), TextCellValue(razon), DoubleCellValue(monto)]);
     }
 
     _download(excel, 'reporte_caja_${_slug(periodLabel)}.xlsx');

@@ -146,10 +146,13 @@ class _DataContent extends StatelessWidget {
         ? null
         : LocationSalesBreakdown(
             locations: provider.locations,
+            otras: provider.sucursalesOcultas,
             orders: provider.currentOrders,
             expenseItems: provider.expenseItems,
             purchaseItems: provider.purchaseItems,
             precomputedSales: provider.yearSalesByLocation,
+            simboloConvertido: provider.convierte ? provider.simboloDe(provider.codigoPrincipal) : null,
+            excluidas: {for (final l in provider.sucursalesSinTasa) l.id},
           );
 
     return Column(

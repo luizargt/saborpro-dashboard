@@ -62,11 +62,13 @@ class CashClosuresReportScreen extends StatelessWidget {
                         CajasScreen(
                           open: provider.openRegisters,
                           closed: provider.closedRegisters,
-                          orders: provider.currentOrders,
-                          expenseItems: provider.expenseItems,
+                          // Sin convertir: cada caja se cuadra en su moneda.
+                          orders: provider.currentOrdersLocal,
+                          expenseItems: provider.expenseItemsLocal,
                           locationNames: {
                             for (final l in provider.locations) l.id: l.name,
                           },
+                          locationSymbols: provider.locationSymbols,
                           tenantId: provider.tenantId,
                           onRegisterClosed: provider.load,
                         ),

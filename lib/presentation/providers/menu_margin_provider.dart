@@ -120,10 +120,16 @@ class MenuMarginProvider extends ChangeNotifier {
   int get descartados => _menu?.descartados ?? 0;
 
   /// El costo de cada platillo en la sucursal. Null mientras no hay menú.
-  List<MargenPlatillo>? platillosPara(String? sucursalId) {
+  ///
+  /// [soloSucursales] acota además a esas sucursales: en "Todas" con monedas
+  /// distintas se calcula con las de una sola moneda (ver dish_profit_card).
+  List<MargenPlatillo>? platillosPara(String? sucursalId, {Set<String>? soloSucursales}) {
     final menu = _menu;
     if (menu == null) return null;
-    final permitidas = _permitidas();
+    final asignadas = _permitidas();
+    final permitidas = soloSucursales == null
+        ? asignadas
+        : (asignadas.isEmpty ? soloSucursales : asignadas.intersection(soloSucursales));
     final clave = '${sucursalId ?? "*"}|${(permitidas.toList()..sort()).join(",")}';
     return _memo[clave] ??= calcularMargenes(
       menu,

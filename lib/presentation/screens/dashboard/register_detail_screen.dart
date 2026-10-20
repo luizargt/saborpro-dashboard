@@ -12,12 +12,17 @@ class RegisterDetailScreen extends StatefulWidget {
   final Map<String, String> locationNames;
   final String? tenantId;
 
+  /// Signo de la moneda de la sucursal de esta caja. La caja nunca se
+  /// convierte: se ve en lo que de verdad entró.
+  final String? simbolo;
+
   const RegisterDetailScreen({
     super.key,
     required this.register,
     required this.expenseItems,
     required this.locationNames,
     this.tenantId,
+    this.simbolo,
   });
 
   @override
@@ -160,7 +165,9 @@ class _RegisterDetailScreenState extends State<RegisterDetailScreen>
         ? '${timeFmt.format(reg.openedAt)} → ${timeFmt.format(reg.closedAt!)}  ·  ${reg.locationName ?? ''}'
         : 'Abierta desde ${timeFmt.format(reg.openedAt)}  ·  ${reg.locationName ?? ''}';
 
-    return Scaffold(
+    return MonedaLocal(
+      simbolo: widget.simbolo ?? moneda,
+      child: Scaffold(
       backgroundColor: const Color(0xFF0F172A),
       appBar: AppBar(
         backgroundColor: const Color(0xFF0F172A),
@@ -215,6 +222,7 @@ class _RegisterDetailScreenState extends State<RegisterDetailScreen>
                 ],
               ),
       ),
+    ),
     );
   }
 }
@@ -377,11 +385,11 @@ class _OrderRow extends StatelessWidget {
                     color: Colors.white70,
                     fontSize: 12,
                     fontWeight: FontWeight.w600)),
-            _amtCell(subtotal, 90, fmt),
-            _amtCell(discounts, 90, fmt, negative: true),
-            _amtCell(tips, 80, fmt, accent: const Color(0xFF22C55E)),
-            _amtCell(courtesy, 80, fmt, accent: const Color(0xFFF59E0B)),
-            _cell('$moneda${fmt.format(total)}', 100,
+            _amtCell(subtotal, 90, fmt, MonedaLocal.de(context)),
+            _amtCell(discounts, 90, fmt, MonedaLocal.de(context), negative: true),
+            _amtCell(tips, 80, fmt, MonedaLocal.de(context), accent: const Color(0xFF22C55E)),
+            _amtCell(courtesy, 80, fmt, MonedaLocal.de(context), accent: const Color(0xFFF59E0B)),
+            _cell('${MonedaLocal.de(context)}${fmt.format(total)}', 100,
                 right: true,
                 style: GoogleFonts.inter(
                     color: Colors.white,
@@ -409,7 +417,7 @@ class _OrderRow extends StatelessWidget {
     );
   }
 
-  Widget _amtCell(double value, double width, NumberFormat fmt,
+  Widget _amtCell(double value, double width, NumberFormat fmt, String signo,
       {bool negative = false, Color? accent}) {
     if (value == 0) {
       return SizedBox(
@@ -427,7 +435,7 @@ class _OrderRow extends StatelessWidget {
     } else {
       color = Colors.white54;
     }
-    final prefix = negative ? '-$moneda' : moneda;
+    final prefix = negative ? '-$signo' : signo;
     return SizedBox(
       width: width,
       child: Text(
@@ -500,14 +508,14 @@ class _TotalsRow extends StatelessWidget {
                     fontWeight: FontWeight.w600),
               ),
             ),
-            _tot('$moneda${fmt.format(subtotal)}', 90),
-            _tot(discounts > 0 ? '-$moneda${fmt.format(discounts)}' : '—', 90,
+            _tot('${MonedaLocal.de(context)}${fmt.format(subtotal)}', 90),
+            _tot(discounts > 0 ? '-${MonedaLocal.de(context)}${fmt.format(discounts)}' : '—', 90,
                 color: discounts > 0 ? const Color(0xFFEF4444) : Colors.white24),
-            _tot(tips > 0 ? '$moneda${fmt.format(tips)}' : '—', 80,
+            _tot(tips > 0 ? '${MonedaLocal.de(context)}${fmt.format(tips)}' : '—', 80,
                 color: tips > 0 ? const Color(0xFF22C55E) : Colors.white24),
-            _tot(courtesy > 0 ? '$moneda${fmt.format(courtesy)}' : '—', 80,
+            _tot(courtesy > 0 ? '${MonedaLocal.de(context)}${fmt.format(courtesy)}' : '—', 80,
                 color: courtesy > 0 ? const Color(0xFFF59E0B) : Colors.white24),
-            _tot('$moneda${fmt.format(total)}', 100,
+            _tot('${MonedaLocal.de(context)}${fmt.format(total)}', 100,
                 color: Colors.white, bold: true),
             const SizedBox(width: 100),
           ],
@@ -565,7 +573,7 @@ class _ExpensesTab extends StatelessWidget {
               Text('Total gastos',
                   style: GoogleFonts.inter(color: Colors.white54, fontSize: 13)),
               const Spacer(),
-              Text('$moneda${fmt.format(total)}',
+              Text('${MonedaLocal.de(context)}${fmt.format(total)}',
                   style: GoogleFonts.inter(
                       color: const Color(0xFFEF4444),
                       fontSize: 15,
@@ -643,7 +651,7 @@ class _ExpenseRow extends StatelessWidget {
             ),
           ),
           Text(
-            '$moneda${fmt.format(amount)}',
+            '${MonedaLocal.de(context)}${fmt.format(amount)}',
             style: GoogleFonts.inter(
                 color: const Color(0xFFEF4444),
                 fontSize: 14,

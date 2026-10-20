@@ -17,13 +17,29 @@ class LocationSalesBreakdown extends StatelessWidget {
   /// en los demás períodos, donde se suman las órdenes de `orders`.
   final Map<String, double> precomputedSales;
 
+  /// Signo de la moneda principal cuando los montos vienen convertidos a
+  /// ella. Nulo = cada sucursal en la suya (todas venden en la misma).
+  final String? simboloConvertido;
+
+  /// Sucursales que no se pueden convertir (su moneda no tiene tipo de
+  /// cambio): no entran en la tabla ni en el porcentaje. La pantalla lo avisa
+  /// aparte.
+  final Set<String> excluidas;
+
+  /// Inactivas y bodegas: no tienen pestaña, pero si vendieron en el período
+  /// su venta está en el total y la tabla tiene que mostrarla para cuadrar.
+  final List<LocationModel> otras;
+
   const LocationSalesBreakdown({
     super.key,
     required this.locations,
+    this.otras = const [],
     required this.orders,
     required this.expenseItems,
     required this.purchaseItems,
     this.precomputedSales = const {},
+    this.simboloConvertido,
+    this.excluidas = const {},
   });
 
   static const _palette = [
@@ -66,7 +82,8 @@ class LocationSalesBreakdown extends StatelessWidget {
     final expensesByLoc = _sumByLocation(expenseItems, 'amount');
     final purchasesByLoc = _sumByLocation(purchaseItems, 'total');
 
-    final rows = locations
+    final rows = [...locations, ...otras.where((o) => !locations.any((l) => l.id == o.id))]
+        .where((loc) => !excluidas.contains(loc.id))
         .map((loc) => (
               loc: loc,
               sales: sales[loc.id] ?? 0,
@@ -103,8 +120,12 @@ class LocationSalesBreakdown extends StatelessWidget {
             if (i > 0) const SizedBox(height: 14),
             _LocationRow(
               color: _palette[i % _palette.length],
-              name: rows[i].loc.name,
-              simbolo: rows[i].loc.currencySymbol,
+              name: rows[i].loc.visible
+                  ? rows[i].loc.name
+                  : rows[i].loc.esBodega
+                      ? '${rows[i].loc.name} (bodega)'
+                      : '${rows[i].loc.name} (inactiva)',
+              simbolo: simboloConvertido ?? rows[i].loc.currencySymbol,
               sales: rows[i].sales,
               utilidad: rows[i].utilidad,
               percent: total > 0 ? (rows[i].sales / total) * 100 : 0,

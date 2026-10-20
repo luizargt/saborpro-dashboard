@@ -595,6 +595,9 @@ class ResumenReparto extends StatelessWidget {
   /// "Todas" con varias sucursales: el número es aproximado y hay que decirlo.
   final bool vistaTodas;
 
+  /// "Todas" con sucursales en monedas distintas: cuáles quedaron fuera.
+  final String? notaMoneda;
+
   /// En la tarjeta de Rentabilidad: deja fuera lo que puede esperar a "Ver
   /// todos".
   final bool compacto;
@@ -609,6 +612,7 @@ class ResumenReparto extends StatelessWidget {
     this.calculando = false,
     this.errorGastos = false,
     this.vistaTodas = false,
+    this.notaMoneda,
     this.compacto = false,
     this.maxAvisos = 2,
   });
@@ -735,6 +739,7 @@ class ResumenReparto extends StatelessWidget {
           'armó cada receta. Elegí una sucursal para verlo con sus precios.',
           Colors.white60));
     }
+    if (notaMoneda != null) hijos.add(_nota(notaMoneda!, kAmbar));
 
     return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch, children: hijos);
@@ -834,6 +839,7 @@ class GuiaUtilidad extends StatelessWidget {
   final bool calculando;
   final bool errorGastos;
   final bool vistaTodas;
+  final String? notaMoneda;
   final int descartados;
   final String? errorMenu;
 
@@ -844,6 +850,7 @@ class GuiaUtilidad extends StatelessWidget {
     this.calculando = false,
     this.errorGastos = false,
     this.vistaTodas = false,
+    this.notaMoneda,
     this.descartados = 0,
     this.errorMenu,
   });
@@ -890,6 +897,7 @@ class GuiaUtilidad extends StatelessWidget {
           calculando: calculando,
           errorGastos: errorGastos,
           vistaTodas: vistaTodas,
+          notaMoneda: notaMoneda,
           maxAvisos: 99,
         ),
         _tituloSeccion('QUÉ DICE CADA COLUMNA'),

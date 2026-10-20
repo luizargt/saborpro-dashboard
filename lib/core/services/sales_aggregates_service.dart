@@ -36,12 +36,17 @@ class SalesAggregatesService {
   ///
   /// [start] y [end] deben caer dentro del mismo año calendario: el resultado
   /// se indexa por número de mes.
+  ///
+  /// [conversiones] trae las sucursales que venden en otra moneda que la que
+  /// se está mostrando, con cómo pasarlas a ella (ver [ConversionSucursal]).
+  /// Las que no están se suman tal cual.
   Future<YearAggregate> fetchYear({
     required String tenantId,
     required int year,
     String? locationId,
     Set<String> allowedLocationIds = const {},
     List<String> desglosePorSucursal = const [],
+    Map<String, ConversionSucursal> conversiones = const {},
   }) async {
     final sw = Stopwatch()..start();
 
@@ -52,7 +57,9 @@ class SalesAggregatesService {
     if (locationId != null && locationId.isNotEmpty) {
       scopes.add(locationId);
     } else if (allowedLocationIds.isNotEmpty) {
-      scopes.addAll(allowedLocationIds);
+      // Una sucursal sin tipo de cambio no se puede sumar con las demás: no
+      // se consulta.
+      scopes.addAll(allowedLocationIds.where((id) => conversiones[id]?.excluida != true));
     } else {
       scopes.add(null); // todas: una sola consulta, sin filtro de sucursal
     }
@@ -63,8 +70,19 @@ class SalesAggregatesService {
     var delivery = 0.0;
     var truncated = false;
 
+    // Con conversión, una consulta que falle a medias deja montos crudos (o
+    // restados de más) dentro del total: pesos contados como quetzales. Ahí
+    // es preferible el error ("no se pudo cargar", deslizar para reintentar)
+    // a un número equivocado. Sin conversión se queda como siempre.
+    final estricto = conversiones.isNotEmpty;
+    // Todas las consultas de esta carga miran hasta el MISMO instante. Si no,
+    // un ticket que entra entre la consulta global y la de su sucursal queda
+    // restado sin haber sido sumado (y en pesos). Sin conversión se queda
+    // como siempre: sin tope, también lo que trae hora adelantada.
+    final DateTime? corte = estricto ? DateTime.now() : null;
     for (final scope in scopes) {
-      final r = await _fetchScope(tenantId, year, scope);
+      final r = await _fetchScope(tenantId, year, scope,
+          conv: scope == null ? null : conversiones[scope], estricto: estricto, hasta: corte);
       for (var m = 0; m < 12; m++) {
         months[m].orders += r.months[m].orders;
         months[m].sales += r.months[m].sales;
@@ -78,19 +96,42 @@ class SalesAggregatesService {
       }
     }
 
+    // Todas sin filtro: la consulta global sumó cada sucursal en su moneda.
+    // Para las de otra moneda se pide su parte aparte y se cambia por la
+    // convertida (o se quita, si no tiene tipo de cambio). Se hace así y no
+    // sucursal por sucursal para no perder las ventas de sucursales que ya no
+    // están activas, que la consulta global sí trae.
+    if (scopes.length == 1 && scopes.first == null && conversiones.isNotEmpty) {
+      for (final e in conversiones.entries) {
+        final r = await _fetchScope(tenantId, year, e.key,
+            conv: e.value, estricto: true, hasta: corte);
+        for (var m = 0; m < 12; m++) {
+          months[m].sales += r.months[m].sales - r.months[m].salesRaw;
+          if (e.value.excluida) months[m].orders -= r.months[m].orders;
+        }
+        tips += r.tips - r.tipsRaw;
+        delivery += r.delivery - r.deliveryRaw;
+        truncated = truncated || r.truncated;
+        if (!e.value.excluida) {
+          porSucursal[e.key] = r.months.fold(0.0, (s, m) => s + m.sales);
+        }
+      }
+    }
+
     // Vista de "todas las sucursales": una consulta anual más por sucursal para
     // no perder la tabla de reparto. Son unidades de lecturas, no miles.
-    if (porSucursal.isEmpty && desglosePorSucursal.length > 1) {
+    if (scopes.length == 1 && scopes.first == null && desglosePorSucursal.length > 1) {
+      final faltan = desglosePorSucursal.where((id) => !porSucursal.containsKey(id)).toList();
       final totales = await Future.wait(
-        desglosePorSucursal.map((id) => _sumYearFor(tenantId, year, id)),
+        faltan.map((id) => _sumYearFor(tenantId, year, id, estricto: estricto, hasta: corte)),
       );
-      for (var i = 0; i < desglosePorSucursal.length; i++) {
-        porSucursal[desglosePorSucursal[i]] = totales[i];
+      for (var i = 0; i < faltan.length; i++) {
+        porSucursal[faltan[i]] = totales[i];
       }
     }
 
     debugPrint('[AGG] año $year: ${sw.elapsedMilliseconds}ms, '
-        '${scopes.length} sucursal(es)');
+        '${scopes.length} sucursal(es), ${conversiones.length} con otra moneda');
 
     return YearAggregate(
       year: year,
@@ -106,13 +147,14 @@ class SalesAggregatesService {
   }
 
   /// Venta del año de UNA sucursal, con los mismos ajustes que el total.
-  Future<double> _sumYearFor(String tenantId, int year, String locationId) async {
+  Future<double> _sumYearFor(String tenantId, int year, String locationId,
+      {bool estricto = false, DateTime? hasta}) async {
     Query<Map<String, dynamic>> base() => _db
         .collection('orders')
         .where('tenant_id', isEqualTo: tenantId)
         .where('location_id', isEqualTo: locationId);
     final from = DateTime(year, 1, 1);
-    final to = DateTime(year + 1, 1, 1);
+    final to = _antes(DateTime(year + 1, 1, 1), hasta);
     final ranged = base()
         .where('paid_at', isGreaterThanOrEqualTo: Timestamp.fromDate(from))
         .where('paid_at', isLessThan: Timestamp.fromDate(to));
@@ -124,6 +166,7 @@ class SalesAggregatesService {
         _fetchSinPago(base(), from, to),
         _fetchOffline(base(), from, to),
       ]);
+      if (estricto && ajustes.any((a) => a.fallo)) throw const ConversionIncompleta();
       for (final o in ajustes[0].rows) {
         total -= o.aggSales;
       }
@@ -136,11 +179,15 @@ class SalesAggregatesService {
       return total;
     } catch (e) {
       debugPrint('[AGG] sucursal $locationId: $e');
+      if (estricto) rethrow;
       return 0;
     }
   }
 
-  Future<_ScopeResult> _fetchScope(String tenantId, int year, String? locationId) async {
+  /// [estricto]: cualquier consulta que falle tira [ConversionIncompleta] en
+  /// vez de valer cero (ver fetchYear).
+  Future<_ScopeResult> _fetchScope(String tenantId, int year, String? locationId,
+      {ConversionSucursal? conv, bool estricto = false, DateTime? hasta}) async {
     Query<Map<String, dynamic>> base() {
       Query<Map<String, dynamic>> q =
           _db.collection('orders').where('tenant_id', isEqualTo: tenantId);
@@ -152,13 +199,26 @@ class SalesAggregatesService {
         .where('paid_at', isGreaterThanOrEqualTo: Timestamp.fromDate(from))
         .where('paid_at', isLessThan: Timestamp.fromDate(to));
 
-    final yearStart = DateTime(year, 1, 1);
-    final yearEnd = DateTime(year + 1, 1, 1);
+    double factorEn(DateTime d) => conv == null ? 1 : conv.factorEn(d);
 
-    // Las 12 consultas del gráfico, en paralelo.
+    final yearStart = DateTime(year, 1, 1);
+    final yearEnd = _antes(DateTime(year + 1, 1, 1), hasta);
+
+    // Las consultas del gráfico, en paralelo: una por mes, o una por tramo si
+    // el tipo de cambio cambió a mitad de mes (entre dos cortes la tasa es una
+    // sola, así que la suma del tramo se convierte entera).
+    final tramosPorMes = [
+      for (var m = 0; m < 12; m++)
+        // Un mes que empieza después del corte no tiene nada que sumar.
+        if (DateTime(year, m + 1, 1).isBefore(yearEnd))
+          tramosEntre(DateTime(year, m + 1, 1), _antes(DateTime(year, m + 2, 1), yearEnd),
+              conv?.cortes ?? const [])
+        else
+          const <(DateTime, DateTime)>[],
+    ];
     final monthly = await Future.wait([
       for (var m = 0; m < 12; m++)
-        _sumMonth(ranged(DateTime(year, m + 1, 1), DateTime(year, m + 2, 1))),
+        Future.wait([for (final t in tramosPorMes[m]) _sumMonth(ranged(t.$1, t.$2))]),
     ]);
 
     // Propina y envío van en consultas aparte, y esto NO es un descuido:
@@ -169,9 +229,12 @@ class SalesAggregatesService {
     //
     // Que `delivery_fee` falte en el 97% de las órdenes no estorba: en una suma
     // un campo ausente o nulo vale cero y el documento igual cuenta.
+    final tramosAnio = tramosEntre(yearStart, yearEnd, conv?.cortes ?? const []);
     final extras = await Future.wait([
-      _sumField(ranged(yearStart, yearEnd), 'tip_amount'),
-      _sumField(ranged(yearStart, yearEnd), 'delivery_fee'),
+      for (final t in tramosAnio) ...[
+        _sumField(ranged(t.$1, t.$2), 'tip_amount'),
+        _sumField(ranged(t.$1, t.$2), 'delivery_fee'),
+      ],
     ]);
 
     // Las agregaciones no saben excluir las canceladas, así que se bajan y se
@@ -185,21 +248,45 @@ class SalesAggregatesService {
     final offline = ajustes[1];
     final sinPago = ajustes[2];
 
-    final months = List<_MonthAcc>.generate(12, (i) => _MonthAcc()
-      ..orders = monthly[i].orders
-      ..sales = monthly[i].sales);
+    final months = List<_MonthAcc>.generate(12, (_) => _MonthAcc());
+    for (var m = 0; m < 12; m++) {
+      for (var k = 0; k < tramosPorMes[m].length; k++) {
+        final r = monthly[m][k];
+        months[m].orders += r.orders;
+        months[m].salesRaw += r.sales;
+        months[m].sales += r.sales * factorEn(tramosPorMes[m][k].$1);
+      }
+    }
 
-    var tips = extras[0];
-    var delivery = extras[1];
+    var tips = 0.0, tipsRaw = 0.0, delivery = 0.0, deliveryRaw = 0.0;
+    // Una suma que no se pudo pedir vale cero; con conversión ese cero dejaría
+    // la parte de esa sucursal sin convertir dentro del total, así que en modo
+    // estricto se corta la carga (ver fetchYear).
+    if (estricto &&
+        (extras.any((x) => x == null) || cancelled.fallo || offline.fallo || sinPago.fallo)) {
+      throw const ConversionIncompleta();
+    }
+    for (var k = 0; k < tramosAnio.length; k++) {
+      final f = factorEn(tramosAnio[k].$1);
+      final propina = extras[2 * k], envio = extras[2 * k + 1];
+      tipsRaw += propina ?? 0;
+      tips += (propina ?? 0) * f;
+      deliveryRaw += envio ?? 0;
+      delivery += (envio ?? 0) * f;
+    }
 
     for (final o in cancelled.rows) {
+      final f = factorEn(o.fecha);
       final m = o.month - 1;
       if (m >= 0 && m < 12) {
         months[m].orders -= 1;
-        months[m].sales -= o.aggSales;
+        months[m].sales -= o.aggSales * f;
+        months[m].salesRaw -= o.aggSales;
       }
-      tips -= o.tip;
-      delivery -= o.delivery;
+      tips -= o.tip * f;
+      tipsRaw -= o.tip;
+      delivery -= o.delivery * f;
+      deliveryRaw -= o.delivery;
     }
 
     // Las de pago nulo ya están contadas como ticket, pero valiendo cero: acá
@@ -208,26 +295,35 @@ class SalesAggregatesService {
     // veces.
     for (final o in sinPago.rows) {
       final m = o.month - 1;
-      if (m >= 0 && m < 12) months[m].sales += o.sales;
+      if (m >= 0 && m < 12) {
+        months[m].sales += o.sales * factorEn(o.fecha);
+        months[m].salesRaw += o.sales;
+      }
     }
 
     // Las órdenes cobradas sin internet guardan `paid_at` como texto, y una
     // consulta por rango de Timestamp no las ve. Son unidades al año, así que
     // se bajan enteras y se suman al mes que les toca.
     for (final o in offline.rows) {
+      final f = factorEn(o.fecha);
       final m = o.month - 1;
       if (m >= 0 && m < 12) {
         months[m].orders += 1;
-        months[m].sales += o.sales;
+        months[m].sales += o.sales * f;
+        months[m].salesRaw += o.sales;
       }
-      tips += o.tip;
-      delivery += o.delivery;
+      tips += o.tip * f;
+      tipsRaw += o.tip;
+      delivery += o.delivery * f;
+      deliveryRaw += o.delivery;
     }
 
     return _ScopeResult(
       months: months,
       tips: tips,
+      tipsRaw: tipsRaw,
       delivery: delivery,
+      deliveryRaw: deliveryRaw,
       truncated: cancelled.truncated || offline.truncated,
     );
   }
@@ -268,19 +364,21 @@ class SalesAggregatesService {
       return _RowsResult(rows: rows, truncated: snap.docs.length >= kCancelledLimit);
     } catch (e) {
       debugPrint('[AGG] sin pago: $e');
-      return const _RowsResult(rows: [], truncated: true);
+      return const _RowsResult(rows: [], truncated: true, fallo: true);
     }
   }
 
-  Future<double> _sumField(Query<Map<String, dynamic>> q, String field) async {
+  /// Nula si la consulta falló (ver quien la usa).
+  Future<double?> _sumField(Query<Map<String, dynamic>> q, String field) async {
     try {
       final res = await q.aggregate(sum(field)).get();
       return res.getSum(field) ?? 0;
     } catch (e) {
       // Un campo que ningún documento del tenant usa puede no tener índice.
-      // Vale cero antes que tumbar la pantalla entera.
+      // Sin conversión vale cero antes que tumbar la pantalla entera. Con
+      // conversión, quien la llama corta la carga (modo estricto).
       debugPrint('[AGG] sin suma de $field: $e');
-      return 0;
+      return null;
     }
   }
 
@@ -299,7 +397,7 @@ class SalesAggregatesService {
       );
     } catch (e) {
       debugPrint('[AGG] canceladas: $e');
-      return const _RowsResult(rows: [], truncated: true);
+      return const _RowsResult(rows: [], truncated: true, fallo: true);
     }
   }
 
@@ -321,7 +419,7 @@ class SalesAggregatesService {
       return _RowsResult(rows: rows, truncated: snap.docs.length >= kOfflineLimit);
     } catch (e) {
       debugPrint('[AGG] offline: $e');
-      return const _RowsResult(rows: [], truncated: true);
+      return const _RowsResult(rows: [], truncated: true, fallo: true);
     }
   }
 }
@@ -329,6 +427,7 @@ class SalesAggregatesService {
 /// Una orden reducida a lo que hace falta para ajustar los totales.
 class _Row {
   const _Row({
+    required this.fecha,
     required this.month,
     required this.sales,
     required this.aggSales,
@@ -336,6 +435,8 @@ class _Row {
     required this.delivery,
   });
 
+  /// Cuándo se cobró, para convertirla con el tipo de cambio de ese día.
+  final DateTime fecha;
   final int month;
 
   /// Lo que la pantalla le asigna a esta orden: `payment_amount ?? total_amount`.
@@ -361,6 +462,7 @@ class _Row {
     final total = (data['total_amount'] as num?)?.toDouble() ?? 0;
     final pago = (data['payment_amount'] as num?)?.toDouble();
     return _Row(
+      fecha: dt,
       month: dt.month,
       sales: pago ?? total,
       aggSales: pago ?? 0,
@@ -371,27 +473,67 @@ class _Row {
 }
 
 class _RowsResult {
-  const _RowsResult({required this.rows, required this.truncated});
+  const _RowsResult({required this.rows, required this.truncated, this.fallo = false});
+
+  /// La consulta falló (no es lo mismo que tocar el tope).
+  final bool fallo;
   final List<_Row> rows;
   final bool truncated;
 }
 
 class _MonthAcc {
   int orders = 0;
+
+  /// Convertida a la moneda que se muestra.
   double sales = 0;
+
+  /// Tal cual, en la moneda de la sucursal.
+  double salesRaw = 0;
 }
 
 class _ScopeResult {
   const _ScopeResult({
     required this.months,
     required this.tips,
+    required this.tipsRaw,
     required this.delivery,
+    required this.deliveryRaw,
     required this.truncated,
   });
   final List<_MonthAcc> months;
   final double tips;
+  final double tipsRaw;
   final double delivery;
+  final double deliveryRaw;
   final bool truncated;
+}
+
+/// Cómo pasar las ventas de una sucursal a la moneda que se está mostrando.
+class ConversionSucursal {
+  const ConversionSucursal({required this.cortes, required this.factorEn}) : excluida = false;
+
+  /// Sin tipo de cambio: no se puede sumar con las demás, así que se quita.
+  ConversionSucursal.excluida()
+      : cortes = const [],
+        factorEn = _cero,
+        excluida = true;
+
+  static double _cero(DateTime _) => 0;
+
+  /// Días en que cambia la tasa: entre dos cortes seguidos es una sola.
+  final List<DateTime> cortes;
+
+  /// Por cuánto se multiplica un monto cobrado ese día.
+  final double Function(DateTime) factorEn;
+
+  final bool excluida;
+}
+
+/// Parte [desde, hasta) en tramos en los [cortes] que caen adentro.
+List<(DateTime, DateTime)> tramosEntre(DateTime desde, DateTime hasta, List<DateTime> cortes) {
+  final dentro = cortes.where((c) => c.isAfter(desde) && c.isBefore(hasta)).toList()..sort();
+  final puntos = [desde, ...dentro, hasta];
+  return [for (var i = 0; i < puntos.length - 1; i++) (puntos[i], puntos[i + 1])];
 }
 
 /// Ventas de un mes, calculadas por Firestore.
@@ -432,3 +574,19 @@ class YearAggregate {
   double get totalSales => months.fold(0.0, (s, m) => s + m.sales);
   double get avgTicket => totalOrders == 0 ? 0 : totalSales / totalOrders;
 }
+
+/// Una consulta de una suma convertida no respondió. Sumar sin ella pondría
+/// montos de una moneda como si fueran de otra, así que se corta la carga y
+/// la pantalla muestra el error (deslizar para reintentar).
+class ConversionIncompleta implements Exception {
+  const ConversionIncompleta();
+
+  @override
+  String toString() =>
+      'no se pudieron sumar las ventas de todas las sucursales para convertirlas. '
+      'Desliza hacia abajo para intentar de nuevo.';
+}
+
+/// El más temprano de [fin] y [corte] (nulo = sin corte).
+DateTime _antes(DateTime fin, DateTime? corte) =>
+    corte != null && corte.isBefore(fin) ? corte : fin;

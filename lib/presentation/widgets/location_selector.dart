@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../providers/dashboard_provider.dart';
+import 'moneda_vista_aviso.dart';
 import 'period_selector.dart';
 
 // ── LOCATION TABS BAR ────────────────────────────────────────────────────────
@@ -259,24 +260,39 @@ class LocationHeaderBar extends StatelessWidget {
     // En pantalla ancha el selector de fecha vive solo aquí (el shell ancho
     // no tiene AppBar propio), así que debe verse aunque no haya pestañas
     // de sucursal que mostrar.
+    // En qué moneda se está viendo, si el negocio tiene más de una.
+    final aviso = provider.hayOtraMoneda;
+
     if (!wide) {
-      if (!hasTabs) return const SizedBox.shrink();
-      return const Padding(
-        padding: EdgeInsets.fromLTRB(16, 8, 16, 0),
-        child: LocationTabsBar(),
+      if (!hasTabs && !aviso) return const SizedBox.shrink();
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (hasTabs) const LocationTabsBar(),
+            const MonedaVistaAviso(),
+          ],
+        ),
       );
     }
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (hasTabs) ...[
-            const Expanded(child: LocationTabsBar()),
-            const SizedBox(width: 8),
-          ] else
-            const Spacer(),
-          const DateSelectorChip(),
+          Row(
+            children: [
+              if (hasTabs) ...[
+                const Expanded(child: LocationTabsBar()),
+                const SizedBox(width: 8),
+              ] else
+                const Spacer(),
+              const DateSelectorChip(),
+            ],
+          ),
+          const MonedaVistaAviso(),
         ],
       ),
     );

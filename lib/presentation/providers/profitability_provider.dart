@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 
+import '../../core/services/auth_service.dart';
 import '../../core/utils/date_range.dart';
 import '../../data/models/profitability_data.dart';
 import 'dashboard_provider.dart';
@@ -74,7 +75,8 @@ class ProfitabilityProvider extends ChangeNotifier {
       // llegaran los totales se quedaría cacheado mostrando venta cero.
       '|${dash.metrics?.totalSales.toStringAsFixed(2) ?? "-"}'
       '|${dash.expenseItems.length}'
-      '|${dash.purchaseItems.length}';
+      '|${dash.purchaseItems.length}'
+      '|${dash.firmaMoneda}';
 
   /// Período y sucursal: lo que el usuario está mirando. Si esto cambia, lo
   /// que hay en pantalla dejó de corresponder, aunque siga siendo un cálculo
@@ -82,7 +84,8 @@ class ProfitabilityProvider extends ChangeNotifier {
   static String _contextoOf(DashboardProvider dash) =>
       '${dash.range.start.toIso8601String()}'
       '|${dash.range.end.toIso8601String()}'
-      '|${dash.selectedLocationId ?? "*"}';
+      '|${dash.selectedLocationId ?? "*"}'
+      '|${dash.firmaMoneda}';
 
   String? _contextoMostrado;
   String? _contextoPedido;
@@ -130,7 +133,13 @@ class ProfitabilityProvider extends ChangeNotifier {
     if (tenantId == null) return;
 
     _contextoPedido = ctx;
-    final inv = _fetchValorInventario(tenantId, dash.selectedLocationId);
+    // Costos e inventario se pasan a la moneda de la vista igual que las
+    // ventas: cada uno con el tipo de cambio de su sucursal y su fecha.
+    final factor = dash.factorDe;
+    // Quien ve solo algunas sucursales, en "Todas" ve solo las suyas (como en
+    // ventas y gastos). Antes sumaba el costo de todo el negocio.
+    final permitidas = AuthService().assignedLocationIds.toSet();
+    final inv = _fetchValorInventario(tenantId, dash.selectedLocationId, factor, permitidas);
     // El costo necesita los precios del inventario para estimar lo que no
     // quedó sellado, así que se encadena en vez de ir en paralelo.
     final cogs = inv.then((i) => _fetchCogs(
@@ -138,6 +147,8 @@ class ProfitabilityProvider extends ChangeNotifier {
           dash.range,
           dash.selectedLocationId,
           i.precioPorIngrediente,
+          factor,
+          permitidas,
         ));
 
     // Sin esto, un fallo mientras nadie está esperando el Future sube como
@@ -206,6 +217,8 @@ class ProfitabilityProvider extends ChangeNotifier {
     DateRange range,
     String? locationId,
     Map<String, double> precioActual,
+    double? Function(String? locationId, DateTime? fecha) factorDe,
+    Set<String> permitidas,
   ) async {
     final desde = DateTime(range.start.year, range.start.month, range.start.day);
     final hasta = DateTime(
@@ -240,13 +253,21 @@ class ProfitabilityProvider extends ChangeNotifier {
     for (final doc in snap.docs) {
       final d = doc.data();
       if (locationId != null && d['locationId'] != locationId) continue;
+      if (locationId == null && permitidas.isNotEmpty && !permitidas.contains(d['locationId'])) {
+        continue;
+      }
+      final rawFecha = d['createdAt'];
+      final factor = factorDe(
+          d['locationId'] as String?, rawFecha is String ? DateTime.tryParse(rawFecha) : null);
+      // Moneda sin tipo de cambio: no se puede sumar con lo demás.
+      if (factor == null) continue;
 
       // Mercadería que entró: es inversión en despensa, no costo del período.
       // Se acumula aparte y NO toca la cascada.
       if (d['type'] == _tipoEntrada) {
         final costoEntrada = (d['totalCost'] as num?)?.toDouble();
         if (costoEntrada != null) {
-          comprado += costoEntrada.abs();
+          comprado += costoEntrada.abs() * factor;
         } else {
           // Entrada sin costo: no se puede valorizar. Se cuenta para poder
           // decir que lo invertido está incompleto en vez de dar por bueno un
@@ -260,7 +281,7 @@ class ProfitabilityProvider extends ChangeNotifier {
       // magnitud.
       final costo = (d['totalCost'] as num?)?.toDouble();
       if (costo != null) {
-        total += costo.abs();
+        total += costo.abs() * factor;
         exactos++;
         continue;
       }
@@ -276,7 +297,7 @@ class ProfitabilityProvider extends ChangeNotifier {
       final cantidad = (d['quantity'] as num?)?.toDouble();
 
       if (precio != null && cantidad != null && cantidad != 0) {
-        total += precio * cantidad.abs();
+        total += precio * cantidad.abs() * factor;
         estimados++;
       } else {
         sinCosto++;
@@ -301,6 +322,8 @@ class ProfitabilityProvider extends ChangeNotifier {
   Future<_Inventario> _fetchValorInventario(
     String tenantId,
     String? locationId,
+    double? Function(String? locationId, DateTime? fecha) factorDe,
+    Set<String> permitidas,
   ) async {
     final snap = await _db
         .collection('ingredients')
@@ -323,6 +346,9 @@ class ProfitabilityProvider extends ChangeNotifier {
       if (precio != null && precio > 0) precios[doc.id] = precio;
 
       if (locationId != null && d['location_id'] != locationId) continue;
+      if (locationId == null && permitidas.isNotEmpty && !permitidas.contains(d['location_id'])) {
+        continue;
+      }
 
       final stock = (d['currentStock'] as num?)?.toDouble() ?? 0;
       if (stock <= 0) continue;
@@ -339,7 +365,10 @@ class ProfitabilityProvider extends ChangeNotifier {
         sinPrecio++;
         continue;
       }
-      total += stock * precio;
+      // Foto de hoy: se convierte con el tipo de cambio de hoy.
+      final factor = factorDe(d['location_id'] as String?, null);
+      if (factor == null) continue;
+      total += stock * precio * factor;
     }
 
     sospechosos.sort();

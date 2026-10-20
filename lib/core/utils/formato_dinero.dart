@@ -1,3 +1,4 @@
+import 'package:flutter/widgets.dart';
 import 'package:intl/intl.dart';
 
 // Mismo patrón que el resto de la app: coma para los miles, punto para los
@@ -15,15 +16,36 @@ String _moneda = 'Q';
 String get moneda => _moneda;
 
 void fijarMoneda(String simbolo) {
+  _moneda = signoParaMostrar(simbolo);
+}
+
+/// El signo listo para ir pegado al monto.
+String signoParaMostrar(String simbolo) {
   final s = simbolo.trim();
-  if (s.isEmpty) {
-    _moneda = 'Q';
-    return;
-  }
+  if (s.isEmpty) return 'Q';
   // "Q1,250.00" y "\$1,250.00" se leen bien pegados, pero "USD1,250.00" no:
   // un código de letras necesita su espacio.
   final terminaEnLetra = RegExp(r'[A-Za-z]$').hasMatch(s);
-  _moneda = s.length > 1 && terminaEnLetra ? '$s ' : s;
+  return s.length > 1 && terminaEnLetra ? '$s ' : s;
+}
+
+/// Moneda de una parte de la pantalla que no sigue la de la vista. Las cajas
+/// no se convierten nunca (se cuadran con lo que de verdad entró), así que
+/// cada una se pinta con el signo de su sucursal aunque el resto esté en la
+/// moneda principal.
+class MonedaLocal extends InheritedWidget {
+  MonedaLocal({super.key, required String simbolo, required super.child})
+      : simbolo = signoParaMostrar(simbolo);
+
+  final String simbolo;
+
+  /// El signo que va aquí: el de la [MonedaLocal] de arriba o, si no hay, el
+  /// de la vista.
+  static String de(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<MonedaLocal>()?.simbolo ?? moneda;
+
+  @override
+  bool updateShouldNotify(MonedaLocal oldWidget) => oldWidget.simbolo != simbolo;
 }
 
 /// La moneda de un grupo de sucursales: la que más de ellas usan. En empate,

@@ -242,6 +242,31 @@ class MargenPlatillo {
 
   String get clave => '$productoId|$presentacionId';
 
+  /// El mismo platillo con precio y costos multiplicados por [factor]: para
+  /// verlo en la moneda principal cuando la sucursal vende en otra.
+  MargenPlatillo aMoneda(double factor) => factor == 1
+      ? this
+      : MargenPlatillo(
+          productoId: productoId,
+          presentacionId: presentacionId,
+          producto: producto,
+          presentacion: presentacion,
+          precio: (precio * factor).round(),
+          estado: estado,
+          lineas: [
+            for (final l in lineas)
+              LineaCosto(
+                ingrediente: l.ingrediente,
+                cantidad: l.cantidad,
+                unidad: l.unidad,
+                precio: l.precio == null ? null : l.precio! * factor,
+                estado: l.estado,
+                unidadDistinta: l.unidadDistinta,
+              ),
+          ],
+          duplicada: duplicada,
+        );
+
   String get nombre =>
       presentacion == null ? producto : '$producto · $presentacion';
 

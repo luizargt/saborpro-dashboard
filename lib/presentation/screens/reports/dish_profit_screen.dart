@@ -263,6 +263,7 @@ class _UtilidadPlatillosScreenState extends State<UtilidadPlatillosScreen> {
                     calculandoGastos: calculandoGastos(dash, rentabilidad),
                     errorGastos: rentabilidad.error != null,
                     vistaTodas: esVistaTodas(dash),
+                    notaMoneda: notaMonedaPlatillos(dash),
                     onRefresh: () => Future.wait([
                       dash.load().then((_) => rentabilidad.load(dash)),
                       menu.recargar(),
@@ -288,6 +289,7 @@ class UtilidadPlatillosView extends StatelessWidget {
   final bool calculandoGastos;
   final bool errorGastos;
   final bool vistaTodas;
+  final String? notaMoneda;
   final Future<void> Function()? onRefresh;
 
   /// Envuelve SOLO la tabla (no los filtros ni el buscador). La pantalla le
@@ -304,6 +306,7 @@ class UtilidadPlatillosView extends StatelessWidget {
     this.calculandoGastos = false,
     this.errorGastos = false,
     this.vistaTodas = false,
+    this.notaMoneda,
     this.onRefresh,
     this.envolverLista,
   });
@@ -316,6 +319,7 @@ class UtilidadPlatillosView extends StatelessWidget {
           calculando: calculandoGastos,
           errorGastos: errorGastos,
           vistaTodas: vistaTodas,
+          notaMoneda: notaMoneda,
           descartados: datos?.descartados ?? 0,
           errorMenu: datos == null ? null : error,
         ),
