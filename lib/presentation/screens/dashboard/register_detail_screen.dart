@@ -715,10 +715,23 @@ double? _parseAmount(dynamic v) {
 /// selló con la misma hora de pago que tiene ahora (un minuto de margen: las
 /// copias de un mismo cobro difieren en segundos). Si se volvió a cobrar
 /// después con una versión anterior del POS, el sello quedó viejo: vale el
-/// criterio de siempre. Igual que Order.cajaDelCobro en el POS.
+/// criterio de siempre. Y si lo volvió a cobrar otro usuario (cambió quién
+/// cobró respecto de quien selló esa caja, `cash_register_paid_by`, que solo
+/// vale para la caja con la que viene), también, aunque la hora quede dentro
+/// del margen. Igual que Order.cajaDelCobro en el POS.
 String? _cajaDelCobro(Map<String, dynamic> o) {
   final caja = o['cash_register_id'];
   if (caja is! String || caja.isEmpty) return null;
+  final sello = o['cash_register_paid_by'];
+  final selladaPor = sello is Map && sello['cash_register_id'] == caja ? sello['user_id'] : null;
+  final cobrador = o['paid_by_user_id'];
+  if (selladaPor is String &&
+      selladaPor.isNotEmpty &&
+      cobrador is String &&
+      cobrador.isNotEmpty &&
+      selladaPor != cobrador) {
+    return null;
+  }
   final selladaA = _toDateTime(o['cash_register_paid_at']);
   final pagada = _toDateTime(o['paid_at']);
   if (selladaA == null || pagada == null) return null;
