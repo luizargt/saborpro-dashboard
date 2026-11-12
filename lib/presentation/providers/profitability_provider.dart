@@ -43,6 +43,17 @@ const _tipoEntrada = 'entrada';
 class ProfitabilityProvider extends ChangeNotifier {
   FirebaseFirestore get _db => FirebaseFirestore.instance;
 
+  /// Preparaciones de preproducción que se leen de un período, como mucho. Un
+  /// mes son decenas o cientos; el tope cuida la memoria del navegador en la
+  /// vista de año. Si se alcanza, lo restado a los gastos sale corto (nunca de
+  /// más) y la pantalla lo dice.
+  static const int _kPreparacionesLimit = 5000;
+
+  /// Sin red, una consulta puede quedarse esperando para siempre y el reporte
+  /// entero espera con ella. Holgado a propósito, como el del menú: un año en
+  /// una red lenta no debe confundirse con "sin conexión".
+  static const _topePreproduccion = Duration(seconds: 30);
+
   ProfitabilityData _data = ProfitabilityData.vacio;
   bool _loading = false;
   String? _error;
@@ -91,6 +102,14 @@ class ProfitabilityProvider extends ChangeNotifier {
   String? _contextoPedido;
   Future<_Inventario>? _invPendiente;
   Future<_Cogs>? _cogsPendiente;
+  Future<CargosPreproduccion>? _preproPendiente;
+
+  /// Cada carga lleva un número y solo la última escribe el resultado. Al
+  /// cambiar de sucursal o de mes a media carga, la vieja seguía esperando
+  /// sus consultas y, al despertar, armaba con las ventas y los gastos de la
+  /// sucursal NUEVA y el costo, el inventario o la preproducción de la VIEJA.
+  /// Si además terminaba última, esa mezcla se quedaba en pantalla.
+  int _generacion = 0;
 
   /// Recalcula solo si cambió algo de lo que depende el resultado.
   Future<void> loadIfNeeded(DashboardProvider dash) async {
@@ -158,13 +177,31 @@ class ProfitabilityProvider extends ChangeNotifier {
 
     _invPendiente = inv;
     _cogsPendiente = cogs;
+    _preproPendiente = _pedirPreproduccion(dash);
+  }
+
+  /// La preproducción del período y la sucursal que se están mirando, con las
+  /// mismas sucursales permitidas y la misma moneda que los gastos.
+  Future<CargosPreproduccion> _pedirPreproduccion(DashboardProvider dash) {
+    final f = _fetchPreproduccion(
+      dash.tenantId!,
+      dash.range,
+      dash.selectedLocationId,
+      dash.factorDe,
+      AuthService().assignedLocationIds.toSet(),
+    );
+    f.ignore();
+    return f;
   }
 
   Future<void> load(DashboardProvider dash) async {
     final tenantId = dash.tenantId;
     if (tenantId == null) return;
 
-    _cacheKey = _keyOf(dash);
+    final generacion = ++_generacion;
+    final contexto = _contextoOf(dash);
+    final clave = _keyOf(dash);
+    _cacheKey = clave;
     _loading = true;
     _error = null;
     notifyListeners();
@@ -174,9 +211,28 @@ class ProfitabilityProvider extends ChangeNotifier {
       // El costo y el inventario salen de las consultas que _lanzarConsultas
       // disparó apenas cambió el período — para cuando el dashboard termina,
       // normalmente ya están resueltas y no hay nada más que esperar.
-      _lanzarConsultas(dash, _contextoOf(dash));
-      final inventario = await _invPendiente!;
-      final cogs = await _cogsPendiente!;
+      _lanzarConsultas(dash, contexto);
+      // Los pedidos de ESTA carga se toman antes de esperar: si a media
+      // espera se cambia de sucursal, _lanzarConsultas pone otros en su lugar.
+      final invPedido = _invPendiente!;
+      final cogsPedido = _cogsPendiente!;
+      // Si la última lectura de la preproducción falló, se vuelve a pedir, y
+      // solo esa: es lo que hace "deslizar para reintentar". Se relanza acá y
+      // no en loadIfNeeded, que corre en cada cuadro: con la red caída
+      // repetiría la consulta sin fin.
+      final preproPedida = _preproPendiente ??= _pedirPreproduccion(dash);
+      final inventario = await invPedido;
+      final cogs = await cogsPedido;
+      final prepro = await preproPedida;
+
+      // Empezó otra carga mientras esta esperaba: la que vale es esa.
+      if (generacion != _generacion) return;
+
+      // Sin preproducción el reporte sale igual, sin restar nada y con el
+      // aviso; la próxima carga la vuelve a pedir.
+      if (!prepro.leida && identical(_preproPendiente, preproPedida)) {
+        _preproPendiente = null;
+      }
 
       // Mientras se esperaba, el usuario pudo cambiar de mes otra vez. Estos
       // números son del período viejo: pintarlos sería el mismo error que se
@@ -187,11 +243,30 @@ class ProfitabilityProvider extends ChangeNotifier {
         _cacheKey = null;
         return;
       }
+      // Cambió el mes o la sucursal y la carga nueva todavía no arranca, o el
+      // dashboard se está recargando (o ya trajo otra cosa): armar ahora
+      // mezclaría contextos o daría ventas en cero con sus listas a medio
+      // llenar. Sin clave, loadIfNeeded vuelve a calcular cuando el dashboard
+      // termine, aunque traiga exactamente lo mismo.
+      if (_contextoOf(dash) != contexto ||
+          dash.loading ||
+          _keyOf(dash) != clave) {
+        _cacheKey = null;
+        return;
+      }
 
-      _data = _armar(dash, cogs, inventario);
+      _data = _armar(dash, cogs, inventario, prepro);
       _loading = false;
       notifyListeners();
     } catch (e, stack) {
+      // El fallo de una carga ya reemplazada, o de un mes o una sucursal que
+      // ya no se miran, no es de lo que está en pantalla. Sin clave, volver a
+      // ese contexto lo recalcula en vez de esperar esta carga para siempre.
+      if (generacion != _generacion) return;
+      if (_contextoOf(dash) != contexto) {
+        _cacheKey = null;
+        return;
+      }
       _loading = false;
       // Las consultas de costo e inventario se reutilizan mientras no cambie
       // el período: si una falló, "deslizar para reintentar" volvía a esperar
@@ -380,11 +455,66 @@ class ProfitabilityProvider extends ChangeNotifier {
     );
   }
 
+  // ── Preproducción ──────────────────────────────────────────────────────
+  //
+  // Lo que las recetas de preproducción cargan por tiempo (gas, luz, mano de
+  // obra) entra al costo de lo vendido con cada venta del preparado (ver
+  // CargosPreproduccion). Se lee para restárselo a esas mismas categorías de
+  // gasto.
+  //
+  // Nunca lanza: si falla, devuelve "no leída" y el reporte sale igual, con
+  // los gastos completos y el aviso. Un error acá no puede dejar al dueño sin
+  // su rentabilidad.
+  Future<CargosPreproduccion> _fetchPreproduccion(
+    String tenantId,
+    DateRange range,
+    String? locationId,
+    double? Function(String? locationId, DateTime? fecha) factorDe,
+    Set<String> permitidas,
+  ) async {
+    // El mismo período que los gastos: días completos.
+    final desde = DateTime(range.start.year, range.start.month, range.start.day);
+    final hasta = DateTime(
+        range.end.year, range.end.month, range.end.day, 23, 59, 59, 999);
+
+    try {
+      // `executedAt` lo escribe el POS como String ISO local, igual que el
+      // `createdAt` de los movimientos del costo, así que el rango también va
+      // como String. Solo por rango: no hace falta índice compuesto. La
+      // sucursal se filtra en memoria, como en el resto del reporte.
+      //
+      // Siempre al servidor: sin red, `.get()` normal puede devolver un
+      // resultado VACÍO sin lanzar nada, y eso se leería como "no se cargó
+      // nada" en vez de "no se pudo leer".
+      final snap = await _db
+          .collection('tenants')
+          .doc(tenantId)
+          .collection('transformationExecutions')
+          .where('executedAt', isGreaterThanOrEqualTo: desde.toIso8601String())
+          .where('executedAt', isLessThanOrEqualTo: hasta.toIso8601String())
+          .limit(_kPreparacionesLimit)
+          .get(const GetOptions(source: Source.server))
+          .timeout(_topePreproduccion);
+
+      return CargosPreproduccion.sumar(
+        [for (final d in snap.docs) d.data()],
+        sucursal: locationId,
+        permitidas: permitidas,
+        factorDe: factorDe,
+        completa: snap.docs.length < _kPreparacionesLimit,
+      );
+    } catch (e, stack) {
+      debugPrint('[RENTABILIDAD] preproducción: $e\n$stack');
+      return CargosPreproduccion.noLeida;
+    }
+  }
+
   // ── Armado ─────────────────────────────────────────────────────────────
   ProfitabilityData _armar(
     DashboardProvider dash,
     _Cogs cogs,
     _Inventario inv,
+    CargosPreproduccion prepro,
   ) {
     final locId = dash.selectedLocationId;
 
@@ -454,7 +584,14 @@ class ProfitabilityProvider extends ChangeNotifier {
       );
     }
 
-    final lineas = porCategoria.values.toList()
+    // Lo que la preproducción cargó por tiempo (gas, luz, mano de obra) entra
+    // al costo de lo vendido con cada venta del preparado: se le resta a su
+    // categoría, que baja como mucho hasta cero. Sin esto esa parte se
+    // contaría dos veces, en la cascada y en el reparto por platillo, que lee
+    // estas mismas líneas.
+    final sinPrepro =
+        descontarPreproduccion(porCategoria.values.toList(), prepro);
+    final lineas = sinPrepro.lineas
       ..sort((a, b) => b.amount.compareTo(a.amount));
 
     // Compras: informativas. No se restan — el gasto de esa mercadería ya lo
@@ -481,13 +618,23 @@ class ProfitabilityProvider extends ChangeNotifier {
       itemsEstimados: cogs.estimados,
       itemsSinCosto: cogs.sinCosto,
       expenses: lineas,
-      payroll: sueldos,
+      // La mano de obra cargada a la preproducción sale también del costo
+      // primo, que si no la sumaría dos veces: queda igual a la línea de
+      // sueldos de la cascada. Sin nada restado, el mismo número de siempre.
+      payroll: sinPrepro.restadoEn(_idsSueldos) > 0
+          ? sinPrepro.montoEn(_idsSueldos)
+          : sueldos,
       paidFromCash: pagadoEnEfectivo,
       purchases: compras,
       entradasSinCosto: cogs.entradasSinCosto,
       inventoryValue: inv.valor,
       ingredientesSinPrecio: inv.sinPrecio,
       existenciasImposibles: inv.existenciasImposibles,
+      cargadoPreproduccion: prepro.total / 100,
+      restadoPreproduccion: sinPrepro.totalRestado / 100,
+      excesosPreproduccion: sinPrepro.excesos,
+      preproduccionLeida: prepro.leida,
+      preproduccionCompleta: prepro.completa,
     );
   }
 }

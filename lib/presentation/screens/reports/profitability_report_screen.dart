@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
+import '../../../core/utils/date_range.dart';
 import '../../../core/utils/formato_dinero.dart';
 import '../../../data/models/profitability_data.dart';
 import '../../providers/dashboard_provider.dart';
@@ -111,7 +112,15 @@ class _ProfitabilityReportScreenState extends State<ProfitabilityReportScreen> {
                         // mostrar. Sin esto quedaban en pantalla los números
                         // del mes anterior, sin ninguna señal de que ya no
                         // correspondían.
-                        child: _Cuerpo(provider: p, cargandoVentas: dash.loading),
+                        child: _Cuerpo(
+                          provider: p,
+                          cargandoVentas: dash.loading,
+                          rango: dash.range,
+                          // El dashboard se traga los fallos de gastos y de
+                          // cajas; estas dos señales son la única huella.
+                          gastosLeidos:
+                              dash.expenseRawCount >= 0 && dash.cajasLeidas,
+                        ),
                       ),
                     ),
                     ),
@@ -129,7 +138,18 @@ class _ProfitabilityReportScreenState extends State<ProfitabilityReportScreen> {
 class _Cuerpo extends StatelessWidget {
   final ProfitabilityProvider provider;
   final bool cargandoVentas;
-  const _Cuerpo({required this.provider, this.cargandoVentas = false});
+
+  /// Para el aviso de preproducción: solo en Mes o Año se compara categoría
+  /// por categoría, y solo si los gastos se leyeron enteros.
+  final DateRange rango;
+  final bool gastosLeidos;
+
+  const _Cuerpo({
+    required this.provider,
+    this.cargandoVentas = false,
+    required this.rango,
+    required this.gastosLeidos,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -158,6 +178,8 @@ class _Cuerpo extends StatelessWidget {
         detalle: 'Elegí otro rango de fechas para ver tu rentabilidad.',
       );
     }
+    final avisoPrepro =
+        avisoPreproduccion(d, rango: rango, gastosLeidos: gastosLeidos);
 
     return ListView(
       padding: EdgeInsets.only(
@@ -178,6 +200,10 @@ class _Cuerpo extends StatelessWidget {
         const UtilidadPlatillosSeccion(),
         const SizedBox(height: 14),
         _FueraDeLaCuenta(d: d),
+        if (avisoPrepro != null) ...[
+          const SizedBox(height: 14),
+          _AvisoPreproduccion(aviso: avisoPrepro),
+        ],
         if (!d.costoConfiable && d.itemsTotales > 0) ...[
           const SizedBox(height: 14),
           _AvisoCobertura(d: d),
@@ -338,7 +364,12 @@ class _Cascada extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           for (final e in d.expenses)
-            _Fila(label: e.label, monto: -e.amount, pct: d.pct(e.amount)),
+            _Fila(
+                label: e.label,
+                // Una categoría que la preproducción dejó en cero daba −0.0,
+                // y el formato lo pintaba "Q-0.00".
+                monto: e.amount == 0 ? 0.0 : -e.amount,
+                pct: d.pct(e.amount)),
           if (d.expenses.isEmpty)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 6),
@@ -690,6 +721,15 @@ class _FueraDeLaCuenta extends StatelessWidget {
               monto: d.paidFromCash,
               nota: 'Ya contado arriba en los gastos',
             ),
+          // Entra arriba, en el costo de lo vendido, al venderse el preparado.
+          // Se muestra para que se entienda por qué el gas, la luz o los
+          // sueldos salen acá más bajos que en la pantalla de Gastos.
+          if (d.cargadoPreproduccion > 0)
+            _Dato(
+              label: 'Cargado a la preproducción',
+              monto: d.cargadoPreproduccion,
+              nota: _notaPreproduccion(d),
+            ),
           _Dato(
             label: 'Invertido en compras',
             monto: d.purchases,
@@ -733,6 +773,22 @@ class _FueraDeLaCuenta extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Si no todo lo cargado se pudo restar, lo dice y manda al aviso que explica
+/// en qué categoría quedó la diferencia.
+String _notaPreproduccion(ProfitabilityData d) {
+  if (d.restadoPreproduccion >= d.cargadoPreproduccion) {
+    return 'Gas, luz o mano de obra que tus recetas suman al preparado. Entra '
+        'al costo de lo vendido al venderse, por eso se restó de esos gastos';
+  }
+  if (d.restadoPreproduccion > 0) {
+    return 'Entra al costo de lo vendido al venderse el preparado. De tus '
+        'gastos se restaron ${_money(d.restadoPreproduccion)}: ver el aviso de '
+        'abajo';
+  }
+  return 'Entra al costo de lo vendido al venderse el preparado, pero en '
+      'Gastos no había de dónde restarlo: ver el aviso de abajo';
 }
 
 /// Nombra los ingredientes mal digitados en vez de decir solo cuántos son: el
@@ -860,6 +916,58 @@ class _AvisoCobertura extends StatelessWidget {
                     'precio actual: esos cuentan como cero.',
                     style: GoogleFonts.inter(
                         color: Colors.white38, fontSize: 11, height: 1.4),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Lo de la preproducción que no cuadra con Gastos, o que no se pudo leer
+/// (qué decir lo arma [avisoPreproduccion]).
+///
+/// Va aparte del aviso de cobertura: aquel dice que el costo puede estar
+/// corto; este, que un gasto puede estar contado dos veces o que las recetas
+/// cargan más gas, luz o mano de obra de lo que se anotó.
+class _AvisoPreproduccion extends StatelessWidget {
+  final AvisoPreproduccion aviso;
+  const _AvisoPreproduccion({required this.aviso});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      decoration: BoxDecoration(
+        color: _ambar.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: _ambar.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.info_outline_rounded, color: _ambar, size: 18),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  aviso.titulo,
+                  style: GoogleFonts.inter(
+                      color: _ambar,
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w700),
+                ),
+                for (final p in aviso.parrafos) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    p,
+                    style: GoogleFonts.inter(
+                        color: Colors.white60, fontSize: 11.5, height: 1.45),
                   ),
                 ],
               ],
