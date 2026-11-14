@@ -946,6 +946,12 @@ class DashboardProvider extends ChangeNotifier {
         final mov = Map<String, dynamic>.from(raw);
 
         if (mov['type'] != 'withdrawal') continue;
+        // Pago de una compra registrada en Compras (marca 'pago_compra',
+        // `kMovimientoPagoCompra` en el POS): esa compra ya suma en
+        // "Compras / insumos" (purchaseCosts). Contar también el retiro como
+        // gasto restaría el mismo dinero dos veces. El retiro sigue en el
+        // resumen de la caja, que es salida de efectivo y no gasto.
+        if (mov['expenseCategoryId'] == 'pago_compra') continue;
 
         final rawDate = mov['createdAt'];
         DateTime? dt;
