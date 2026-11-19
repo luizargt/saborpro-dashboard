@@ -139,6 +139,28 @@ class InventoryProvider extends ChangeNotifier {
     return result;
   }
 
+  /// Cuánto consumo representa un movimiento de `inventoryMovements`, o null
+  /// si no es consumo.
+  ///
+  /// - Ventas y salidas manuales: la cantidad (va en negativo).
+  /// - Lo consumido de una reserva (`consumoReserva`, al cerrarla en la
+  ///   Despensa del POS): va en `consumedQuantity`, porque su `quantity` es 0
+  ///   —ese stock ya había bajado al reservar—. La reserva y lo que regresó
+  ///   (`reserva`, `devolucionReserva`) no son consumo.
+  @visibleForTesting
+  static double? cantidadConsumida(Map<String, dynamic> data) {
+    final type = data['type'] as String? ?? '';
+    if (type == 'salidaVenta' || type == 'salidaManual') {
+      final q = data['quantity'];
+      return q is num ? q.toDouble().abs() : 0;
+    }
+    if (type == 'consumoReserva') {
+      final c = data['consumedQuantity'];
+      return c is num ? c.toDouble() : 0;
+    }
+    return null;
+  }
+
   static String _dayKey(DateTime d) =>
       '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
@@ -175,8 +197,8 @@ class InventoryProvider extends ChangeNotifier {
 
       for (final doc in snap.docs) {
         final data = doc.data();
-        final type = data['type'] as String? ?? '';
-        if (type != 'salidaVenta' && type != 'salidaManual') continue;
+        final consumido = cantidadConsumida(data);
+        if (consumido == null) continue;
 
         // Filtrar por los últimos 30 días en Dart
         final createdAtRaw = data['createdAt'] as String? ?? '';
@@ -185,7 +207,7 @@ class InventoryProvider extends ChangeNotifier {
 
         final ingredientId = data['ingredientId'] as String? ?? '';
         final locationId = data['locationId'] as String? ?? '';
-        final qty = (data['quantity'] as num? ?? 0).toDouble().abs();
+        final qty = consumido;
 
         if (ingredientId.isEmpty || locationId.isEmpty || qty <= 0) continue;
 
