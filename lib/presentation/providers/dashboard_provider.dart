@@ -14,6 +14,7 @@ import '../../core/services/monthly_rollup_service.dart';
 import '../../core/utils/date_range.dart';
 import '../../core/utils/formato_dinero.dart';
 import '../../data/models/config_moneda.dart';
+import '../../data/models/cortesias_data.dart';
 import '../../data/models/vista_moneda.dart';
 import '../../data/models/dashboard_data.dart';
 import '../../data/models/cash_register_summary.dart';
@@ -402,6 +403,14 @@ class DashboardProvider extends ChangeNotifier {
     // Los totales cacheados son de otro negocio: tirarlos antes de nada.
     _aggCache.clear();
     _detalleCache.clear();
+    // Y el detalle de cortesías del año, que puede ser de sucursales que este
+    // usuario no ve. Lo que esté bajando el anterior se tira al llegar.
+    _sesion++;
+    _cortesiasAnio.clear();
+    _cortesiasAnioEnCurso.clear();
+    _cortesiasAnioDescargas.clear();
+    _cortesiasAnioError.clear();
+    _cortesiasAnioHora.clear();
     // Fijar sucursales permitidas de forma síncrona (load() corre en paralelo
     // con _loadLocations, así el filtro aplica desde la primera carga).
     _allowedLocationIds = AuthService().assignedLocationIds.toSet();
@@ -478,6 +487,12 @@ class DashboardProvider extends ChangeNotifier {
   Future<void> refresh() async {
     _aggCache.clear();
     _detalleCache.clear();
+    // Lo que esté bajando NO se corta: no se puede cancelar, y empezar otra
+    // dejaría dos descargas del año a la vez. Se guarda al llegar con la hora
+    // en que EMPEZÓ, así "bajados a las…" no lo hace pasar por más nuevo.
+    _cortesiasAnio.clear();
+    _cortesiasAnioError.clear();
+    _cortesiasAnioHora.clear();
     _rawCacheValid = false;
     // El tipo de cambio también: otra persona pudo ajustarlo desde que se
     // abrió la pantalla, y cada aparato vería cifras distintas.
@@ -1042,6 +1057,151 @@ class DashboardProvider extends ChangeNotifier {
     return _fetchOrdersPaged(_range.start, _range.end);
   }
 
+  // ── CORTESÍAS DEL AÑO (pantalla de cortesías) ───────────────────────────────
+  // En la vista de año no hay pedidos en memoria y el detalle de cortesías
+  // necesita abrirlos. Se bajan solo cuando alguien lo pide, y se guarda el
+  // reporte ya armado (unos KB), no los pedidos (hasta ~69 MB).
+  //
+  // Vive aquí y no en la pantalla. Guardado en la pantalla, salir y volver
+  // bajaba el año otra vez, y tocar el botón durante la primera descarga
+  // empezaba otra en paralelo. Guardado aparte de todo, sobrevivía al cierre
+  // de sesión: el siguiente usuario del aparato veía sucursales que no le
+  // tocan. Aquí `init()` lo tira al entrar alguien y `refresh()` al refrescar
+  // el Inicio.
+
+  final Map<String, CortesiasReport> _cortesiasAnio = {};
+  final Map<String, Future<void>> _cortesiasAnioEnCurso = {};
+  final Map<String, String> _cortesiasAnioError = {};
+  // A qué hora EMPEZÓ a bajarse cada uno. Cambiar de pestaña o de período
+  // rehace la tarjeta (load) pero no vuelve a bajar el año, así que el
+  // detalle puede ser más viejo que la tarjeta: la pantalla lo dice con la
+  // hora.
+  final Map<String, DateTime> _cortesiasAnioHora = {};
+
+  /// Cambia cada vez que entra alguien (`init`): lo que estaba bajando el
+  /// usuario anterior, al llegar, se tira.
+  int _sesion = 0;
+
+  /// Período, sucursal y moneda que se están mirando.
+  String get claveCortesiasAnio =>
+      '$_tenantId|${_range.start.toIso8601String()}|${_range.end.toIso8601String()}|'
+      '${_selectedLocationId ?? ''}|$_firmaMoneda';
+
+  /// El detalle de cortesías del año que se está mirando, si ya se bajó.
+  CortesiasReport? get cortesiasDelAnio =>
+      _usaAgregados ? _cortesiasAnio[claveCortesiasAnio] : null;
+
+  bool get bajandoCortesiasDelAnio =>
+      _usaAgregados && _cortesiasAnioEnCurso.containsKey(claveCortesiasAnio);
+
+  String? get errorCortesiasDelAnio =>
+      _usaAgregados ? _cortesiasAnioError[claveCortesiasAnio] : null;
+
+  /// A qué hora se bajó el detalle del año que se está mirando.
+  DateTime? get cortesiasDelAnioBajadoA =>
+      _usaAgregados ? _cortesiasAnioHora[claveCortesiasAnio] : null;
+
+  /// La descarga de verdad de cada clave, mientras corre. Sigue aunque la
+  /// pantalla se haya rendido por el tope (no se puede cancelar), y guarda
+  /// su resultado al llegar: reintentar la retoma en vez de empezar otra, que
+  /// serían dos años bajando a la vez.
+  final Map<String, Future<void>> _cortesiasAnioDescargas = {};
+
+  /// Baja los pedidos del año que se está mirando y arma su detalle de
+  /// cortesías. Si ese mismo ya se está bajando, devuelve esa descarga en vez
+  /// de empezar otra; si ya está, no hace nada.
+  Future<void> bajarCortesiasDelAnio() {
+    if (!_usaAgregados || _tenantId == null) return Future.value();
+    final clave = claveCortesiasAnio;
+    final enCurso = _cortesiasAnioEnCurso[clave];
+    if (enCurso != null) return enCurso;
+    if (_cortesiasAnio.containsKey(clave)) return Future.value();
+
+    final descarga =
+        _cortesiasAnioDescargas[clave] ?? _empezarDescargaCortesias(clave);
+    final sesion = _sesion;
+    final listo = Completer<void>();
+    _cortesiasAnioEnCurso[clave] = listo.future;
+    _cortesiasAnioError.remove(clave);
+    notifyListeners();
+
+    () async {
+      try {
+        // Con tope: una lectura que no responde dejaría "Bajando…" girando
+        // para siempre. La descarga no se corta; si llega después, se guarda
+        // y la pantalla la muestra sola.
+        await descarga.timeout(const Duration(minutes: 10));
+      } catch (e, st) {
+        if (sesion == _sesion && !_cortesiasAnio.containsKey(clave)) {
+          _cortesiasAnioError[clave] = e is TimeoutException
+              ? 'Está tardando más de 10 minutos. Sigue bajando y, si termina, '
+                  'aparece solo; si no, revisá la conexión o elegí un mes.'
+              : 'No se pudieron bajar los pedidos del año. Revisá la conexión '
+                  'e intentá de nuevo.';
+        }
+        Sentry.captureException(e, stackTrace: st, withScope: (scope) {
+          scope.setTag('provider', 'dashboard');
+          scope.setTag('accion', 'bajarCortesiasDelAnio');
+        });
+      } finally {
+        if (identical(_cortesiasAnioEnCurso[clave], listo.future)) {
+          _cortesiasAnioEnCurso.remove(clave);
+        }
+        listo.complete();
+        notifyListeners();
+      }
+    }();
+    return listo.future;
+  }
+
+  Future<void> _empezarDescargaCortesias(String clave) {
+    // Todo lo que define la descarga se fija ahora, como hace _ctxDetalle con
+    // los resúmenes. ensureDetailedOrders filtraría la sucursal y convertiría
+    // la moneda con lo elegido AL TERMINAR: si el dueño cambiaba de pestaña
+    // mientras bajaba, lo que llegaba no era de esta clave y había que
+    // tirarlo y bajar el año otra vez. Fijado, se guarda bajo SU clave.
+    final sesion = _sesion;
+    final empezo = DateTime.now();
+    final inicio = _range.start, fin = _range.end;
+    final vista = vistaMoneda;
+    final sel = _selectedLocationId;
+    final permitidas = Set<String>.of(_allowedLocationIds);
+    // La misma regla que _passesLocationFilter, con la sucursal de ahora.
+    bool pasa(String? loc) {
+      if (sel != null && sel.isNotEmpty) return loc == sel;
+      if (permitidas.isNotEmpty) return loc != null && permitidas.contains(loc);
+      return true;
+    }
+
+    final hecho = Completer<void>();
+    _cortesiasAnioDescargas[clave] = hecho.future;
+    // Si nadie la está esperando cuando falla (la pantalla ya se rindió por
+    // el tope), el error no puede quedar suelto.
+    hecho.future.catchError((Object _) {});
+
+    () async {
+      try {
+        final crudas = await _fetchOrdersPaged(inicio, fin, pasa: pasa);
+        // Si entró otro usuario mientras bajaba, se tira.
+        if (sesion == _sesion) {
+          _cortesiasAnio[clave] = CortesiasReport.desde(
+              convertirFilas(crudas, llaveFecha: 'paid_at', con: vista));
+          _cortesiasAnioHora[clave] = empezo;
+          _cortesiasAnioError.remove(clave);
+          notifyListeners();
+        }
+        hecho.complete();
+      } catch (e, st) {
+        hecho.completeError(e, st);
+      } finally {
+        if (identical(_cortesiasAnioDescargas[clave], hecho.future)) {
+          _cortesiasAnioDescargas.remove(clave);
+        }
+      }
+    }();
+    return hecho.future;
+  }
+
   /// Baja las órdenes de un rango paginando hasta agotarlo, sin ningún tope.
   Future<List<Map<String, dynamic>>> _fetchOrdersPaged(
       DateTime inicio, DateTime fin, {bool Function(String? locationId)? pasa}) async {
@@ -1433,6 +1593,7 @@ class DashboardProvider extends ChangeNotifier {
         metrics: previo.metrics,
         enMoneda: previo.enMoneda,
         firma: previo.firma,
+        cortesiaConExtras: previo.cortesiaConExtras,
       );
     }
 
@@ -1472,6 +1633,8 @@ class DashboardProvider extends ChangeNotifier {
       lastPaidAt: ultima,
       enMoneda: alc.enMoneda,
       firma: alc.firma(year, month),
+      // Lo de antes más lo nuevo: con extras solo si lo de antes ya los traía.
+      cortesiaConExtras: previo.cortesiaConExtras,
       metrics: PeriodMetrics(
         totalSales: a.totalSales + delta.totalSales,
         totalOrders: a.totalOrders + delta.totalOrders,
@@ -1788,10 +1951,11 @@ class DashboardProvider extends ChangeNotifier {
       if (items is List) {
         var hasCourtesy = false;
         for (final item in items) {
-          if (item is Map && item['is_courtesy'] == true && item['is_void'] != true) {
-            final price = (item['unit_price'] as num? ?? 0).toDouble();
-            final qty   = (item['qty']        as num? ?? 1).toDouble();
-            courtesyTotal += price * qty;
+          // La misma cuenta que el detalle de cortesías y que el POS: el
+          // platillo con sus extras (ver valorCortesia). Antes eran solo
+          // unit_price × qty y el ticket decía más.
+          if (cuentaComoCortesia(item)) {
+            courtesyTotal += valorCortesia(item as Map);
             hasCourtesy = true;
           }
         }

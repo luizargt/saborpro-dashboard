@@ -23,6 +23,7 @@ class MonthlyRollup {
     this.enMoneda,
     this.firma = '',
     this.alcanceVerificado = true,
+    this.cortesiaConExtras = true,
   });
 
   final int year;
@@ -57,6 +58,17 @@ class MonthlyRollup {
   /// Los que no traen esta marca se rehacen una vez.
   final bool alcanceVerificado;
 
+  /// Las cortesías se valoran con sus extras desde 2026-11 (ver
+  /// `valorCortesia`). Los resúmenes de antes las tienen sin extras: los que
+  /// no traen esta marca se rehacen una vez, como los de [alcanceVerificado].
+  ///
+  /// Es una marca y no un cambio de [kSchema] a propósito: con otro esquema,
+  /// las apps que no se actualizaron tirarían los resúmenes nuevos y los
+  /// rehechos por ellas los tiraría la nueva, una y otra vez. La marca la
+  /// ignoran las viejas; solo cuando una vieja rehace un mes que cambió, la
+  /// nueva lo vuelve a rehacer.
+  final bool cortesiaConExtras;
+
   Map<String, dynamic> toMap(String tenantId) => {
         'tenant_id': tenantId,
         'location_id': locationId,
@@ -70,6 +82,7 @@ class MonthlyRollup {
         'currency': enMoneda,
         'fx_signature': firma,
         'scope_verified': true,
+        'courtesy_with_extras': cortesiaConExtras,
         'total_sales': metrics.totalSales,
         'total_orders': metrics.totalOrders,
         'gross_sales': metrics.grossSales,
@@ -121,6 +134,7 @@ class MonthlyRollup {
       enMoneda: d['currency'] as String?,
       firma: d['fx_signature'] as String? ?? '',
       alcanceVerificado: d['scope_verified'] == true,
+      cortesiaConExtras: d['courtesy_with_extras'] == true,
       metrics: PeriodMetrics(
         totalSales: (d['total_sales'] as num?)?.toDouble() ?? 0,
         totalOrders: (d['total_orders'] as num?)?.toInt() ?? 0,
@@ -299,6 +313,13 @@ class MonthlyRollupService {
     // MonthlyRollup.alcanceVerificado). Los de una sucursal no tienen ese
     // problema.
     if (locationId.isEmpty && !guardado.alcanceVerificado) {
+      return RollupChequeo(RollupEstado.rehacer, guardado, total, canceladas);
+    }
+    // De antes de que la cortesía sumara los extras: su courtesy_total vale
+    // menos que la tarjeta de un mes y que el ticket. Se rehace una vez (ver
+    // MonthlyRollup.cortesiaConExtras). Rehacer y no completar: sumarle lo
+    // nuevo encima dejaría mezcladas las dos cuentas.
+    if (!guardado.cortesiaConExtras) {
       return RollupChequeo(RollupEstado.rehacer, guardado, total, canceladas);
     }
     if (guardado.orderCount == total && guardado.cancelledCount == canceladas) {

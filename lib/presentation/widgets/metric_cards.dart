@@ -6,7 +6,11 @@ import '../../data/models/dashboard_data.dart';
 
 class MetricCards extends StatelessWidget {
   final PeriodMetrics metrics;
-  const MetricCards({super.key, required this.metrics});
+
+  /// Abre el detalle de cortesías. Sin esto la tarjeta no se puede tocar.
+  final VoidCallback? onCourtesyTap;
+
+  const MetricCards({super.key, required this.metrics, this.onCourtesyTap});
 
   @override
   Widget build(BuildContext context) {
@@ -89,6 +93,7 @@ class MetricCards extends StatelessWidget {
             value: '$moneda${fmt.format(metrics.courtesyTotal)}',
             count: metrics.courtesyCount,
             accent: const Color(0xFF14B8A6),
+            onTap: onCourtesyTap,
           ),
         ],
       ],
@@ -102,23 +107,20 @@ class _CompactMetricCard extends StatelessWidget {
   final int count;
   final Color accent;
 
+  /// Con esto la tarjeta se puede tocar y lleva una flecha que lo dice.
+  final VoidCallback? onTap;
+
   const _CompactMetricCard({
     required this.label,
     required this.value,
     this.count = 0,
     required this.accent,
+    this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1E293B),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: accent.withOpacity(0.3), width: 1),
-      ),
-      child: Row(
+    final contenido = Row(
         children: [
           Container(
             width: 6,
@@ -165,7 +167,43 @@ class _CompactMetricCard extends StatelessWidget {
                 ),
             ],
           ),
+          if (onTap != null) ...[
+            const SizedBox(width: 6),
+            const Icon(Icons.chevron_right_rounded,
+                color: Colors.white54, size: 20),
+          ],
         ],
+    );
+
+    if (onTap == null) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: const Color(0xFF1E293B),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: accent.withOpacity(0.3), width: 1),
+        ),
+        child: contenido,
+      );
+    }
+
+    // Material + InkWell en vez del Container: con el color en el Container
+    // la onda del toque quedaba tapada y no se notaba que se tocó.
+    return Material(
+      color: const Color(0xFF1E293B),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: accent.withValues(alpha: 0.3), width: 1),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          // Un punto más que el Container de las otras: ahí el borde de 1 se
+          // suma al relleno, aquí no, y la tarjeta salía 2 puntos más baja.
+          padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 11),
+          child: contenido,
+        ),
       ),
     );
   }

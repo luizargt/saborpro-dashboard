@@ -11,6 +11,7 @@ import '../../core/services/export_service.dart';
 import '../../core/services/fiscal_reports_service.dart';
 import '../../core/services/notification_service.dart';
 import '../../core/services/store_update_service.dart';
+import '../../data/models/cortesias_data.dart';
 import '../../presentation/providers/dashboard_provider.dart';
 import '../../presentation/providers/inventory_provider.dart';
 import '../../presentation/providers/notification_settings_provider.dart';
@@ -1111,12 +1112,14 @@ class _MenuModalState extends State<_MenuModal> {
               .map((o) => o['_docId'] as String? ?? '')
               .where((id) => id.isNotEmpty)
               .toList();
-          final userIdsToResolve = orders
-              .where((o) => (o['paid_by_user_name'] as String? ?? '').isEmpty)
-              .map((o) => o['paid_by_user_id'] as String? ?? '')
-              .where((id) => id.isNotEmpty)
-              .toSet()
-              .toList();
+          final userIdsToResolve = {
+            ...orders
+                .where((o) => (o['paid_by_user_name'] as String? ?? '').isEmpty)
+                .map((o) => o['paid_by_user_id'] as String? ?? ''),
+            // Quién marcó cada cortesía, para la hoja "Cortesías": el pedido
+            // solo guarda su id.
+            ...CortesiasReport.desde(orders).usuarios,
+          }.where((id) => id.isNotEmpty).toList();
           final results = await Future.wait([
             dp.fetchCertifiedInvoiceOrderIds(orderDocIds),
             dp.fetchUserNamesById(userIdsToResolve),
@@ -1132,6 +1135,10 @@ class _MenuModalState extends State<_MenuModal> {
             dp.range.label,
             cancelledOrders: cancelledOrders,
             simbolos: dp.simbolosPorMoneda,
+            nombresSucursal: {
+              for (final l in [...dp.locations, ...dp.sucursalesOcultas])
+                l.id: l.name,
+            },
           );
         case _ReportType.metodoPago:
           ExportService.exportPaymentMethodReport(

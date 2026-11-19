@@ -13,6 +13,7 @@ import '../../../presentation/widgets/products_list.dart';
 import '../../../presentation/widgets/summary_table.dart';
 import '../../../presentation/widgets/payment_method_breakdown.dart';
 import '../../../presentation/widgets/year_detail_notice.dart';
+import 'cortesias_screen.dart';
 
 enum DashboardView { chart, table }
 
@@ -158,7 +159,10 @@ class _DataContent extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        MetricCards(metrics: metrics),
+        MetricCards(
+          metrics: metrics,
+          onCourtesyTap: () => abrirCortesias(context),
+        ),
         // Método de pago y sucursales: apilados en móvil, lado a lado en
         // pantalla ancha para no dejar barras de un extremo al otro.
         if (paymentCard != null || locationsCard != null) ...[

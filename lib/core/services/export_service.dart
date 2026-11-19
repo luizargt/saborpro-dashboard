@@ -3,6 +3,7 @@ import 'package:excel/excel.dart';
 import 'download_helper_stub.dart'
     if (dart.library.html) 'download_helper_web.dart';
 import 'package:intl/intl.dart';
+import '../../data/models/cortesias_data.dart';
 import '../../data/models/dashboard_data.dart';
 import '../../data/models/inventory_data.dart';
 import '../../core/services/location_service.dart';
@@ -144,6 +145,29 @@ class ExportService {
     String periodLabel, {
     List<Map<String, dynamic>> cancelledOrders = const [],
     Map<String, String> simbolos = const {},
+    Map<String, String> nombresSucursal = const {},
+  }) {
+    _download(
+      armarCajaReport(
+        orders,
+        certifiedInvoiceOrderIds,
+        userNamesById,
+        cancelledOrders: cancelledOrders,
+        simbolos: simbolos,
+        nombresSucursal: nombresSucursal,
+      ),
+      'reporte_caja_${_slug(periodLabel)}.xlsx',
+    );
+  }
+
+  /// El libro del reporte de caja, sin descargarlo: es lo que se prueba.
+  static Excel armarCajaReport(
+    List<Map<String, dynamic>> orders,
+    Set<String> certifiedInvoiceOrderIds,
+    Map<String, String> userNamesById, {
+    List<Map<String, dynamic>> cancelledOrders = const [],
+    Map<String, String> simbolos = const {},
+    Map<String, String> nombresSucursal = const {},
   }) {
     final excel = Excel.createExcel();
     final dateFmt = DateFormat('dd/MM/yyyy HH:mm', 'es');
@@ -187,8 +211,130 @@ class ExportService {
       cancelSheet.appendRow([...conMoneda(baseRow, o), TextCellValue(razon), DoubleCellValue(monto)]);
     }
 
-    _download(excel, 'reporte_caja_${_slug(periodLabel)}.xlsx');
+    // Hoja 3: solo lo regalado, de las órdenes completadas.
+    _hojaCortesias(
+      excel,
+      orders,
+      signo: signo,
+      signoDe: signoDe,
+      userNamesById: userNamesById,
+      nombresSucursal: nombresSucursal,
+      dateFmt: dateFmt,
+    );
+
+    return excel;
   }
+
+  /// Hoja "Cortesías": un renglón por cada platillo regalado y, debajo, el
+  /// resumen por platillo.
+  ///
+  /// Sale de [CortesiasReport], el mismo armado que la pantalla de cortesías,
+  /// y con la misma cuenta que la tarjeta del Inicio (con extras): la suma de
+  /// su columna Monto es la suma de la columna "Cortesía / Donación" de la
+  /// hoja de caja. En la moneda en que se cobró, como el resto del reporte.
+  static void _hojaCortesias(
+    Excel excel,
+    List<Map<String, dynamic>> orders, {
+    required String? signo,
+    required String Function(Map<String, dynamic> o) signoDe,
+    required Map<String, String> userNamesById,
+    required Map<String, String> nombresSucursal,
+    required DateFormat dateFmt,
+  }) {
+    final sheet = excel['Cortesías'];
+    final reporte = CortesiasReport.desde(orders);
+    String signoDePedido(CortesiaPedido p) =>
+        signoDe({'location_id': p.locationId});
+    // El nombre de la sucursal solo ayuda si hay cortesías de más de una.
+    final variasSucursales = nombresSucursal.isNotEmpty &&
+        {for (final p in reporte.pedidos) p.locationId}.length > 1;
+
+    _header(sheet, [
+      'Fecha y hora',
+      'Nº Ticket',
+      'Mesa / Lugar',
+      'Cliente',
+      if (variasSucursales) 'Sucursal',
+      'Platillo',
+      'Extras',
+      'Cantidad',
+      signo == null ? 'Monto' : 'Monto ($signo)',
+      'Tipo',
+      'Motivo',
+      'Registró',
+      if (signo == null) 'Moneda',
+    ]);
+
+    if (reporte.vacio) {
+      sheet.appendRow(
+          [TextCellValue('No hubo cortesías ni donaciones en este período.')]);
+      return;
+    }
+
+    // De la más vieja a la más nueva, como se lee una hoja de cálculo (la
+    // pantalla va al revés porque ahí importa lo último).
+    for (final p in reporte.pedidos.reversed) {
+      for (final r in p.renglones) {
+        final usuario = r.usuarioId == null ? null : userNamesById[r.usuarioId];
+        sheet.appendRow([
+          TextCellValue(p.fecha == null ? '' : dateFmt.format(p.fecha!)),
+          TextCellValue(p.numero.replaceFirst('#', '')),
+          TextCellValue(p.lugar),
+          TextCellValue(p.cliente ?? ''),
+          if (variasSucursales) TextCellValue(nombresSucursal[p.locationId] ?? ''),
+          TextCellValue(r.nombre),
+          TextCellValue(r.extras.join(' · ')),
+          _cantidad(r.cantidad),
+          DoubleCellValue(r.monto),
+          TextCellValue(r.tipo.etiqueta),
+          TextCellValue(r.motivo ?? ''),
+          TextCellValue(usuario ?? ''),
+          if (signo == null) TextCellValue(signoDePedido(p)),
+        ]);
+      }
+    }
+
+    // El resumen va por moneda si el reporte junta varias: sumar quetzales
+    // con pesos no da un total de nada.
+    final grupos = signo == null
+        ? {for (final p in reporte.pedidos) signoDePedido(p)}.toList()
+        : <String>[signo];
+    grupos.sort();
+    for (final m in grupos) {
+      final rep = signo != null
+          ? reporte
+          : CortesiasReport.desde(
+              orders.where((o) => signoDe(o) == m).toList());
+      sheet.appendRow([TextCellValue('')]);
+      sheet.appendRow([
+        TextCellValue(signo == null ? 'Resumen por platillo ($m)' : 'Resumen por platillo'),
+      ]);
+      _header(sheet, ['Platillo', 'Cantidad', 'Monto ($m)', 'Pedidos']);
+      for (final pl in rep.platillos) {
+        sheet.appendRow([
+          TextCellValue(pl.nombre),
+          _cantidad(pl.cantidad),
+          DoubleCellValue(pl.monto),
+          IntCellValue(pl.pedidos),
+        ]);
+      }
+      sheet.appendRow([
+        TextCellValue('Total'),
+        _cantidad(rep.cantidad),
+        DoubleCellValue(rep.total),
+      ]);
+      // Los pedidos van en su propia fila y no bajo la columna "Pedidos":
+      // son pedidos distintos (uno con dos platillos regalados es uno), así
+      // que no son la suma de esa columna y ahí se leían como un error.
+      sheet.appendRow([
+        TextCellValue('Pedidos con cortesía'),
+        IntCellValue(rep.pedidos.length),
+      ]);
+    }
+  }
+
+  static CellValue _cantidad(double v) =>
+      v == v.roundToDouble() ? IntCellValue(v.toInt()) : DoubleCellValue(v);
 
   static List<CellValue> _buildCajaRow(
     Map<String, dynamic> o,
@@ -294,15 +440,17 @@ class ExportService {
     return 'Venta';
   }
 
+  /// Lo regalado en el pedido, con la misma cuenta que la tarjeta del Inicio
+  /// y que el ticket: el platillo con sus extras (ver valorCortesia). Antes
+  /// eran solo unit_price × qty y no cuadraba con la tarjeta.
   static double _valorCortesia(Map<String, dynamic> o) {
     final items = o['items'];
     if (items is! List) return 0;
-    return items.fold<double>(0, (acc, i) {
-      if (i is! Map || i['is_void'] == true || i['is_courtesy'] != true) return acc;
-      final price = (i['unit_price'] as num? ?? 0).toDouble();
-      final qty   = (i['qty']        as num? ?? 1).toDouble();
-      return acc + price * qty;
-    });
+    var total = 0.0;
+    for (final i in items) {
+      if (cuentaComoCortesia(i)) total += valorCortesia(i as Map);
+    }
+    return total;
   }
 
   static int _contarItems(Map<String, dynamic> o) {
