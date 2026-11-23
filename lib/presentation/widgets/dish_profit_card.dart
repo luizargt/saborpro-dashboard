@@ -8,6 +8,7 @@ import '../providers/menu_margin_provider.dart';
 import '../providers/profitability_provider.dart';
 import '../screens/reports/dish_profit_screen.dart';
 import 'dish_profit_widgets.dart';
+import 'inicio_ui.dart' show InicioColores;
 
 /// La sucursal con que se costea el menú. "Todas" (null) solo cuando de verdad
 /// hay varias a la vista: con una sola —un usuario con una sucursal asignada,
@@ -16,11 +17,11 @@ import 'dish_profit_widgets.dart';
 String? sucursalEfectiva(String? seleccionada, List<String> visibles) =>
     seleccionada ?? (visibles.length == 1 ? visibles.first : null);
 
-/// Une el menú (costo de receta) con los gastos del período de Rentabilidad.
-/// Null mientras el menú no llegó.
-UtilidadMenu? construirUtilidad(
+/// Los platillos del menú con su costo de receta, en la sucursal y la moneda de
+/// la vista; null mientras el menú no llegó. [soloSucursales] es el grupo de
+/// sucursales con que se costeó cuando "Todas" mezcla monedas (null si no).
+({List<MargenPlatillo> platillos, Set<String>? soloSucursales})? platillosDeLaVista(
   DashboardProvider dash,
-  ProfitabilityProvider rentabilidad,
   MenuMarginProvider menu,
 ) {
   final sucursal = sucursalEfectiva(
@@ -37,6 +38,19 @@ UtilidadMenu? construirUtilidad(
   } else if (factor != 1) {
     platillos = [for (final p in platillos) p.aMoneda(factor)];
   }
+  return (platillos: platillos, soloSucursales: grupo?.ids);
+}
+
+/// Une el menú (costo de receta) con los gastos del período de Rentabilidad.
+/// Null mientras el menú no llegó.
+UtilidadMenu? construirUtilidad(
+  DashboardProvider dash,
+  ProfitabilityProvider rentabilidad,
+  MenuMarginProvider menu,
+) {
+  final vista = platillosDeLaVista(dash, menu);
+  if (vista == null) return null;
+  final platillos = vista.platillos;
 
   RepartoGastos? reparto;
   // Solo con los números de Rentabilidad de ESTE período y ESTA sucursal:
@@ -192,13 +206,13 @@ class UtilidadPlatillosCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              const Icon(Icons.restaurant_menu_rounded,
+              Icon(Icons.restaurant_menu_rounded,
                   color: kAcentoTexto, size: 18),
               const SizedBox(width: 8),
               Expanded(
                 child: Text('UTILIDAD POR PLATILLO',
                     style: GoogleFonts.inter(
-                        color: Colors.white70,
+                        color: InicioColores.muted,
                         fontSize: 10.5,
                         fontWeight: FontWeight.w700,
                         letterSpacing: 0.8)),
@@ -218,12 +232,12 @@ class UtilidadPlatillosCard extends StatelessWidget {
     if (d == null) {
       if (error != null && !cargando) {
         return [
-          _texto(error!, Colors.white70),
+          _texto(error!, InicioColores.muted),
           const SizedBox(height: 10),
           _BotonAncho(etiqueta: 'Reintentar', onTap: onReintentar),
         ];
       }
-      return const [
+      return [
         SizedBox(
           height: 120,
           child: Center(child: CircularProgressIndicator(color: kAcento)),
@@ -235,7 +249,7 @@ class UtilidadPlatillosCard extends StatelessWidget {
       return [
         _texto('Tu menú todavía no tiene platillos. Cuando los cargués con su '
             'receta en Sabor Suite, vas a ver aquí cuánto te deja cada uno.',
-            Colors.white70),
+            InicioColores.muted),
       ];
     }
 
@@ -267,16 +281,16 @@ class UtilidadPlatillosCard extends StatelessWidget {
         _texto(
             'Todavía ningún platillo tiene su costo completo y confiable. '
             'Abrí "Ver todos" para ver qué le falta a cada uno.',
-            Colors.white70),
+            InicioColores.muted),
       if (confiables.isNotEmpty)
         // El ranking es por venta: un platillo que deja poco pero se vende
         // mucho puede aportar más que uno que deja mucho y casi no sale.
-        _texto('Por cada venta: no cuenta cuántos vendés.', Colors.white60),
+        _texto('Por cada venta: no cuenta cuántos vendés.', InicioColores.muted),
       const SizedBox(height: 10),
       _texto(
           'Con costo completo: ${d.completos} de ${d.total} platillos'
           '${d.porRevisar > 0 ? ' · ${d.porRevisar} por revisar' : ''}',
-          Colors.white70),
+          InicioColores.muted),
       if (faltantes.isNotEmpty)
         Padding(
           padding: const EdgeInsets.only(top: 4),
@@ -286,12 +300,12 @@ class UtilidadPlatillosCard extends StatelessWidget {
               'Para completar, registrá en Despensa una entrada con costo de: '
               '${faltantes.map((f) => '${f.ingrediente} (en ${f.platillos} '
                   '${f.platillos == 1 ? 'platillo' : 'platillos'})').join(', ')}.',
-              Colors.white60),
+              InicioColores.muted),
         ),
       if (d.descartados > 0)
         Padding(
           padding: const EdgeInsets.only(top: 4),
-          child: _texto(textoDescartadosMenu(d.descartados), Colors.white60),
+          child: _texto(textoDescartadosMenu(d.descartados), InicioColores.muted),
         ),
       if (error != null)
         Padding(
@@ -323,7 +337,7 @@ class _Seccion extends StatelessWidget {
       children: [
         Text(titulo,
             style: GoogleFonts.inter(
-                color: Colors.white60,
+                color: InicioColores.muted,
                 fontSize: 10.5,
                 fontWeight: FontWeight.w700,
                 letterSpacing: 0.8)),
@@ -354,7 +368,7 @@ class _BotonAncho extends StatelessWidget {
               child: Text(etiqueta,
                   textAlign: TextAlign.center,
                   style: GoogleFonts.inter(
-                      color: Colors.white,
+                      color: InicioColores.onAccent,
                       fontSize: 13.5,
                       fontWeight: FontWeight.w700)),
             ),

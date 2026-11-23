@@ -14,7 +14,9 @@ import '../../core/services/monthly_rollup_service.dart';
 import '../../core/utils/date_range.dart';
 import '../../core/utils/formato_dinero.dart';
 import '../../data/models/config_moneda.dart';
+import '../../data/models/atencion_inicio.dart' show ResumenPedidosInicio;
 import '../../data/models/cortesias_data.dart';
+import '../../data/models/cuentas_abiertas.dart';
 import '../../data/models/vista_moneda.dart';
 import '../../data/models/dashboard_data.dart';
 import '../../data/models/cash_register_summary.dart';
@@ -67,6 +69,11 @@ class DashboardProvider extends ChangeNotifier {
   List<CashRegisterSummary> get closedRegisters => _closedRegisters;
 
   List<Map<String, dynamic>> _currentOrders = [];
+
+  /// Los pedidos del período ANTERIOR (cobrados, de la sucursal que se mira y
+  /// en la moneda de la vista): para saber cuánto se dejó de propina entonces.
+  List<Map<String, dynamic>> _prevOrders = [];
+  List<Map<String, dynamic>> get prevOrders => _prevOrders;
   List<Map<String, dynamic>> get currentOrders => _currentOrders;
 
   List<Map<String, dynamic>> _expenseItems = [];
@@ -93,6 +100,105 @@ class DashboardProvider extends ChangeNotifier {
   bool _cajasLeidas = true;
   bool get cajasLeidas => _cajasLeidas;
 
+  /// Falso cuando los documentos de caja llegaron pero no se pudieron armar los
+  /// resúmenes (un documento mal armado tira todo el armado): las listas de cajas
+  /// quedan vacías por el error, no porque no haya cajas. Quien afirma algo a
+  /// partir de ellas ("Ninguna abierta") tiene que mirar esto.
+  bool _resumenCajasOk = true;
+  bool get resumenCajasOk => _resumenCajasOk;
+
+  // Lo que se cuenta recorriendo los pedidos del período (cobros con descuento y
+  // cortesías sin motivo): lo usan el Inicio y Reportes. Se rehace solo cuando
+  // cambia la lista de pedidos (son miles en un mes), no en cada redibujo.
+  List<Map<String, dynamic>>? _pedidosResumidos;
+  int _pedidosResumidosN = -1;
+  ResumenPedidosInicio _resumenPedidos = ResumenPedidosInicio.vacio;
+
+  ResumenPedidosInicio get resumenPedidos {
+    final pedidos = _currentOrders;
+    if (!identical(pedidos, _pedidosResumidos) || pedidos.length != _pedidosResumidosN) {
+      _pedidosResumidos = pedidos;
+      _pedidosResumidosN = pedidos.length;
+      _resumenPedidos = ResumenPedidosInicio.desde(pedidos);
+    }
+    return _resumenPedidos;
+  }
+
+  // ── CUENTAS PENDIENTES DE COBRO ──────────────────────────────────────────
+  // El estado de AHORA (no un período): lo que el POS muestra en "Por cobrar".
+  // Nulo = todavía no se sabe, o la consulta falló: la pantalla no muestra nada
+  // (nunca "0 cuentas" por no haber podido leer). Ver [CuentasAbiertas].
+  List<CuentaAbierta>? _cuentasAbiertas;
+  DateTime? _cuentasAl;
+  bool _cuentasEnCurso = false;
+
+  /// Cuántas cuentas hay pendientes de cobro y cuánto suman, en la moneda de la
+  /// vista y solo de la sucursal que se mira. Nulo = no se sabe.
+  CuentasPorCobrar? get cuentasPorCobrar {
+    final todas = _cuentasAbiertas;
+    if (todas == null) return null;
+    final ahora = DateTime.now();
+    return CuentasAbiertas.resumir(
+      todas,
+      pasa: _passesLocationFilter,
+      // Sin conversión se suman tal cual; con ella, al tipo de cambio de hoy
+      // (la cuenta se cobra hoy). Sin tipo de cambio, esa sucursal queda fuera.
+      factor: (loc) => convierte ? factorDe(loc, ahora) : 1.0,
+    );
+  }
+
+  /// Lee las cuentas pendientes de cobro: una consulta por sucursal, la MISMA
+  /// que hace el POS para su pestaña "Por cobrar" (con su ventana de 48 horas y
+  /// su índice; sin la ventana serían las de todos los tiempos). No depende del
+  /// período. No repite si se leyó hace menos de un minuto, salvo [forzar]
+  /// (deslizar para actualizar).
+  Future<void> cargarCuentasAbiertas({bool forzar = false}) async {
+    final tenant = _tenantId;
+    if (tenant == null || _locations.isEmpty || _cuentasEnCurso) return;
+    final al = _cuentasAl;
+    if (!forzar && al != null && DateTime.now().difference(al) < const Duration(seconds: 60)) {
+      return;
+    }
+    _cuentasEnCurso = true;
+    final sesion = _sesion;
+    final sucursales = _locations.map((l) => l.id).toList();
+    try {
+      final corte = Timestamp.fromDate(DateTime.now().subtract(CuentasAbiertas.ventana));
+      final respuestas = await Future.wait([
+        for (final id in sucursales)
+          _firestore.orders
+              .where('tenant_id', isEqualTo: tenant)
+              .where('location_id', isEqualTo: id)
+              .where('status', whereIn: CuentasAbiertas.estados)
+              .where('created_at', isGreaterThanOrEqualTo: corte)
+              .orderBy('created_at')
+              .get(),
+      ]);
+      // Otro usuario entró mientras tanto: lo de este ya no vale.
+      if (sesion != _sesion || tenant != _tenantId) return;
+      final lista = <CuentaAbierta>[];
+      for (final r in respuestas) {
+        for (final d in r.docs) {
+          final c = CuentasAbiertas.deDoc(d.id, d.data());
+          if (c != null) lista.add(c);
+        }
+      }
+      _cuentasAbiertas = lista;
+      _cuentasAl = DateTime.now();
+    } catch (e) {
+      // Sin red o sin permiso: no se sabe. Nunca "0 cuentas" por no poder leer.
+      // La causa (un índice que falta, por ejemplo) queda en la consola.
+      debugPrint('[Inicio] no se pudieron leer las cuentas por cobrar: $e');
+      if (sesion == _sesion) {
+        _cuentasAbiertas = null;
+        _cuentasAl = null;
+      }
+    } finally {
+      _cuentasEnCurso = false;
+    }
+    if (sesion == _sesion) notifyListeners();
+  }
+
   /// Rangos (inicio|fin) cuyas órdenes llegaron al tope de [_fetchOrders]: ahí
   /// la venta está incompleta y el tope no deja ninguna otra huella.
   final Set<String> _rangosCortados = {};
@@ -109,6 +215,10 @@ class DashboardProvider extends ChangeNotifier {
 
   // Cache: no cambia con el rango de fechas, solo se fetcha una vez por sesión
   Map<String, String>? _cachedProductClassificationMap;
+
+  /// productoId → clasificación ("Comida", "Bebidas", "Postres"…), la misma con
+  /// que el dashboard agrupa lo vendido. Vacío mientras no se ha leído.
+  Map<String, String> get clasificacionDeProductos => _cachedProductClassificationMap ?? const {};
   // productId → nombre de su categoría de menú. Mismo ciclo de vida que el de
   // clasificación: se deriva del mismo fetch de `products`.
   Map<String, String>? _cachedProductCategoryNameMap;
@@ -406,6 +516,9 @@ class DashboardProvider extends ChangeNotifier {
     // Y el detalle de cortesías del año, que puede ser de sucursales que este
     // usuario no ve. Lo que esté bajando el anterior se tira al llegar.
     _sesion++;
+    _cuentasAbiertas = null;
+    _cuentasAl = null;
+    _cuentasEnCurso = false;
     _cortesiasAnio.clear();
     _cortesiasAnioEnCurso.clear();
     _cortesiasAnioDescargas.clear();
@@ -442,6 +555,8 @@ class DashboardProvider extends ChangeNotifier {
       // Las sucursales llegan en paralelo con las órdenes: si alguna vende en
       // otra moneda, lo ya armado se rehace con la conversión.
       _alCambiarMoneda();
+      // Ya se sabe en qué sucursales mirar las cuentas por cobrar.
+      cargarCuentasAbiertas();
 
       // _fetchCustomMethodNames depende de _locations, que carga en paralelo con
       // load(): si llegó tarde, los nombres quedaron vacíos. Como ya no se
@@ -498,6 +613,8 @@ class DashboardProvider extends ChangeNotifier {
     // abrió la pantalla, y cada aparato vería cifras distintas.
     await _leerConfigMoneda();
     _actualizarMoneda();
+    // Las cuentas por cobrar cambian en minutos: junto con lo demás.
+    cargarCuentasAbiertas(forzar: true);
     await load();
   }
 
@@ -517,6 +634,7 @@ class DashboardProvider extends ChangeNotifier {
     // Liberar listas grandes del período anterior para que el GC pueda reclamar
     // memoria antes de iniciar los nuevos fetches, evitando pico de OOM.
     _currentOrders = [];
+    _prevOrders = [];
     _monthlyDailyPoints = [];
     _weeklyHourly = [];
     _metrics = null;
@@ -676,6 +794,7 @@ class DashboardProvider extends ChangeNotifier {
     final currentOrders = convertirFilas(_currentOrdersLocal, llaveFecha: 'paid_at');
     final prevOrders = enVista(_rawPrevOrders, 'paid_at');
     _currentOrders = currentOrders;
+    _prevOrders = prevOrders;
 
     final withdrawalsLocal = _extractWithdrawals(_rawCashRegisters, _range.start, _range.end);
     final gastosLocal = _rawExpenses.where((e) => passes(e, 'location_id')).toList();
@@ -831,9 +950,11 @@ class DashboardProvider extends ChangeNotifier {
           })
           .toList()
         ..sort((a, b) => (b.closedAt ?? b.openedAt).compareTo(a.closedAt ?? a.openedAt));
+      _resumenCajasOk = true;
     } catch (_) {
       _openRegisters = [];
       _closedRegisters = [];
+      _resumenCajasOk = false;
     }
   }
 
@@ -2173,6 +2294,7 @@ class DashboardProvider extends ChangeNotifier {
         dayLabel: '${dayLabels[dowIndex]} ${date.day}',
         hourlyAmounts: amounts,
         hourlyOrders: counts,
+        fecha: DateTime(date.year, date.month, date.day),
       ));
     }
     return result;
@@ -2573,6 +2695,68 @@ class DashboardProvider extends ChangeNotifier {
       list.sort((a, b) => b.total.compareTo(a.total));
     }
     return grouped;
+  }
+
+  /// Las compras y los gastos del período ANTERIOR al que se mira, para que
+  /// Gastos diga si se gastó más o menos y qué subió de precio. Se piden al abrir
+  /// esa pantalla (no en cada carga del Inicio). Con la misma sucursal y la misma
+  /// moneda de la vista que el período actual. Nulo si no se pudo leer.
+  ///
+  /// Los retiros de caja salen de las cajas que ya están en memoria (se leen todas).
+  Future<({List<Map<String, dynamic>> compras, List<Map<String, dynamic>> gastos})?> cargarGastosAnteriores() async {
+    if (_tenantId == null) return null;
+    try {
+      final prev = _range.previous();
+      // `_fetchExpenses` anota cuántos gastos leyó para el diagnóstico del período
+      // actual: no se pisa con los del anterior.
+      final conteo = _expenseRawCount;
+      final muestra = _expenseSampleDate;
+      final r = await Future.wait([
+        _fetchExpenses(prev.start, prev.end),
+        _fetchPurchaseCosts(prev.start, prev.end),
+      ]);
+      _expenseRawCount = conteo;
+      _expenseSampleDate = muestra;
+
+      bool pasa(Map<String, dynamic> f) => _passesLocationFilter(f['location_id'] as String?);
+      final manuales = r[0].where(pasa).toList();
+      final retiros = _extractWithdrawals(_rawCashRegisters, prev.start, prev.end);
+      final compras = r[1].where(pasa).toList();
+      return (
+        compras: convertirFilas(compras, llaveFecha: 'received_at'),
+        gastos: [
+          ...convertirFilas(manuales, llaveFecha: 'date'),
+          ...convertirFilas(retiros, llaveFecha: 'date'),
+        ],
+      );
+    } catch (e) {
+      debugPrint('[Gastos] no se pudo leer el período anterior: $e');
+      return null;
+    }
+  }
+
+  /// La zona (`section`: "Terraza", "Salón principal"…) de cada mesa, por id de
+  /// mesa, para agrupar las propinas por zona. Es una lectura de las mesas del
+  /// negocio (decenas de documentos): se pide al abrir Propinas, no en cada carga
+  /// del Inicio. Nulo = no se pudo leer (la pantalla no inventa zonas).
+  Future<Map<String, String>?> fetchZonasDeMesas() async {
+    final tenant = _tenantId;
+    if (tenant == null) return null;
+    try {
+      final snap = await _firestore.instance.collection('tables').where('tenant_id', isEqualTo: tenant).get();
+      final zonas = <String, String>{};
+      for (final d in snap.docs) {
+        final zona = (d.data()['section'] as String?)?.trim() ?? '';
+        if (zona.isEmpty) continue;
+        zonas[d.id] = zona;
+        final id = d.data()['id'];
+        if (id is String && id.isNotEmpty) zonas[id] = zona;
+      }
+      return zonas;
+    } catch (e) {
+      debugPrint('[Propinas] no se pudieron leer las zonas de las mesas: $e');
+      return null;
+    }
   }
 
   /// Resuelve userId → nombre desde la colección users (en lotes de 30).

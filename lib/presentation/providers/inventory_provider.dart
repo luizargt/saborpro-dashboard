@@ -74,6 +74,7 @@ class InventoryProvider extends ChangeNotifier {
         final agg = map.putIfAbsent(raw.name, () => _AggIngredient(unit: raw.unit));
         agg.stock[raw.locationId] = raw.stock;
         agg.minStock[raw.locationId] = raw.minStock;
+        if (raw.cost != null) agg.cost[raw.locationId] = raw.cost!;
 
         // Días de stock = stockActual / consumoDiarioPromedio
         final dailyAvg = consumption.dailyAvg[raw.docId]?[raw.locationId];
@@ -94,6 +95,7 @@ class InventoryProvider extends ChangeNotifier {
             minStockByLocation: Map.from(entry.value.minStock),
             daysRemainingByLocation: Map.from(entry.value.daysRemaining),
             consumptionByDayByLocation: Map.from(entry.value.consumptionByDay),
+            costByLocation: Map.from(entry.value.cost),
           )).toList()
         ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
 
@@ -134,6 +136,8 @@ class InventoryProvider extends ChangeNotifier {
         unit: data['unit'] as String? ?? '',
         stock: (data['currentStock'] as num? ?? 0).toDouble(),
         minStock: (data['minStock'] as num? ?? 0).toDouble(),
+        // El último precio de compra, si se anotó (para saber cuánto vale lo que hay).
+        cost: data['lastPurchasePrice'] is num ? (data['lastPurchasePrice'] as num).toDouble() : null,
       ));
     }
     return result;
@@ -274,6 +278,7 @@ class _ConsumptionResult {
 class _RawIngredient {
   final String docId, name, locationId, unit;
   final double stock, minStock;
+  final double? cost;
   const _RawIngredient({
     required this.docId,
     required this.name,
@@ -281,6 +286,7 @@ class _RawIngredient {
     required this.unit,
     required this.stock,
     required this.minStock,
+    this.cost,
   });
 }
 
@@ -289,6 +295,7 @@ class _AggIngredient {
   final stock = <String, double>{};
   final minStock = <String, double>{};
   final daysRemaining = <String, double>{};
+  final cost = <String, double>{};
   final consumptionByDay = <String, Map<String, double>>{};
   _AggIngredient({required this.unit});
 }

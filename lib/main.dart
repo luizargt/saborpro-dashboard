@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show SystemUiOverlayStyle;
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:provider/provider.dart';
@@ -10,6 +11,8 @@ import 'core/services/auth_service.dart';
 import 'core/services/biometric_service.dart';
 import 'core/services/firestore_service.dart';
 import 'core/services/notification_service.dart';
+import 'core/theme/paleta.dart';
+import 'core/theme/tema_manager.dart';
 import 'firebase_options.dart';
 import 'presentation/providers/dashboard_provider.dart';
 import 'presentation/providers/inventory_provider.dart';
@@ -22,6 +25,9 @@ import 'presentation/widgets/forced_update_gate.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // El modo claro/oscuro se lee ANTES de pintar: si no, se vería un instante en claro
+  // y saltaría a oscuro. Por defecto es claro.
+  await TemaManager.instancia.cargar();
   await initializeDateFormatting('es', null);
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
@@ -77,34 +83,78 @@ class SaborProAnalyticsApp extends StatelessWidget {
         // le pasa el uid al arrancar.
         ChangeNotifierProvider(create: (_) => NotificationsProvider()),
       ],
-      child: MaterialApp(
-        title: 'Sabor Manager',
-        debugShowCheckedModeBanner: false,
-        navigatorKey: navigatorKey,
-        // En builder y no en home: así el bloqueo queda por encima del
-        // Navigator y sigue vigilando aunque el usuario navegue. Como home se
-        // desmontaría en el primer pushReplacement.
-        // El aviso de actualización va por fuera del bloqueo biométrico: si la
-        // app quedó vieja, da igual quién sea el que la abre.
-        builder: (context, child) => ForcedUpdateGate(
-          child: AppLockGate(
+      // Escucha al tema: al cambiar de claro a oscuro se repinta con la otra paleta.
+      child: ListenableBuilder(
+        listenable: TemaManager.instancia,
+        builder: (context, _) => AnnotatedRegion<SystemUiOverlayStyle>(
+          value: TemaManager.instancia.barraDeEstado,
+          child: MaterialApp(
+            title: 'Sabor Manager',
+            debugShowCheckedModeBanner: false,
             navigatorKey: navigatorKey,
-            lockedAtStart: lockedAtStart,
-            child: child ?? const SizedBox.shrink(),
+            // En builder y no en home: así el bloqueo queda por encima del
+            // Navigator y sigue vigilando aunque el usuario navegue. Como home se
+            // desmontaría en el primer pushReplacement.
+            // El aviso de actualización va por fuera del bloqueo biométrico: si la
+            // app quedó vieja, da igual quién sea el que la abre.
+            builder: (context, child) => ForcedUpdateGate(
+              child: AppLockGate(
+                navigatorKey: navigatorKey,
+                lockedAtStart: lockedAtStart,
+                child: child ?? const SizedBox.shrink(),
+              ),
+            ),
+            themeMode: TemaManager.instancia.modo,
+            theme: temaDeManager(Paleta.clara),
+            darkTheme: temaDeManager(Paleta.oscura),
+            home: AuthService().isLoggedIn
+                ? const AppShell()
+                : const LoginScreen(),
           ),
         ),
-        theme: ThemeData(
-          brightness: Brightness.dark,
-          scaffoldBackgroundColor: const Color(0xFF0F172A),
-          colorScheme: const ColorScheme.dark(
-            primary: Color(0xFF7444fd),
-            surface: Color(0xFF1E293B),
-          ),
-        ),
-        home: AuthService().isLoggedIn
-            ? const AppShell()
-            : const LoginScreen(),
       ),
     );
   }
+}
+
+/// El `ThemeData` de una paleta. Las pantallas pintan con los colores de la paleta
+/// (`CortesiasColores`), no con esto; esto es para lo que Material pinta solo:
+/// diálogos, calendarios, hojas, avisos y el fondo.
+ThemeData temaDeManager(Paleta p) {
+  final esquema = ColorScheme(
+    brightness: p.brillo,
+    primary: p.accent,
+    onPrimary: p.onAccent,
+    secondary: p.accent,
+    onSecondary: p.onAccent,
+    error: p.bad,
+    onError: p.onAccent,
+    surface: p.card,
+    onSurface: p.ink,
+    onSurfaceVariant: p.muted,
+    outline: p.line,
+    outlineVariant: p.line,
+    surfaceContainerHighest: p.subtle,
+  );
+  return ThemeData(
+    brightness: p.brillo,
+    colorScheme: esquema,
+    scaffoldBackgroundColor: p.bg,
+    canvasColor: p.card,
+    dividerColor: p.line,
+    appBarTheme: AppBarTheme(
+      backgroundColor: p.bg,
+      foregroundColor: p.ink,
+      surfaceTintColor: Colors.transparent,
+      elevation: 0,
+    ),
+    dialogTheme: DialogThemeData(backgroundColor: p.card, surfaceTintColor: Colors.transparent),
+    bottomSheetTheme: BottomSheetThemeData(backgroundColor: p.card, surfaceTintColor: Colors.transparent),
+    cardTheme: CardThemeData(color: p.card, surfaceTintColor: Colors.transparent),
+    snackBarTheme: SnackBarThemeData(
+      backgroundColor: p.esOscura ? p.subtle : p.ink,
+      contentTextStyle: TextStyle(color: p.esOscura ? p.ink : p.card),
+    ),
+    textSelectionTheme: TextSelectionThemeData(cursorColor: p.accent, selectionColor: p.accent.withValues(alpha: 0.3)),
+  );
 }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../core/services/biometric_service.dart';
 import 'biometric_login_button.dart';
+import '../../widgets/inicio_ui.dart' show InicioColores;
 
 /// Cómo se pide la verificación. Inyectable para poder probar la pantalla sin
 /// el sensor: en un test los plugins nativos no existen y sus Futures nunca
@@ -105,11 +106,11 @@ class _LockScreenState extends State<LockScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final accent = const Color(0xFF7444fd);
+    final accent = InicioColores.accent;
     // Opaco y a pantalla completa: además de bloquear, tapa los números de
     // ventas que quedarían a la vista de quien tenga el teléfono en la mano.
     return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
+      backgroundColor: InicioColores.bg,
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
@@ -131,7 +132,7 @@ class _LockScreenState extends State<LockScreen> {
                     'Sabor Manager está bloqueado',
                     textAlign: TextAlign.center,
                     style: GoogleFonts.inter(
-                      color: Colors.white,
+                      color: InicioColores.ink,
                       fontSize: 20,
                       fontWeight: FontWeight.w700,
                     ),
@@ -144,7 +145,7 @@ class _LockScreenState extends State<LockScreen> {
                       textAlign: TextAlign.center,
                       overflow: TextOverflow.ellipsis,
                       style: GoogleFonts.inter(
-                          color: Colors.white38, fontSize: 13),
+                          color: InicioColores.soft, fontSize: 13),
                     ),
                   ],
                   const SizedBox(height: 36),
@@ -160,7 +161,7 @@ class _LockScreenState extends State<LockScreen> {
                             width: 96,
                             height: 96,
                             decoration: BoxDecoration(
-                              color: const Color(0xFF1E293B),
+                              color: InicioColores.card,
                               shape: BoxShape.circle,
                               border: Border.all(
                                   color: accent.withValues(alpha: 0.5),
@@ -188,7 +189,7 @@ class _LockScreenState extends State<LockScreen> {
                                 : 'Toca para ${_kind.actionLabel.toLowerCase()}',
                             textAlign: TextAlign.center,
                             style: GoogleFonts.inter(
-                                color: Colors.white54, fontSize: 13),
+                                color: InicioColores.muted, fontSize: 13),
                           ),
                         ],
                       ),
@@ -200,7 +201,7 @@ class _LockScreenState extends State<LockScreen> {
                       _error!,
                       textAlign: TextAlign.center,
                       style: GoogleFonts.inter(
-                          color: const Color(0xFFEF4444),
+                          color: InicioColores.bad,
                           fontSize: 13,
                           height: 1.4),
                     ),
@@ -215,8 +216,8 @@ class _LockScreenState extends State<LockScreen> {
                       child: ElevatedButton(
                         onPressed: widget.onUsePassword,
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF1E293B),
-                          foregroundColor: Colors.white,
+                          backgroundColor: InicioColores.card,
+                          foregroundColor: InicioColores.onAccent,
                           shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(10)),
                         ),
@@ -233,7 +234,7 @@ class _LockScreenState extends State<LockScreen> {
                       child: Text(
                         'Ingresar con contraseña',
                         style: GoogleFonts.inter(
-                            color: Colors.white38, fontSize: 13),
+                            color: InicioColores.soft, fontSize: 13),
                       ),
                     ),
                 ],

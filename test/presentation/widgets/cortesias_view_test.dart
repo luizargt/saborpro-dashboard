@@ -38,6 +38,56 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  // La pantalla real mete el cuerpo en el cambio de sucursal
+  // (LocationContentSwitcher), que es un AnimatedSwitcher: lo pone en un Stack
+  // centrado y con restricciones sueltas. Un SingleChildScrollView mide lo que
+  // mide su contenido, así que sin pedidos (contenido bajito) todo quedaba al
+  // medio de la pantalla, con un hueco enorme entre las pestañas y la tarjeta.
+  // El `wrap` de abajo no lo ve: el Scaffold da restricciones firmes.
+  group('dentro del cambio de sucursal', () {
+    for (final tam in const [Size(1280, 900), Size(390, 844)]) {
+      testWidgets('sin datos el contenido arranca arriba, no al medio ($tam)',
+          (tester) async {
+        tamano(tester, tam);
+        const arribaDelArea = 100.0; // el encabezado y las pestañas
+        await tester.pumpWidget(MaterialApp(
+          home: Scaffold(
+            backgroundColor: kCortesiasBg,
+            body: Column(
+              children: [
+                const SizedBox(height: arribaDelArea),
+                Expanded(
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 300),
+                    child: KeyedSubtree(
+                      key: const ValueKey('todas'),
+                      child: RefreshIndicator(
+                        onRefresh: () async {},
+                        child: const CortesiasReportBody(report: CortesiasReport.empty),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ));
+        await tester.pumpAndSettle();
+
+        // El área desplazable llena todo el alto (jalar para actualizar tiene
+        // que funcionar también sobre lo que queda debajo de las tarjetas)...
+        expect(
+          tester.getSize(find.byType(SingleChildScrollView)).height,
+          tam.height - arribaDelArea,
+        );
+        // ...y la primera tarjeta arranca bajo las pestañas: 8 de relleno más
+        // lo que ocupa el rótulo dentro de la tarjeta, no un hueco de cientos.
+        final rotulo = tester.getTopLeft(find.text('Valor regalado')).dy;
+        expect(rotulo, lessThan(arribaDelArea + 60));
+      });
+    }
+  });
+
   group('a 360dp', () {
     testWidgets('no desborda con datos completos y llega hasta el final',
         (tester) async {

@@ -3,17 +3,23 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../core/utils/date_range.dart';
 import '../../presentation/providers/dashboard_provider.dart';
 import 'package:provider/provider.dart';
+import 'inicio_ui.dart' show InicioColores;
 
-Widget _darkTheme(BuildContext ctx, Widget? child) => Theme(
-      data: ThemeData.dark().copyWith(
-        colorScheme: const ColorScheme.dark(
-          primary: Color(0xFF7444fd),
-          onPrimary: Colors.white,
-          surface: Color(0xFF1E293B),
-        ),
+/// Los selectores de fecha de Material toman el tema de la app (claro u oscuro, el que
+/// esté puesto); solo se les pone el morado de la marca.
+Widget _temaDelSelector(BuildContext ctx, Widget? child) {
+  final tema = Theme.of(ctx);
+  return Theme(
+    data: tema.copyWith(
+      colorScheme: tema.colorScheme.copyWith(
+        primary: InicioColores.accent,
+        onPrimary: InicioColores.onAccent,
+        surface: InicioColores.card,
       ),
-      child: child!,
-    );
+    ),
+    child: child!,
+  );
+}
 
 // ── DATE NAVIGATOR ─────────────────────────────────────────────────────────────
 // Muestra < [etiqueta ▼] > y al tocar la etiqueta abre el picker unificado.
@@ -29,13 +35,13 @@ class DateNavigator extends StatelessWidget {
 
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFF1E293B),
+        color: InicioColores.card,
         borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
         children: [
           IconButton(
-            icon: const Icon(Icons.chevron_left, color: Colors.white),
+            icon: Icon(Icons.chevron_left, color: InicioColores.ink),
             onPressed: provider.goPrevious,
           ),
           Expanded(
@@ -50,13 +56,13 @@ class DateNavigator extends StatelessWidget {
                     Text(
                       range.label,
                       style: GoogleFonts.inter(
-                        color: Colors.white,
+                        color: InicioColores.ink,
                         fontSize: 15,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
                     const SizedBox(width: 6),
-                    const Icon(Icons.keyboard_arrow_down, color: Colors.white54, size: 18),
+                    Icon(Icons.keyboard_arrow_down, color: InicioColores.muted, size: 18),
                   ],
                 ),
               ),
@@ -65,7 +71,7 @@ class DateNavigator extends StatelessWidget {
           IconButton(
             icon: Icon(
               Icons.chevron_right,
-              color: isCustom || !canGoNext ? Colors.white24 : Colors.white,
+              color: isCustom || !canGoNext ? InicioColores.soft : InicioColores.ink,
             ),
             onPressed: isCustom || !canGoNext ? null : provider.goNext,
           ),
@@ -108,20 +114,20 @@ class DateSelectorChip extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
         decoration: BoxDecoration(
-          color: const Color(0xFF1E293B),
+          color: InicioColores.card,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: const Color(0xFF7444fd)),
+          border: Border.all(color: InicioColores.accent),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.calendar_today_rounded, color: Colors.white54, size: 13),
+            Icon(Icons.calendar_today_rounded, color: InicioColores.muted, size: 13),
             const SizedBox(width: 6),
             Flexible(
               child: Text(
                 provider.range.label,
                 style: GoogleFonts.inter(
-                  color: Colors.white,
+                  color: InicioColores.ink,
                   fontSize: 13,
                   fontWeight: FontWeight.w500,
                 ),
@@ -129,7 +135,7 @@ class DateSelectorChip extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 4),
-            const Icon(Icons.keyboard_arrow_down, color: Colors.white38, size: 16),
+            Icon(Icons.keyboard_arrow_down, color: InicioColores.soft, size: 16),
           ],
         ),
       ),
@@ -140,7 +146,7 @@ class DateSelectorChip extends StatelessWidget {
 void _openDateRangePicker(BuildContext context, DashboardProvider provider) {
   showModalBottomSheet(
     context: context,
-    backgroundColor: const Color(0xFF1E293B),
+    backgroundColor: InicioColores.card,
     isScrollControlled: true,
     // Con isScrollControlled la hoja puede crecer hasta el borde superior y el
     // calendario se metía bajo el reloj en teléfonos chicos. El bottom ya lo
@@ -166,7 +172,7 @@ Future<void> _showCustomDateRangePicker(
     lastDate: DateTime(now.year, now.month, now.day, 23, 59, 59),
     initialDateRange:
         DateTimeRange(start: provider.range.start, end: provider.range.end),
-    builder: _darkTheme,
+    builder: _temaDelSelector,
   );
   if (picked != null) {
     provider.setRange(DateRange(
@@ -232,7 +238,7 @@ class _UnifiedPickerSheetState extends State<_UnifiedPickerSheet> {
               width: 40,
               height: 4,
               decoration: BoxDecoration(
-                color: Colors.white24,
+                color: InicioColores.soft,
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
@@ -268,14 +274,14 @@ class _UnifiedPickerSheetState extends State<_UnifiedPickerSheet> {
           child: Container(
             padding: const EdgeInsets.symmetric(vertical: 14),
             decoration: BoxDecoration(
-              color: const Color(0xFF0F172A),
+              color: InicioColores.bg,
               borderRadius: BorderRadius.circular(10),
             ),
             alignment: Alignment.center,
             child: Text(
               'Hoy',
               style: GoogleFonts.inter(
-                color: Colors.white,
+                color: InicioColores.ink,
                 fontSize: 15,
                 fontWeight: FontWeight.w600,
               ),
@@ -285,7 +291,7 @@ class _UnifiedPickerSheetState extends State<_UnifiedPickerSheet> {
         const SizedBox(height: 8),
         Container(
           decoration: BoxDecoration(
-            color: const Color(0xFF0F172A),
+            color: InicioColores.bg,
             borderRadius: BorderRadius.circular(10),
           ),
           padding: const EdgeInsets.all(3),
@@ -300,14 +306,14 @@ class _UnifiedPickerSheetState extends State<_UnifiedPickerSheet> {
                   duration: const Duration(milliseconds: 150),
                   padding: const EdgeInsets.symmetric(vertical: 8),
                   decoration: BoxDecoration(
-                    color: sel ? const Color(0xFF7444fd) : Colors.transparent,
+                    color: sel ? InicioColores.accent : Colors.transparent,
                     borderRadius: BorderRadius.circular(8),
                   ),
                   alignment: Alignment.center,
                   child: Text(
                     m.$2,
                     style: GoogleFonts.inter(
-                      color: sel ? Colors.white : Colors.white54,
+                      color: sel ? InicioColores.onAccent : InicioColores.muted,
                       fontSize: 13,
                       fontWeight: sel ? FontWeight.w600 : FontWeight.w400,
                     ),
@@ -323,7 +329,7 @@ class _UnifiedPickerSheetState extends State<_UnifiedPickerSheet> {
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
               decoration: BoxDecoration(
                 color: _mode == PeriodMode.custom
-                    ? const Color(0xFF7444fd)
+                    ? InicioColores.accent
                     : Colors.transparent,
                 borderRadius: BorderRadius.circular(8),
               ),
@@ -331,8 +337,8 @@ class _UnifiedPickerSheetState extends State<_UnifiedPickerSheet> {
                 Icons.date_range,
                 size: 16,
                 color: _mode == PeriodMode.custom
-                    ? Colors.white
-                    : Colors.white38,
+                    ? InicioColores.onAccent
+                    : InicioColores.soft,
               ),
             ),
           ),
@@ -389,7 +395,7 @@ class _UnifiedPickerSheetState extends State<_UnifiedPickerSheet> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               IconButton(
-                icon: const Icon(Icons.chevron_left, color: Colors.white),
+                icon: Icon(Icons.chevron_left, color: InicioColores.ink),
                 onPressed: () => setState(() {
                   _focusedMonth = DateTime(
                       _focusedMonth.year, _focusedMonth.month - 1);
@@ -398,13 +404,13 @@ class _UnifiedPickerSheetState extends State<_UnifiedPickerSheet> {
               Text(
                 '${_monthNames[_focusedMonth.month - 1]} ${_focusedMonth.year}',
                 style: GoogleFonts.inter(
-                    color: Colors.white,
+                    color: InicioColores.ink,
                     fontSize: 15,
                     fontWeight: FontWeight.w600),
               ),
               IconButton(
                 icon: Icon(Icons.chevron_right,
-                    color: canGoNext ? Colors.white : Colors.white24),
+                    color: canGoNext ? InicioColores.ink : InicioColores.soft),
                 onPressed: canGoNext
                     ? () => setState(() {
                           _focusedMonth = DateTime(
@@ -421,7 +427,7 @@ class _UnifiedPickerSheetState extends State<_UnifiedPickerSheet> {
                       child: Center(
                         child: Text(d,
                             style: GoogleFonts.inter(
-                                color: Colors.white38,
+                                color: InicioColores.soft,
                                 fontSize: 12,
                                 fontWeight: FontWeight.w600)),
                       ),
@@ -507,7 +513,7 @@ class _UnifiedPickerSheetState extends State<_UnifiedPickerSheet> {
                       height: 38,
                       decoration: isSelected
                           ? BoxDecoration(
-                              color: const Color(0xFF7444fd)
+                              color: InicioColores.accent
                                   .withOpacity(0.85),
                               borderRadius: radius,
                             )
@@ -517,12 +523,12 @@ class _UnifiedPickerSheetState extends State<_UnifiedPickerSheet> {
                         '$day',
                         style: GoogleFonts.inter(
                           color: isFuture
-                              ? Colors.white24
+                              ? InicioColores.soft
                               : isSelected
-                                  ? Colors.white
+                                  ? InicioColores.onAccent
                                   : isToday
-                                      ? const Color(0xFF7444fd)
-                                      : Colors.white70,
+                                      ? InicioColores.accent
+                                      : InicioColores.muted,
                           fontSize: 14,
                           fontWeight: (isSelected || isToday)
                               ? FontWeight.w600
@@ -552,19 +558,19 @@ class _UnifiedPickerSheetState extends State<_UnifiedPickerSheet> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               IconButton(
-                icon: const Icon(Icons.chevron_left, color: Colors.white),
+                icon: Icon(Icons.chevron_left, color: InicioColores.ink),
                 onPressed: () => setState(() => _monthYear--),
               ),
               Text('$_monthYear',
                   style: GoogleFonts.inter(
-                      color: Colors.white,
+                      color: InicioColores.ink,
                       fontSize: 16,
                       fontWeight: FontWeight.w700)),
               IconButton(
                 icon: Icon(Icons.chevron_right,
                     color: _monthYear >= now.year
-                        ? Colors.white24
-                        : Colors.white),
+                        ? InicioColores.soft
+                        : InicioColores.ink),
                 onPressed: _monthYear >= now.year
                     ? null
                     : () => setState(() => _monthYear++),
@@ -602,8 +608,8 @@ class _UnifiedPickerSheetState extends State<_UnifiedPickerSheet> {
                 child: Container(
                   decoration: BoxDecoration(
                     color: isSelected
-                        ? const Color(0xFF7444fd)
-                        : const Color(0xFF0F172A),
+                        ? InicioColores.accent
+                        : InicioColores.bg,
                     borderRadius: BorderRadius.circular(8),
                   ),
                   alignment: Alignment.center,
@@ -611,10 +617,10 @@ class _UnifiedPickerSheetState extends State<_UnifiedPickerSheet> {
                     _monthShort[i],
                     style: GoogleFonts.inter(
                       color: isFuture
-                          ? Colors.white24
+                          ? InicioColores.soft
                           : isSelected
-                              ? Colors.white
-                              : Colors.white70,
+                              ? InicioColores.onAccent
+                              : InicioColores.muted,
                       fontWeight: isSelected
                           ? FontWeight.w700
                           : FontWeight.w400,
@@ -660,8 +666,8 @@ class _UnifiedPickerSheetState extends State<_UnifiedPickerSheet> {
                 child: Container(
                   decoration: BoxDecoration(
                     color: isSelected
-                        ? const Color(0xFF7444fd)
-                        : const Color(0xFF0F172A),
+                        ? InicioColores.accent
+                        : InicioColores.bg,
                     borderRadius: BorderRadius.circular(8),
                   ),
                   alignment: Alignment.center,
@@ -669,7 +675,7 @@ class _UnifiedPickerSheetState extends State<_UnifiedPickerSheet> {
                     '$year',
                     style: GoogleFonts.inter(
                       color:
-                          isSelected ? Colors.white : Colors.white70,
+                          isSelected ? InicioColores.onAccent : InicioColores.muted,
                       fontWeight: isSelected
                           ? FontWeight.w700
                           : FontWeight.w400,
@@ -698,8 +704,8 @@ class _UnifiedPickerSheetState extends State<_UnifiedPickerSheet> {
         icon: const Icon(Icons.date_range),
         label: const Text('Seleccionar rango personalizado'),
         style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFF7444fd),
-          foregroundColor: Colors.white,
+          backgroundColor: InicioColores.accent,
+          foregroundColor: InicioColores.onAccent,
           minimumSize: const Size(double.infinity, 48),
           shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(10)),

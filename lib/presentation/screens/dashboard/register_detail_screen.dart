@@ -1,11 +1,20 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
-import 'package:intl/intl.dart';
-import '../../../core/utils/formato_dinero.dart';
-import '../../../core/services/firestore_service.dart';
-import '../../../data/models/cash_register_summary.dart';
 
+import '../../../core/services/firestore_service.dart';
+import '../../../core/utils/formato_dinero.dart';
+import '../../../data/models/cash_register_summary.dart';
+import '../../../data/models/detalle_caja.dart';
+import '../../widgets/detalle_caja_view.dart';
+import '../../widgets/inicio_ui.dart';
+import '../../widgets/max_content_width.dart';
+
+/// El detalle de un corte: los pedidos que se cobraron en esa caja y sus gastos.
+///
+/// Rediseño 2026-11-21 (cierres-caja.html, en su modo oscuro). Esta pantalla solo
+/// lee los pedidos de la caja y arma el andamio; qué pedidos son de la caja lo
+/// decide `DetalleCaja.ordenesDeLaCaja` y lo que se ve lo dibuja
+/// [DetalleCajaBody] (se prueba a 360dp sin Firebase).
 class RegisterDetailScreen extends StatefulWidget {
   final CashRegisterSummary register;
   final List<Map<String, dynamic>> expenseItems;
@@ -29,40 +38,32 @@ class RegisterDetailScreen extends StatefulWidget {
   State<RegisterDetailScreen> createState() => _RegisterDetailScreenState();
 }
 
-class _RegisterDetailScreenState extends State<RegisterDetailScreen>
-    with SingleTickerProviderStateMixin {
-  late final TabController _tabs;
-
-  bool _loading = true;
-  List<Map<String, dynamic>> _orders = [];
-  late final List<Map<String, dynamic>> _expenses;
+class _RegisterDetailScreenState extends State<RegisterDetailScreen> {
+  PestanaCaja _pestana = PestanaCaja.pedidos;
+  bool _cargando = true;
+  bool _error = false;
+  DetalleCaja _detalle = DetalleCaja.vacio;
+  late final List<GastoCaja> _gastos;
 
   @override
   void initState() {
     super.initState();
-    _tabs = TabController(length: 2, vsync: this);
-    _filterExpenses();
-    _loadOrders();
+    _gastos = GastoCaja.deLaCaja(widget.expenseItems, widget.register.id);
+    _cargarPedidos();
   }
 
-  void _filterExpenses() {
-    _expenses = widget.expenseItems
-        .where((e) =>
-            e['source'] == 'cashRegister' &&
-            e['register_id'] == widget.register.id)
-        .toList()
-      ..sort((a, b) =>
-          (b['date'] as String? ?? '').compareTo(a['date'] as String? ?? ''));
-  }
-
-  Future<void> _loadOrders() async {
+  Future<void> _cargarPedidos() async {
     final reg = widget.register;
     final tenantId = widget.tenantId;
     if (tenantId == null || tenantId.isEmpty) {
-      setState(() => _loading = false);
+      setState(() => _cargando = false);
       return;
     }
 
+    setState(() {
+      _cargando = true;
+      _error = false;
+    });
     try {
       final rangeEnd = reg.closedAt ?? DateTime.now();
       final openBuffer = reg.openedAt.subtract(const Duration(seconds: 1));
@@ -89,660 +90,70 @@ class _RegisterDetailScreenState extends State<RegisterDetailScreen>
           .where('paid_at', isLessThanOrEqualTo: closeIso)
           .get();
 
-      final results = [snapTs, snapIso];
-
       final seen = <String>{};
-      final all = <Map<String, dynamic>>[];
-      for (final snap in results) {
+      final todas = <Map<String, dynamic>>[];
+      for (final snap in [snapTs, snapIso]) {
         for (final doc in snap.docs) {
-          if (seen.add(doc.id)) all.add(doc.data());
+          if (seen.add(doc.id)) todas.add(doc.data());
         }
       }
 
-      // Filtrar en memoria: excluir canceladas, filtrar por sucursal y por cajero.
-      // Filtramos por paid_by_user_id cuando está disponible para mostrar solo las
-      // órdenes cobradas por este cajero. Si el campo está vacío (órdenes muy antiguas),
-      // se incluye la orden para mantener compatibilidad con registros históricos.
-      final locationId = reg.locationId ?? '';
-      final registerId = reg.userId;
-      final filtered = all.where((o) {
-        final status = o['status'] as String? ?? '';
-        if (status == 'CANCELLED') return false;
-
-        if (locationId.isNotEmpty) {
-          if (o['location_id'] != locationId) return false;
-        }
-
-        // Las ventas nuevas dicen en qué caja se cobraron y cuentan solo en esa:
-        // con dos cajas del cajero abiertas a la vez, antes salían en las dos.
-        // Misma regla que el POS (CashRegisterCalculator.perteneceACaja).
-        final caja = _cajaDelCobro(o);
-        if (caja != null) return caja == reg.id;
-
-        final paidByUserId = o['paid_by_user_id'] as String? ?? '';
-        // Usar mismo fallback de nombre que la columna "Usuario" del display
-        final effectiveUserName = o['paid_by_user_name'] as String? ??
-            o['waiter_name'] as String? ??
-            o['created_by_user_name'] as String? ??
-            '';
-        if (paidByUserId.isNotEmpty) {
-          if (paidByUserId != registerId) return false;
-        } else if (effectiveUserName.isNotEmpty && reg.userName.isNotEmpty) {
-          if (effectiveUserName != reg.userName) return false;
-        }
-
-        return true;
-      }).toList()
-        ..sort((a, b) {
-          final da = _toDateTime(a['paid_at']);
-          final db = _toDateTime(b['paid_at']);
-          if (da == null && db == null) return 0;
-          if (da == null) return 1;
-          if (db == null) return -1;
-          return db.compareTo(da);
-        });
-
+      if (!mounted) return;
       setState(() {
-        _orders = filtered;
-        _loading = false;
+        _detalle = DetalleCaja.desde(
+          DetalleCaja.ordenesDeLaCaja(todas, reg),
+          nombresMetodos: reg.customMethodNames,
+        );
+        _cargando = false;
       });
     } catch (e) {
-      setState(() => _loading = false);
+      // Un error no se muestra como "sin pedidos": la caja pudo tener cientos.
+      if (!mounted) return;
+      setState(() {
+        _cargando = false;
+        _error = true;
+      });
     }
   }
 
   @override
-  void dispose() {
-    _tabs.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final timeFmt = DateFormat('hh:mm a');
-    final reg = widget.register;
-    final subtitle = reg.closedAt != null
-        ? '${timeFmt.format(reg.openedAt)} → ${timeFmt.format(reg.closedAt!)}  ·  ${reg.locationName ?? ''}'
-        : 'Abierta desde ${timeFmt.format(reg.openedAt)}  ·  ${reg.locationName ?? ''}';
-
+    final signo = signoParaMostrar(widget.simbolo ?? moneda);
     return MonedaLocal(
-      simbolo: widget.simbolo ?? moneda,
+      simbolo: signo,
       child: Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF0F172A),
-        elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.white),
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              reg.userName,
-              style: GoogleFonts.inter(
-                color: Colors.white,
-                fontSize: 15,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            Text(
-              subtitle,
-              style: GoogleFonts.inter(color: Colors.white54, fontSize: 11),
-            ),
-          ],
-        ),
-        bottom: TabBar(
-          controller: _tabs,
-          indicatorColor: const Color(0xFF7444fd),
-          indicatorWeight: 2,
-          labelColor: const Color(0xFF7444fd),
-          unselectedLabelColor: Colors.white54,
-          labelStyle: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600),
-          unselectedLabelStyle: GoogleFonts.inter(fontSize: 13),
-          tabs: [
-            Tab(text: _loading ? 'Pedidos' : 'Pedidos (${_orders.length})'),
-            Tab(text: 'Gastos (${_expenses.length})'),
-          ],
-        ),
-      ),
-      // top: false — el AppBar ya reservó arriba. Abajo las dos listas van sin
-      // colchón alguno, así que la última fila de pedidos y el último gasto
-      // quedaban íntegros debajo de la barra de navegación.
-      body: SafeArea(
-        top: false,
-        child: _loading
-            ? const Center(child: CircularProgressIndicator(color: Color(0xFF7444fd)))
-            : TabBarView(
-                controller: _tabs,
-                children: [
-                  _OrdersTab(
-                    orders: _orders,
-                    locationNames: widget.locationNames,
-                  ),
-                  _ExpensesTab(expenses: _expenses),
-                ],
-              ),
-      ),
-    ),
-    );
-  }
-}
-
-// ── PESTAÑA PEDIDOS ───────────────────────────────────────────────────────────
-
-class _OrdersTab extends StatelessWidget {
-  final List<Map<String, dynamic>> orders;
-  final Map<String, String> locationNames;
-
-  const _OrdersTab({required this.orders, required this.locationNames});
-
-  @override
-  Widget build(BuildContext context) {
-    if (orders.isEmpty) {
-      return Center(
-        child: Text(
-          'Sin pedidos en esta caja',
-          style: GoogleFonts.inter(color: Colors.white38, fontSize: 14),
-        ),
-      );
-    }
-
-    final fmt = NumberFormat('#,##0.00', 'en_US');
-
-    return Column(
-      children: [
-        _TableHeader(),
-        const Divider(color: Color(0x1AFFFFFF), height: 1),
-        Expanded(
-          child: SingleChildScrollView(
+        backgroundColor: kInicioBg,
+        body: SafeArea(
+          child: MaxContentWidth(
+            maxWidth: 1280,
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                for (int i = 0; i < orders.length; i++) ...[
-                  _OrderRow(
-                    order: orders[i],
-                    fmt: fmt,
-                    locationNames: locationNames,
-                    even: i.isEven,
+                DetalleCajaEncabezado(
+                  caja: widget.register,
+                  pestana: _pestana,
+                  onPestana: (p) => setState(() => _pestana = p),
+                  onRegresar: () => Navigator.of(context).maybePop(),
+                  pedidos: _cargando || _error ? null : _detalle.pedidos.length,
+                  gastos: _gastos.length,
+                ),
+                Expanded(
+                  child: DetalleCajaBody(
+                    caja: widget.register,
+                    detalle: _detalle,
+                    gastos: _gastos,
+                    pestana: _pestana,
+                    signo: signo,
+                    cargando: _cargando,
+                    error: _error,
+                    onReintentar: _cargarPedidos,
                   ),
-                  if (i < orders.length - 1)
-                    const Divider(
-                        color: Color(0x0DFFFFFF), height: 1, indent: 14, endIndent: 14),
-                ],
+                ),
               ],
             ),
           ),
         ),
-        const Divider(color: Color(0x2AFFFFFF), height: 1),
-        _TotalsRow(orders: orders, fmt: fmt),
-      ],
-    );
-  }
-}
-
-class _TableHeader extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      color: const Color(0xFF1E293B),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: [
-            _hdr('Fecha / Hora', 120),
-            _hdr('Usuario', 110),
-            _hdr('Sucursal', 100),
-            _hdr('#Pedido', 70, right: true),
-            _hdr('SubTotal', 90, right: true),
-            _hdr('Descuentos', 90, right: true),
-            _hdr('Propinas', 80, right: true),
-            _hdr('Cortesía', 80, right: true),
-            _hdr('Total Pagado', 100, right: true),
-            _hdr('Método', 100),
-          ],
-        ),
       ),
     );
   }
-
-  Widget _hdr(String text, double width, {bool right = false}) {
-    return SizedBox(
-      width: width,
-      child: Text(
-        text,
-        textAlign: right ? TextAlign.right : TextAlign.left,
-        style: GoogleFonts.inter(
-          color: Colors.white38,
-          fontSize: 10,
-          fontWeight: FontWeight.w600,
-          letterSpacing: 0.3,
-        ),
-      ),
-    );
-  }
-}
-
-class _OrderRow extends StatelessWidget {
-  final Map<String, dynamic> order;
-  final NumberFormat fmt;
-  final Map<String, String> locationNames;
-  final bool even;
-
-  const _OrderRow({
-    required this.order,
-    required this.fmt,
-    required this.locationNames,
-    required this.even,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final paidAt = _toDateTime(order['paid_at']);
-    final dateStr = paidAt != null
-        ? DateFormat('dd/MM/yy hh:mm a').format(paidAt)
-        : '—';
-
-    final userName = order['paid_by_user_name'] as String? ??
-        order['waiter_name'] as String? ??
-        order['created_by_user_name'] as String? ??
-        '—';
-
-    final locationId = order['location_id'] as String? ?? '';
-    final locationName = locationId.isNotEmpty
-        ? (locationNames[locationId] ?? locationId)
-        : '—';
-
-    final orderNo = order['order_no'];
-    final orderPrefix = order['order_prefix'] as String? ?? '';
-    final orderNumStr = orderNo != null ? '$orderPrefix$orderNo' : '—';
-
-    final total = _parseAmount(order['payment_amount']) ??
-        _parseAmount(order['total_amount']) ??
-        0.0;
-    final subtotal = (order['subtotal'] as num?)?.toDouble() ?? total;
-    final discounts = (order['discount_amount'] as num? ?? 0).toDouble();
-    final tips = (order['tip_amount'] as num? ?? 0).toDouble();
-    final courtesy = _courtesyTotal(order);
-
-    final rawMethod = order['payment_method'] as String? ?? 'cash';
-    final method = _methodLabel(rawMethod);
-
-    return Container(
-      color: even ? Colors.transparent : const Color(0x06FFFFFF),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: [
-            _cell(dateStr, 120,
-                style: GoogleFonts.inter(color: Colors.white54, fontSize: 12)),
-            _cell(userName, 110,
-                style: GoogleFonts.inter(color: Colors.white70, fontSize: 12)),
-            _cell(locationName, 100,
-                style: GoogleFonts.inter(color: Colors.white54, fontSize: 12)),
-            _cell(orderNumStr, 70,
-                right: true,
-                style: GoogleFonts.inter(
-                    color: Colors.white70,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600)),
-            _amtCell(subtotal, 90, fmt, MonedaLocal.de(context)),
-            _amtCell(discounts, 90, fmt, MonedaLocal.de(context), negative: true),
-            _amtCell(tips, 80, fmt, MonedaLocal.de(context), accent: const Color(0xFF22C55E)),
-            _amtCell(courtesy, 80, fmt, MonedaLocal.de(context), accent: const Color(0xFFF59E0B)),
-            _cell('${MonedaLocal.de(context)}${fmt.format(total)}', 100,
-                right: true,
-                style: GoogleFonts.inter(
-                    color: Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700)),
-            _methodBadge(method, rawMethod, 100),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _cell(String text, double width,
-      {bool right = false, TextStyle? style}) {
-    return SizedBox(
-      width: width,
-      child: Text(
-        text,
-        textAlign: right ? TextAlign.right : TextAlign.left,
-        style: style ??
-            GoogleFonts.inter(color: Colors.white70, fontSize: 12),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
-    );
-  }
-
-  Widget _amtCell(double value, double width, NumberFormat fmt, String signo,
-      {bool negative = false, Color? accent}) {
-    if (value == 0) {
-      return SizedBox(
-        width: width,
-        child: Text('—',
-            textAlign: TextAlign.right,
-            style: GoogleFonts.inter(color: Colors.white24, fontSize: 12)),
-      );
-    }
-    final Color color;
-    if (negative) {
-      color = const Color(0xFFEF4444);
-    } else if (accent != null) {
-      color = accent;
-    } else {
-      color = Colors.white54;
-    }
-    final prefix = negative ? '-$signo' : signo;
-    return SizedBox(
-      width: width,
-      child: Text(
-        '$prefix${fmt.format(value)}',
-        textAlign: TextAlign.right,
-        style: GoogleFonts.inter(color: color, fontSize: 12),
-      ),
-    );
-  }
-
-  Widget _methodBadge(String label, String rawMethod, double width) {
-    final color = _methodColor(rawMethod);
-    return SizedBox(
-      width: width,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-        decoration: BoxDecoration(
-          color: color.withOpacity(0.14),
-          borderRadius: BorderRadius.circular(5),
-        ),
-        child: Text(
-          label,
-          style: GoogleFonts.inter(
-            color: color,
-            fontSize: 10,
-            fontWeight: FontWeight.w600,
-          ),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-      ),
-    );
-  }
-}
-
-class _TotalsRow extends StatelessWidget {
-  final List<Map<String, dynamic>> orders;
-  final NumberFormat fmt;
-
-  const _TotalsRow({required this.orders, required this.fmt});
-
-  @override
-  Widget build(BuildContext context) {
-    double subtotal = 0, discounts = 0, tips = 0, courtesy = 0, total = 0;
-    for (final o in orders) {
-      final t = _parseAmount(o['payment_amount']) ??
-          _parseAmount(o['total_amount']) ??
-          0.0;
-      subtotal += (o['subtotal'] as num?)?.toDouble() ?? t;
-      discounts += (o['discount_amount'] as num? ?? 0).toDouble();
-      tips += (o['tip_amount'] as num? ?? 0).toDouble();
-      courtesy += _courtesyTotal(o);
-      total += t;
-    }
-
-    return Container(
-      color: const Color(0xFF1E293B),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: [
-            SizedBox(
-              width: 120 + 110 + 100 + 70,
-              child: Text(
-                '${orders.length} pedidos',
-                style: GoogleFonts.inter(
-                    color: Colors.white54,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600),
-              ),
-            ),
-            _tot('${MonedaLocal.de(context)}${fmt.format(subtotal)}', 90),
-            _tot(discounts > 0 ? '-${MonedaLocal.de(context)}${fmt.format(discounts)}' : '—', 90,
-                color: discounts > 0 ? const Color(0xFFEF4444) : Colors.white24),
-            _tot(tips > 0 ? '${MonedaLocal.de(context)}${fmt.format(tips)}' : '—', 80,
-                color: tips > 0 ? const Color(0xFF22C55E) : Colors.white24),
-            _tot(courtesy > 0 ? '${MonedaLocal.de(context)}${fmt.format(courtesy)}' : '—', 80,
-                color: courtesy > 0 ? const Color(0xFFF59E0B) : Colors.white24),
-            _tot('${MonedaLocal.de(context)}${fmt.format(total)}', 100,
-                color: Colors.white, bold: true),
-            const SizedBox(width: 100),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _tot(String text, double width,
-      {Color color = Colors.white54, bool bold = false}) {
-    return SizedBox(
-      width: width,
-      child: Text(
-        text,
-        textAlign: TextAlign.right,
-        style: GoogleFonts.inter(
-          color: color,
-          fontSize: 12,
-          fontWeight: bold ? FontWeight.w700 : FontWeight.w600,
-        ),
-      ),
-    );
-  }
-}
-
-// ── PESTAÑA GASTOS ────────────────────────────────────────────────────────────
-
-class _ExpensesTab extends StatelessWidget {
-  final List<Map<String, dynamic>> expenses;
-
-  const _ExpensesTab({required this.expenses});
-
-  @override
-  Widget build(BuildContext context) {
-    if (expenses.isEmpty) {
-      return Center(
-        child: Text(
-          'Sin gastos registrados en esta caja',
-          style: GoogleFonts.inter(color: Colors.white38, fontSize: 14),
-        ),
-      );
-    }
-
-    final fmt = NumberFormat('#,##0.00', 'en_US');
-    final total = expenses.fold<double>(
-        0, (s, e) => s + (e['amount'] as num? ?? 0).toDouble());
-
-    return Column(
-      children: [
-        Container(
-          color: const Color(0xFF1E293B),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          child: Row(
-            children: [
-              Text('Total gastos',
-                  style: GoogleFonts.inter(color: Colors.white54, fontSize: 13)),
-              const Spacer(),
-              Text('${MonedaLocal.de(context)}${fmt.format(total)}',
-                  style: GoogleFonts.inter(
-                      color: const Color(0xFFEF4444),
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700)),
-            ],
-          ),
-        ),
-        const Divider(color: Color(0x1AFFFFFF), height: 1),
-        Expanded(
-          child: ListView.separated(
-            itemCount: expenses.length,
-            separatorBuilder: (_, __) =>
-                const Divider(color: Color(0x1AFFFFFF), height: 1, indent: 16, endIndent: 16),
-            itemBuilder: (_, i) => _ExpenseRow(item: expenses[i], fmt: fmt),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _ExpenseRow extends StatelessWidget {
-  final Map<String, dynamic> item;
-  final NumberFormat fmt;
-
-  const _ExpenseRow({required this.item, required this.fmt});
-
-  @override
-  Widget build(BuildContext context) {
-    final category = item['category_name'] as String? ?? 'Sin categoría';
-    final description = item['description'] as String?;
-    final amount = (item['amount'] as num? ?? 0).toDouble();
-    final dateStr = item['date'] as String? ?? '';
-    final registeredBy = item['registered_by'] as String?;
-
-    String dateLabel = '';
-    try {
-      if (dateStr.isNotEmpty) {
-        final dt = DateTime.parse(dateStr);
-        dateLabel = DateFormat('d MMM hh:mm a', 'es').format(dt);
-      }
-    } catch (_) {}
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  (description != null && description.isNotEmpty)
-                      ? description
-                      : category,
-                  style: GoogleFonts.inter(
-                      color: Colors.white,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  [
-                    category,
-                    if (registeredBy != null && registeredBy.isNotEmpty)
-                      registeredBy,
-                  ].join(' · '),
-                  style: GoogleFonts.inter(color: Colors.white38, fontSize: 11),
-                ),
-                if (dateLabel.isNotEmpty)
-                  Text(dateLabel,
-                      style:
-                          GoogleFonts.inter(color: Colors.white24, fontSize: 11)),
-              ],
-            ),
-          ),
-          Text(
-            '${MonedaLocal.de(context)}${fmt.format(amount)}',
-            style: GoogleFonts.inter(
-                color: const Color(0xFFEF4444),
-                fontSize: 14,
-                fontWeight: FontWeight.w600),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ── HELPERS ───────────────────────────────────────────────────────────────────
-
-double _courtesyTotal(Map<String, dynamic> order) {
-  final items = order['items'] as List<dynamic>? ?? [];
-  double total = 0;
-  for (final item in items) {
-    if (item is! Map) continue;
-    if (item['is_courtesy'] != true) continue;
-    final qty = (item['qty'] as num? ?? item['quantity'] as num? ?? 1).toDouble();
-    final price =
-        (item['unit_price'] as num? ?? item['price'] as num? ?? 0).toDouble();
-    total += qty * price;
-  }
-  return total;
-}
-
-String _methodLabel(String method) {
-  switch (method) {
-    case 'cash':        return 'Efectivo';
-    case 'card':        return 'Tarjeta';
-    case 'transfer':    return 'Transferencia';
-    case 'pedidosya':   return 'PedidosYa';
-    case 'ubereats':    return 'Uber Eats';
-    case 'split':
-    case 'mixed':       return 'Mixto';
-    default:            return method;
-  }
-}
-
-Color _methodColor(String method) {
-  switch (method) {
-    case 'cash':        return const Color(0xFF22C55E); // verde
-    case 'card':        return const Color(0xFF3B82F6); // azul
-    case 'transfer':    return const Color(0xFF06B6D4); // cyan
-    case 'pedidosya':   return const Color(0xFFF59E0B); // amarillo
-    case 'ubereats':    return const Color(0xFFF97316); // naranja
-    case 'split':
-    case 'mixed':       return const Color(0xFFA855F7); // violeta
-    default:            return const Color(0xFF94A3B8); // gris
-  }
-}
-
-double? _parseAmount(dynamic v) {
-  if (v is num) return v.toDouble();
-  if (v is String) return double.tryParse(v);
-  return null;
-}
-
-/// La caja en que se cobró la venta, si el sello es del cobro vigente: se
-/// selló con la misma hora de pago que tiene ahora (un minuto de margen: las
-/// copias de un mismo cobro difieren en segundos). Si se volvió a cobrar
-/// después con una versión anterior del POS, el sello quedó viejo: vale el
-/// criterio de siempre. Y si lo volvió a cobrar otro usuario (cambió quién
-/// cobró respecto de quien selló esa caja, `cash_register_paid_by`, que solo
-/// vale para la caja con la que viene), también, aunque la hora quede dentro
-/// del margen. Igual que Order.cajaDelCobro en el POS.
-String? _cajaDelCobro(Map<String, dynamic> o) {
-  final caja = o['cash_register_id'];
-  if (caja is! String || caja.isEmpty) return null;
-  final sello = o['cash_register_paid_by'];
-  final selladaPor = sello is Map && sello['cash_register_id'] == caja ? sello['user_id'] : null;
-  final cobrador = o['paid_by_user_id'];
-  if (selladaPor is String &&
-      selladaPor.isNotEmpty &&
-      cobrador is String &&
-      cobrador.isNotEmpty &&
-      selladaPor != cobrador) {
-    return null;
-  }
-  final selladaA = _toDateTime(o['cash_register_paid_at']);
-  final pagada = _toDateTime(o['paid_at']);
-  if (selladaA == null || pagada == null) return null;
-  return selladaA.difference(pagada).abs() < const Duration(minutes: 1) ? caja : null;
-}
-
-DateTime? _toDateTime(dynamic ts) {
-  if (ts is DateTime) return ts.toLocal();
-  if (ts is String) return DateTime.tryParse(ts)?.toLocal();
-  try {
-    return (ts as dynamic).toDate().toLocal() as DateTime;
-  } catch (_) {}
-  return null;
 }

@@ -9,6 +9,10 @@ import 'package:saborpro_reports/presentation/screens/dashboard/cajas_screen.dar
 /// los métodos propios, con lo contado = esperado + diferencia sellada (igual
 /// que el ticket del POS): la tabla suma lo mismo que la insignia. Antes el
 /// Total no los sumaba y la tabla no los mostraba.
+///
+/// (Rediseño 2026-11-21: el "Total" ahora se llama "Total (con apertura)" y la
+/// tabla, a 360 dp, dice "Esperado … · Contado …" bajo cada método. Lo que se
+/// comprueba es lo mismo.)
 void main() {
   setUpAll(() => GoogleFonts.config.allowRuntimeFetching = false);
 
@@ -63,8 +67,12 @@ void main() {
       'differenceCustomMethods': {'custom_vales': -25.0},
     });
 
-    expect(find.descendant(of: filaCon('Total'), matching: find.text('Q125.00')), findsOneWidget);
-    expect(find.text('Q-25.00'), findsOneWidget, reason: 'la fila de Vales en la tabla, igual que la insignia');
+    expect(find.descendant(of: filaCon('Total (con apertura)'), matching: find.text('Q125.00')), findsOneWidget);
+    // La fila de Vales en la tabla: esperado 25, contado 0, faltan 25 (igual que
+    // la insignia del corte y el resumen de arriba).
+    expect(find.text('Esperado Q25.00 · Contado Q0.00'), findsOneWidget);
+    expect(find.text('−Q25.00'), findsWidgets);
+    expect(find.text('Faltante Q25.00'), findsOneWidget);
     expect(find.text('Cupón'), findsNothing);
     expect(tester.takeException(), isNull);
   });
@@ -75,9 +83,10 @@ void main() {
       'expectedCustomMethods': {'custom_vales': 30.0},
     });
 
-    expect(find.descendant(of: filaCon('Total'), matching: find.text('Q130.00')), findsOneWidget);
-    expect(find.text('Q-30.00'), findsNothing, reason: 'no es un faltante: el forzado da por contado lo esperado');
-    expect(find.text('+Q0.00'), findsWidgets);
+    expect(find.descendant(of: filaCon('Total (con apertura)'), matching: find.text('Q130.00')), findsOneWidget);
+    expect(find.text('−Q30.00'), findsNothing, reason: 'no es un faltante: el forzado da por contado lo esperado');
+    expect(find.text('Esperado Q30.00 · Contado Q30.00'), findsOneWidget);
+    expect(find.text('Cuadró'), findsWidgets);
     expect(tester.takeException(), isNull);
   });
 

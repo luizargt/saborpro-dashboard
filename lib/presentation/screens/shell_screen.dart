@@ -1,5 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart' show defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:google_fonts/google_fonts.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
@@ -20,10 +22,28 @@ import '../../presentation/screens/dashboard/dashboard_screen.dart';
 import '../../presentation/screens/inventory/inventory_screen.dart';
 import '../../presentation/screens/notifications/notifications_screen.dart';
 import '../../presentation/providers/notifications_provider.dart';
-import '../../presentation/screens/reports/reports_list_screen.dart';
 import '../../presentation/screens/settings/moneda_settings_screen.dart';
 import '../../presentation/screens/settings/notification_settings_screen.dart';
 import '../../presentation/widgets/period_selector.dart';
+import '../widgets/inicio_ui.dart' show InicioColores, InicioSegmentos, inicioTexto, kInicioQuiebreTelefono;
+import '../../data/models/despensa_data.dart';
+import '../../core/theme/tema_manager.dart';
+import '../../presentation/screens/dashboard/cortesias_screen.dart';
+import '../../presentation/screens/dashboard/propinas_screen.dart';
+import '../../presentation/screens/reports/cancelled_orders_report_screen.dart';
+import '../../presentation/screens/reports/cash_closures_report_screen.dart';
+import '../../presentation/screens/reports/compras_ventas_screen.dart';
+import '../../presentation/screens/reports/expenses_report_screen.dart';
+import '../../presentation/screens/reports/profitability_report_screen.dart';
+import '../controllers/descargas_controller.dart';
+import '../navigation/contexto_shell.dart';
+import '../navigation/destinos.dart';
+import '../widgets/barra_inferior.dart';
+import '../widgets/barra_lateral.dart';
+import '../widgets/dialogo_descargas.dart';
+import '../widgets/encabezado_pagina.dart';
+import '../widgets/menu_cuenta.dart';
+import '../widgets/paleta_de_comandos.dart';
 
 class AppShell extends StatefulWidget {
   const AppShell({super.key});
@@ -33,7 +53,29 @@ class AppShell extends StatefulWidget {
 }
 
 class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
-  int _index = 0;
+  /// A dónde se está mirando.
+  Destino _destino = Destino.inicio;
+
+  /// La barra lateral contraída a mano (solo en pantallas muy anchas), y en tablet, la
+  /// barra expandida encima del contenido.
+  bool _barraContraida = false;
+  bool _barraAbierta = false;
+
+  /// El panel de la cuenta (pantalla ancha) abierto.
+  bool _cuentaAbierta = false;
+
+  /// El negocio factura en Honduras: se ofrecen los reportes del SAR.
+  bool _esHonduras = false;
+
+  // Biometría — null mientras carga
+  bool?  _biometricAvailable;
+  bool   _biometricEnabled = false;
+  String? _biometricError;
+  BiometricKind _biometricKind = BiometricKind.fingerprint;
+
+
+  /// Avisa a la hoja "Más" del teléfono (otra ruta) que algo cambió.
+  final _tick = ValueNotifier<int>(0);
   int? _patchNumber;
   // La versión instalada de verdad. Antes el menú decía "v1.0.1" fijo en el
   // código, así que un teléfono al día con la 1.1.5 parecía viejo y daba a
@@ -62,6 +104,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     pestanaSolicitada.addListener(_atenderPestanaSolicitada);
     _atenderPestanaSolicitada();
     _loadPatchNumber();
+    _loadBiometricState();
     StoreUpdateService().currentVersion().then((v) {
       if (mounted && v.isNotEmpty) setState(() => _version = v);
     });
@@ -72,6 +115,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
         context.read<InventoryProvider>().init(id);
       }
       _setupNotificaciones();
+      _cargarPaisFiscal();
     });
   }
 
@@ -79,6 +123,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   void dispose() {
     pestanaSolicitada.removeListener(_atenderPestanaSolicitada);
     WidgetsBinding.instance.removeObserver(this);
+    _tick.dispose();
     super.dispose();
   }
 
@@ -93,7 +138,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     // FCM); el post-frame evita un setState en pleno frame.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      setState(() => _index = pedida);
+      setState(() => _destino = Destinos.dePestana(pedida) ?? _destino);
       limpiarPestanaSolicitada();
     });
   }
@@ -186,17 +231,17 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     await showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: InicioColores.card,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Row(
           children: [
-            const Icon(Icons.notifications_active_rounded,
-                color: Color(0xFF7444fd), size: 22),
+            Icon(Icons.notifications_active_rounded,
+                color: InicioColores.accent, size: 22),
             const SizedBox(width: 10),
             Expanded(
               child: Text('Activa las notificaciones',
                   style: GoogleFonts.inter(
-                      color: Colors.white,
+                      color: InicioColores.ink,
                       fontSize: 15,
                       fontWeight: FontWeight.w600)),
             ),
@@ -208,18 +253,18 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
           'tus sucursales. Solo lo sabrías entrando a revisar a mano.\n\n'
           'Toca "Abrir Ajustes" y activa las notificaciones de Sabor Manager.',
           style: GoogleFonts.inter(
-              color: Colors.white70, fontSize: 14, height: 1.5),
+              color: InicioColores.muted, fontSize: 14, height: 1.5),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
             child: Text('Ahora no',
-                style: GoogleFonts.inter(color: Colors.white38)),
+                style: GoogleFonts.inter(color: InicioColores.soft)),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF7444fd),
-              foregroundColor: Colors.white,
+              backgroundColor: InicioColores.accent,
+              foregroundColor: InicioColores.onAccent,
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(8)),
             ),
@@ -297,551 +342,12 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final wide = constraints.maxWidth >= 600;
-        final base = _version == null ? '' : 'v$_version';
-        final versionLabel =
-            _patchNumber != null ? '$base ($_patchNumber)'.trim() : base;
-        return wide
-            ? _WideShell(index: _index, onSelect: _setIndex, onLogout: _logout, versionLabel: versionLabel)
-            : _NarrowShell(index: _index, onSelect: _setIndex, onLogout: _logout, versionLabel: versionLabel);
-      },
-    );
-  }
-
-  void _setIndex(int i) => setState(() => _index = i);
-}
-
-// ── WIDE (sidebar rail) ───────────────────────────────────────────────────────
-class _WideShell extends StatelessWidget {
-  final int index;
-  final ValueChanged<int> onSelect;
-  final VoidCallback onLogout;
-  final String versionLabel;
-
-  const _WideShell(
-      {required this.index, required this.onSelect, required this.onLogout, required this.versionLabel});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
-      // Sin AppBar que reserve el hueco de arriba (como sí hace _NarrowShell),
-      // este layout arrancaba en el píxel 0: el reloj y la batería se comían
-      // las pestañas de sucursal y el selector de fecha, y abajo la barra de
-      // navegación (o la taskbar de las tablets Samsung) cortaba las gráficas.
-      //
-      // El SafeArea no envuelve al Row entero a propósito: eso encogería
-      // también los fondos y dejaría franjas del color del Scaffold detrás de
-      // las barras del sistema. Cada columna pinta hasta el borde y mete el
-      // hueco puertas adentro.
-      body: Row(
-        children: [
-          _Rail(index: index, onSelect: onSelect, onLogout: onLogout, versionLabel: versionLabel),
-          Container(width: 1, color: Colors.white.withOpacity(0.05)),
-          Expanded(
-            // left: false — el hueco lateral izquierdo ya lo absorbió el rail.
-            child: SafeArea(
-              left: false,
-              child: _PageContent(index: index),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ── NARROW (bottom nav) ───────────────────────────────────────────────────────
-class _NarrowShell extends StatelessWidget {
-  final int index;
-  final ValueChanged<int> onSelect;
-  final VoidCallback onLogout;
-  final String versionLabel;
-
-  const _NarrowShell(
-      {required this.index, required this.onSelect, required this.onLogout, required this.versionLabel});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF0A1020),
-        elevation: 0,
-        // En iOS/macOS AppBar centra el título cuando hay menos de 2 actions.
-        // Al ocultar el selector de fecha en Despensa la lista queda vacía y el
-        // título se corría al centro; se fija a la izquierda siempre.
-        centerTitle: false,
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              'Sabor Manager',
-              style: GoogleFonts.inter(
-                color: const Color(0xFF7444fd),
-                fontSize: 16,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            Text(
-              versionLabel,
-              style: GoogleFonts.inter(
-                color: Colors.white54,
-                fontSize: 12,
-                fontWeight: FontWeight.w400,
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          // Despensa muestra existencias al día de hoy, no un rango de fechas:
-          // ahí el selector no tendría efecto y solo confundiría.
-          if (index != 2) ...[
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 160),
-              child: const DateSelectorChip(),
-            ),
-            const SizedBox(width: 8),
-          ],
-        ],
-      ),
-      body: _PageContent(index: index),
-      bottomNavigationBar: _BottomNav(index: index, onSelect: onSelect, onLogout: onLogout),
-    );
-  }
-}
-
-// ── RAIL ──────────────────────────────────────────────────────────────────────
-class _Rail extends StatelessWidget {
-  final int index;
-  final ValueChanged<int> onSelect;
-  final VoidCallback onLogout;
-  final String versionLabel;
-
-  const _Rail(
-      {required this.index, required this.onSelect, required this.onLogout, required this.versionLabel});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      // El ancho incluye el hueco lateral: si el sistema reserva borde
-      // izquierdo (gestos, notch en horizontal), los íconos se corrían fuera
-      // de los 76px y quedaban cortados contra el separador.
-      width: 76 + MediaQuery.of(context).padding.left,
-      color: const Color(0xFF070E1A),
-      // El color llega hasta arriba y abajo; lo que se aparta de las barras
-      // del sistema es el contenido. right: false porque de ese lado no hay
-      // borde de pantalla, hay más app.
-      child: SafeArea(
-        right: false,
-        child: Column(
-        children: [
-          const SizedBox(height: 20),
-          // Logo
-          Image.asset(
-            'assets/images/SaborManagerLogo.png',
-            width: 44,
-            height: 44,
-            fit: BoxFit.contain,
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'Sabor Manager',
-            textAlign: TextAlign.center,
-            style: GoogleFonts.inter(
-              color: Colors.white,
-              fontSize: 9,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 0.2,
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            versionLabel,
-            style: GoogleFonts.inter(
-              color: Colors.white54,
-              fontSize: 9,
-              fontWeight: FontWeight.w400,
-            ),
-          ),
-          const SizedBox(height: 20),
-          // Divider
-          Container(height: 1, color: Colors.white.withOpacity(0.06)),
-          const SizedBox(height: 20),
-          // Nav items
-          _RailItem(
-            icon: Icons.home_rounded,
-            label: 'Inicio',
-            active: index == 0,
-            onTap: () => onSelect(0),
-          ),
-          const SizedBox(height: 6),
-          _RailItem(
-            icon: Icons.stacked_bar_chart_rounded,
-            label: 'Reportes',
-            active: index == 1,
-            onTap: () => onSelect(1),
-          ),
-          const SizedBox(height: 6),
-          _RailItem(
-            icon: Icons.inventory_2_rounded,
-            label: 'Despensa',
-            active: index == 2,
-            onTap: () => onSelect(2),
-          ),
-          const SizedBox(height: 6),
-          _RailItem(
-            icon: Icons.notifications_rounded,
-            label: 'Avisos',
-            active: index == 3,
-            onTap: () => onSelect(3),
-            badge: context.watch<NotificationsProvider>().sinLeer,
-          ),
-          const Spacer(),
-          // Menu
-          GestureDetector(
-            onTap: () => _showMenuModal(context, onLogout),
-            child: Container(
-              width: 48,
-              height: 48,
-              margin: const EdgeInsets.only(bottom: 20),
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.04),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Icon(Icons.menu_rounded,
-                  color: Colors.white38, size: 20),
-            ),
-          ),
-        ],
-        ),
-      ),
-    );
-  }
-}
-
-class _RailItem extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final bool active;
-  final VoidCallback onTap;
-
-  /// Cuántos sin leer. 0 no dibuja nada.
-  final int badge;
-
-  const _RailItem(
-      {required this.icon,
-      required this.label,
-      required this.active,
-      required this.onTap,
-      this.badge = 0});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        width: 56,
-        padding: const EdgeInsets.symmetric(vertical: 10),
-        decoration: BoxDecoration(
-          color: active
-              ? const Color(0xFF7444fd).withOpacity(0.15)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(12),
-          border: active
-              ? Border.all(
-                  color: const Color(0xFF7444fd).withOpacity(0.3), width: 1)
-              : null,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // El contador se pinta sobre el ícono sin agrandar la fila: el
-            // rail mide 76px y una insignia que empuje el layout descoloca los
-            // otros tres botones cada vez que entra un aviso.
-            Stack(
-              clipBehavior: Clip.none,
-              children: [
-                Icon(icon,
-                    color:
-                        active ? const Color(0xFF7444fd) : Colors.white38,
-                    size: 22),
-                if (badge > 0)
-                  Positioned(right: -7, top: -5, child: _Badge(count: badge)),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: GoogleFonts.inter(
-                color: active ? const Color(0xFF7444fd) : Colors.white38,
-                fontSize: 10,
-                fontWeight:
-                    active ? FontWeight.w700 : FontWeight.w400,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Envuelve un ícono y le encima el contador. Para la barra inferior, donde el
-/// ícono lo construye NavigationDestination y no se puede meter un Stack dentro.
-class _ConBadge extends StatelessWidget {
-  final int count;
-  final Widget child;
-  const _ConBadge({required this.count, required this.child});
-
-  @override
-  Widget build(BuildContext context) {
-    if (count == 0) return child;
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        child,
-        Positioned(right: -7, top: -5, child: _Badge(count: count)),
-      ],
-    );
-  }
-}
-
-/// Contador de avisos sin leer.
-///
-/// Se corta en 99+: más allá de eso el número deja de informar y solo estira la
-/// insignia hasta deformar el ícono que lleva debajo.
-class _Badge extends StatelessWidget {
-  final int count;
-  const _Badge({required this.count});
-
-  @override
-  Widget build(BuildContext context) {
-    final texto = count > 99 ? '99+' : '$count';
-    return Container(
-      padding: EdgeInsets.symmetric(horizontal: count > 9 ? 4.5 : 0),
-      constraints: const BoxConstraints(minWidth: 17),
-      height: 17,
-      decoration: BoxDecoration(
-        color: const Color(0xFFEF4444),
-        borderRadius: BorderRadius.circular(9),
-        // El borde del color del fondo despega la insignia del ícono cuando
-        // los dos quedan encimados; sin él se leen como una sola mancha.
-        border: Border.all(color: const Color(0xFF070E1A), width: 2),
-      ),
-      alignment: Alignment.center,
-      child: Text(
-        texto,
-        style: GoogleFonts.inter(
-          color: Colors.white,
-          fontSize: 9.5,
-          fontWeight: FontWeight.w800,
-          height: 1,
-        ),
-      ),
-    );
-  }
-}
-
-// ── BOTTOM NAV ────────────────────────────────────────────────────────────────
-class _BottomNav extends StatelessWidget {
-  final int index;
-  final ValueChanged<int> onSelect;
-  final VoidCallback onLogout;
-
-  const _BottomNav({required this.index, required this.onSelect, required this.onLogout});
-
-  @override
-  Widget build(BuildContext context) {
-    return SafeArea(
-      top: false,
-      child: Container(
-        height: 80,
-        decoration: BoxDecoration(
-          color: const Color(0xFF070E1A),
-          border: Border(top: BorderSide(color: Colors.white.withOpacity(0.06))),
-        ),
-        child: Row(
-          children: [
-            Expanded(
-              child: NavigationBar(
-                backgroundColor: Colors.transparent,
-                indicatorColor: const Color(0xFF7444fd).withOpacity(0.2),
-                selectedIndex: index,
-                onDestinationSelected: onSelect,
-                labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-                destinations: [
-                  NavigationDestination(
-                    icon: const Icon(Icons.home_outlined, color: Colors.white38),
-                    selectedIcon: const Icon(Icons.home_rounded, color: Color(0xFF7444fd)),
-                    label: 'Inicio',
-                  ),
-                  NavigationDestination(
-                    icon: const Icon(Icons.stacked_bar_chart_outlined, color: Colors.white38),
-                    selectedIcon: const Icon(Icons.stacked_bar_chart_rounded, color: Color(0xFF7444fd)),
-                    label: 'Reportes',
-                  ),
-                  NavigationDestination(
-                    icon: const Icon(Icons.inventory_2_outlined, color: Colors.white38),
-                    selectedIcon: const Icon(Icons.inventory_2_rounded, color: Color(0xFF7444fd)),
-                    label: 'Despensa',
-                  ),
-                  NavigationDestination(
-                    icon: _ConBadge(
-                      count: context.watch<NotificationsProvider>().sinLeer,
-                      child: const Icon(Icons.notifications_none_rounded,
-                          color: Colors.white38),
-                    ),
-                    selectedIcon: _ConBadge(
-                      count: context.watch<NotificationsProvider>().sinLeer,
-                      child: const Icon(Icons.notifications_rounded,
-                          color: Color(0xFF7444fd)),
-                    ),
-                    label: 'Avisos',
-                  ),
-                ],
-              ),
-            ),
-            // Menú
-            GestureDetector(
-              onTap: () => _showMenuModal(context, onLogout),
-              child: SizedBox(
-                width: 72,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(Icons.menu_rounded, color: Colors.white38, size: 24),
-                    const SizedBox(height: 4),
-                    Text('Más',
-                        style: GoogleFonts.inter(
-                            color: Colors.white38,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w400)),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ── PAGE CONTENT ──────────────────────────────────────────────────────────────
-class _PageContent extends StatelessWidget {
-  final int index;
-  const _PageContent({required this.index});
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 200),
-      child: IndexedStack(
-        key: ValueKey(index),
-        index: index,
-        children: const [
-          DashboardScreen(),
-          ReportsListScreen(),
-          InventoryScreen(),
-          NotificationsScreen(),
-        ],
-      ),
-    );
-  }
-}
-
-// ── MENU MODAL ────────────────────────────────────────────────────────────────
-void _showMenuModal(BuildContext context, VoidCallback onLogout) {
-  final navBarHeight = MediaQuery.of(context).padding.bottom;
-  showModalBottomSheet(
-    context: context,
-    backgroundColor: const Color(0xFF1E293B),
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-    ),
-    isScrollControlled: true,
-    // El menú es alto (tipos de reporte + biometría + notificaciones + cerrar
-    // sesión) y con isScrollControlled podía trepar hasta el reloj. El borde
-    // de abajo ya lo cubre navBarHeight, que se midió arriba con el context
-    // del rail — a propósito, porque ahí todavía no lo consumió ningún
-    // SafeArea; useSafeArea solo agrega el de arriba.
-    useSafeArea: true,
-    builder: (_) => _MenuModal(onLogout: onLogout, navBarHeight: navBarHeight),
-  );
-}
-
-enum _ReportType {
-  caja('Reporte de Caja'),
-  metodoPago('Ventas por Método de Pago'),
-  platillos('Platillos vendidos'),
-  inventario('Inventario'),
-
-  // Solo Honduras. No son reportes de gestión: son dos obligaciones ante el
-  // SAR, y el que las presenta es el contador una vez al mes.
-  noUtilizados('Documentos no utilizados (SAR)', soloHonduras: true),
-  resumenIsv('Resumen de ventas por ISV (SAR)', soloHonduras: true);
-
-  final String label;
-  final bool soloHonduras;
-  const _ReportType(this.label, {this.soloHonduras = false});
-}
-
-class _MenuModal extends StatefulWidget {
-  final VoidCallback onLogout;
-  final double navBarHeight;
-  const _MenuModal({required this.onLogout, this.navBarHeight = 0});
-
-  @override
-  State<_MenuModal> createState() => _MenuModalState();
-}
-
-class _MenuModalState extends State<_MenuModal> {
-  _ReportType _selected = _ReportType.caja;
-  bool _downloading = false;
-
-  /// Los reportes del SAR solo se ofrecen si el tenant factura en Honduras:
-  /// a un restaurante guatemalteco no le dicen nada.
-  bool _esHonduras = false;
-
-  List<_ReportType> get _reportesDisponibles => _ReportType.values
-      .where((r) => !r.soloHonduras || _esHonduras)
-      .toList();
-
-  // Biometría — null mientras carga
-  bool?  _biometricAvailable;
-  bool   _biometricEnabled = false;
-  String? _biometricError;
-  BiometricKind _biometricKind = BiometricKind.fingerprint;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadBiometricState();
-    _loadPaisFiscal();
-  }
-
-  Future<void> _loadPaisFiscal() async {
-    final tenantId = context.read<DashboardProvider>().tenantId;
-    if (tenantId == null) return;
-    final esHn = await FiscalReportsService().isHonduras(tenantId);
-    if (!mounted) return;
-    setState(() => _esHonduras = esHn);
-  }
-
   Future<void> _loadBiometricState() async {
     final available = await BiometricService().isHardwarePresent();
     final enabled   = await BiometricService().isEnabled();
     final kind      = await BiometricService().detectKind();
     if (mounted) {
-      setState(() {
+      _cambiar(() {
         _biometricAvailable = available;
         _biometricEnabled   = enabled;
         _biometricKind      = kind;
@@ -869,7 +375,7 @@ class _MenuModalState extends State<_MenuModal> {
       }
     } else {
       await BiometricService().clearCredentials();
-      if (mounted) setState(() {
+      if (mounted) _cambiar(() {
         _biometricEnabled = false;
         _biometricError   = null;
       });
@@ -884,16 +390,16 @@ class _MenuModalState extends State<_MenuModal> {
         showDialog(
           context: context,
           builder: (_) => AlertDialog(
-            backgroundColor: const Color(0xFF1E293B),
+            backgroundColor: InicioColores.card,
             shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16)),
             title: Row(children: [
-              Icon(_biometricIcon, color: const Color(0xFF7444fd), size: 22),
+              Icon(_biometricIcon, color: InicioColores.accent, size: 22),
               const SizedBox(width: 10),
               Expanded(
                 child: Text('Sin ${_biometricKind.label} registrada',
                     style: GoogleFonts.inter(
-                        color: Colors.white,
+                        color: InicioColores.ink,
                         fontSize: 15,
                         fontWeight: FontWeight.w600)),
               ),
@@ -902,13 +408,13 @@ class _MenuModalState extends State<_MenuModal> {
               'Este dispositivo no tiene ${_biometricKind.label} registrada.'
               '\n\n${_biometricKind.enrollHint}',
               style: GoogleFonts.inter(
-                  color: Colors.white70, fontSize: 14, height: 1.5),
+                  color: InicioColores.muted, fontSize: 14, height: 1.5),
             ),
             actions: [
               ElevatedButton(
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF7444fd),
-                  foregroundColor: Colors.white,
+                  backgroundColor: InicioColores.accent,
+                  foregroundColor: InicioColores.onAccent,
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8)),
                 ),
@@ -927,7 +433,7 @@ class _MenuModalState extends State<_MenuModal> {
       email: email,
     );
     if (auth.success) {
-      if (mounted) setState(() => _biometricEnabled = true);
+      if (mounted) _cambiar(() => _biometricEnabled = true);
     } else {
       // Solo esta cuenta: si el teléfono tiene otra vinculada, que una
       // activación fallida la desvincule sería castigar a la equivocada.
@@ -935,7 +441,7 @@ class _MenuModalState extends State<_MenuModal> {
       // Si el sensor falló de verdad (no fue el usuario cancelando), decirlo:
       // el interruptor volviendo solo a "apagado" no explica nada.
       if (mounted && auth.error != null) {
-        setState(() => _biometricError = auth.error);
+        _cambiar(() => _biometricError = auth.error);
       }
     }
   }
@@ -960,16 +466,16 @@ class _MenuModalState extends State<_MenuModal> {
       barrierDismissible: false,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setStateDialog) => AlertDialog(
-          backgroundColor: const Color(0xFF1E293B),
+          backgroundColor: InicioColores.card,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           title: Row(
             children: [
-              const Icon(Icons.fingerprint, color: Color(0xFF7444fd), size: 22),
+              Icon(Icons.fingerprint, color: InicioColores.accent, size: 22),
               const SizedBox(width: 10),
               Expanded(
                 child: Text('Activar acceso con huella',
                     style: GoogleFonts.inter(
-                        color: Colors.white,
+                        color: InicioColores.ink,
                         fontSize: 15,
                         fontWeight: FontWeight.w600)),
               ),
@@ -983,18 +489,18 @@ class _MenuModalState extends State<_MenuModal> {
               if (email.isNotEmpty) ...[
                 Text(email,
                     style: GoogleFonts.inter(
-                        color: Colors.white54, fontSize: 13)),
+                        color: InicioColores.muted, fontSize: 13)),
                 const SizedBox(height: 12),
               ] else ...[
                 TextField(
                   controller: emailCtrl,
                   keyboardType: TextInputType.emailAddress,
-                  style: GoogleFonts.inter(color: Colors.white, fontSize: 14),
+                  style: GoogleFonts.inter(color: InicioColores.ink, fontSize: 14),
                   decoration: InputDecoration(
                     labelText: 'Correo',
-                    labelStyle: GoogleFonts.inter(color: Colors.white38),
+                    labelStyle: GoogleFonts.inter(color: InicioColores.soft),
                     filled: true,
-                    fillColor: const Color(0xFF0F172A),
+                    fillColor: InicioColores.bg,
                     border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(10),
                         borderSide: BorderSide.none),
@@ -1006,19 +512,19 @@ class _MenuModalState extends State<_MenuModal> {
                 controller: pwCtrl,
                 obscureText: obscure,
                 autofocus: true,
-                style: GoogleFonts.inter(color: Colors.white, fontSize: 14),
+                style: GoogleFonts.inter(color: InicioColores.ink, fontSize: 14),
                 decoration: InputDecoration(
                   labelText: 'Contraseña',
-                  labelStyle: GoogleFonts.inter(color: Colors.white38),
+                  labelStyle: GoogleFonts.inter(color: InicioColores.soft),
                   filled: true,
-                  fillColor: const Color(0xFF0F172A),
+                  fillColor: InicioColores.bg,
                   border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
                       borderSide: BorderSide.none),
                   suffixIcon: IconButton(
                     icon: Icon(
                         obscure ? Icons.visibility_off : Icons.visibility,
-                        color: Colors.white38,
+                        color: InicioColores.soft,
                         size: 18),
                     onPressed: () => setStateDialog(() => obscure = !obscure),
                   ),
@@ -1028,7 +534,7 @@ class _MenuModalState extends State<_MenuModal> {
                 const SizedBox(height: 8),
                 Text(errorMsg!,
                     style: GoogleFonts.inter(
-                        color: const Color(0xFFEF4444), fontSize: 12)),
+                        color: InicioColores.bad, fontSize: 12)),
               ],
             ],
           ),
@@ -1036,12 +542,12 @@ class _MenuModalState extends State<_MenuModal> {
             TextButton(
               onPressed: () => Navigator.pop(ctx, false),
               child: Text('Cancelar',
-                  style: GoogleFonts.inter(color: Colors.white38)),
+                  style: GoogleFonts.inter(color: InicioColores.soft)),
             ),
             ElevatedButton(
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF7444fd),
-                foregroundColor: Colors.white,
+                backgroundColor: InicioColores.accent,
+                foregroundColor: InicioColores.onAccent,
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(8)),
               ),
@@ -1083,376 +589,546 @@ class _MenuModalState extends State<_MenuModal> {
     );
 
     if (confirmed == true && mounted) {
-      setState(() {
+      _cambiar(() {
         _biometricEnabled = true;
         _biometricError   = null;
       });
     }
   }
 
-  Future<void> _download() async {
+  Future<void> _cargarPaisFiscal() async {
+    final tenantId = context.read<DashboardProvider>().tenantId;
+    if (tenantId == null) return;
+    final esHn = await FiscalReportsService().isHonduras(tenantId);
+    if (!mounted) return;
+    setState(() => _esHonduras = esHn);
+  }
+
+  /// El estado de la biometría cambió: se repinta el shell y también la hoja "Más" del
+  /// teléfono, que vive en su propia ruta y no se entera de los `setState` de aquí.
+  void _cambiar(VoidCallback f) {
+    if (!mounted) return;
+    setState(f);
+    _tick.value++;
+  }
+
+  // ── A dónde se va ──────────────────────────────────────────────────────────
+
+  void _ir(Destino d) {
+    if (d == Destino.descargas) {
+      _abrirDescargas();
+      return;
+    }
+    setState(() {
+      _destino = d;
+      _barraAbierta = false;
+      _cuentaAbierta = false;
+    });
+  }
+
+  Future<void> _abrirBuscador() async {
+    final d = await mostrarPaletaDeComandos(context, actual: _destino);
+    if (d != null && mounted) _ir(d);
+  }
+
+  void _abrirReportes() {
+    mostrarHojaManager<void>(
+      context,
+      builder: (ctx) => HojaReportes(
+        actual: _destino,
+        datos: const {},
+        alertas: const {},
+        onElegir: (d) {
+          Navigator.of(ctx).pop();
+          _ir(d);
+        },
+      ),
+    );
+  }
+
+  void _abrirMas(String nombre, int sucursales, String versionLabel) {
+    final hayOtraMoneda = context.read<DashboardProvider>().hayOtraMoneda;
+    mostrarHojaManager<void>(
+      context,
+      builder: (ctx) => ValueListenableBuilder<int>(
+        valueListenable: _tick,
+        builder: (_, __, ___) => HojaMas(
+          nombre: nombre,
+          rol: _rol,
+          sucursales: sucursales,
+          version: versionLabel,
+          actual: _destino,
+          onDescargas: () {
+            Navigator.of(ctx).pop();
+            _abrirDescargas();
+          },
+          onNotificaciones: () {
+            Navigator.of(ctx).pop();
+            _ir(Destino.notificaciones);
+          },
+          onCerrarSesion: () {
+            Navigator.of(ctx).pop();
+            _logout();
+          },
+          extras: _extras(grande: true, hayOtraMoneda: hayOtraMoneda, cerrar: () => Navigator.of(ctx).pop()),
+        ),
+      ),
+    );
+  }
+
+  static const _rol = 'Administrador';
+
+  /// Lo que la app trae además de lo que dibujó el diseño: apariencia, biometría y
+  /// moneda. En la hoja del teléfono ([grande]) las filas son más altas.
+  List<Widget> _extras({required bool grande, required bool hayOtraMoneda, required VoidCallback cerrar}) {
+    return [
+      _SelectorApariencia(sangria: grande ? 4 : 10),
+      if (_biometricAvailable == true) _filaBiometria(grande: grande),
+      if (hayOtraMoneda)
+        FilaMenu(
+          grande: grande,
+          icono: Icons.currency_exchange_rounded,
+          texto: 'Moneda y tipo de cambio',
+          onTap: () {
+            // El Navigator se toma ANTES de cerrar: después, este context ya no sirve.
+            final navigator = Navigator.of(context);
+            cerrar();
+            navigator.push(MaterialPageRoute(builder: (_) => const MonedaSettingsScreen()));
+          },
+        ),
+    ];
+  }
+
+  Widget _filaBiometria({required bool grande}) {
+    final activa = _biometricEnabled;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => _toggleBiometric(!activa),
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(grande ? 10 : 10, grande ? 4 : 0, grande ? 4 : 4, grande ? 4 : 0),
+            child: Row(
+              children: [
+                Icon(_biometricIcon, color: activa ? InicioColores.accent : InicioColores.muted, size: grande ? 20 : 18),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    _biometricKind.settingsLabel,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: inicioTexto(grande ? 15 : 14, grande ? FontWeight.w600 : FontWeight.w500, InicioColores.ink, height: 1.3),
+                  ),
+                ),
+                Switch(
+                  value: activa,
+                  onChanged: _toggleBiometric,
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  activeColor: InicioColores.accent,
+                  activeTrackColor: InicioColores.accent.withOpacity(0.3),
+                  inactiveThumbColor: InicioColores.soft,
+                  inactiveTrackColor: InicioColores.line,
+                ),
+              ],
+            ),
+          ),
+        ),
+        // El motivo por el que el interruptor rebotó a apagado.
+        if (_biometricError != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(10, 0, 10, 8),
+            child: Text(_biometricError!, style: inicioTexto(12, FontWeight.w400, InicioColores.bad, height: 1.4)),
+          ),
+      ],
+    );
+  }
+
+  // ── Descargas ──────────────────────────────────────────────────────────────
+
+  /// Lo que hay para descargar. Los del SAR solo si el negocio factura en Honduras:
+  /// a un restaurante guatemalteco no le dicen nada.
+  List<ItemDescarga> get _itemsDescarga => [
+        const ItemDescarga('caja', Icons.point_of_sale_rounded, 'Reporte de caja', 'Ventas, cortesías y cancelados del período, para cuadrar con la caja'),
+        const ItemDescarga('metodos', Icons.credit_card_rounded, 'Ventas por método de pago', 'Efectivo, tarjeta y demás, con su total'),
+        const ItemDescarga('platillos', Icons.restaurant_menu_rounded, 'Platillos vendidos', 'Cuántos se vendieron de cada platillo y por cuánto'),
+        const ItemDescarga('inventario', Icons.inventory_2_outlined, 'Inventario', 'Lo que tienes de cada producto en cada sucursal'),
+        if (_esHonduras) const ItemDescarga('sar_no_utilizados', Icons.receipt_long_rounded, 'Documentos no utilizados (SAR)', 'Los números de factura que no se usaron'),
+        if (_esHonduras) const ItemDescarga('sar_isv', Icons.summarize_outlined, 'Resumen de ventas por ISV (SAR)', 'Lo vendido y el impuesto de cada tasa'),
+      ];
+
+  Future<void> _abrirDescargas() async {
+    final dp = context.read<DashboardProvider>();
+    final controlador = DescargasController(items: _itemsDescarga, ejecutar: _ejecutarDescarga);
+
+    // Lo que ya salió era de otro mes o de otra sucursal: deja de marcarse "Listo".
+    String huella() => '${dp.range.label}|${dp.selectedLocationId}';
+    var ultima = huella();
+    void alCambiar() {
+      final ahora = huella();
+      if (ahora == ultima) return;
+      ultima = ahora;
+      controlador.reiniciar();
+    }
+
+    dp.addListener(alCambiar);
+    try {
+      await mostrarDescargas(
+        context,
+        controlador: controlador,
+        selectorPeriodo: const DateSelectorChip(),
+        sucursales: [
+          (id: null, nombre: 'Todas'),
+          for (final l in dp.locations) (id: l.id, nombre: l.name),
+        ],
+        sucursalElegida: () => dp.selectedLocationId,
+        onSucursal: dp.selectLocation,
+      );
+    } finally {
+      dp.removeListener(alCambiar);
+      controlador.dispose();
+    }
+  }
+
+  /// Genera un Excel con el mes y la sucursal que están elegidos.
+  Future<void> _ejecutarDescarga(ItemDescarga item) async {
     final dp = context.read<DashboardProvider>();
     final ip = context.read<InventoryProvider>();
-    if (dp.loading || ip.loading || _downloading) return;
+    if (dp.loading || ip.loading) throw StateError('Los datos todavía se están cargando');
 
-    setState(() => _downloading = true);
-    try {
-      // La vista de año no baja las órdenes: los totales los suma Firestore.
-      // Un Excel sí necesita cada fila, así que se piden a propósito y
-      // paginadas, sin el tope que antes recortaba el período por detrás.
-      // Fuera de la vista de año esto devuelve lo que ya está en memoria.
-      //
-      // Se pide dentro de cada reporte que las usa, y no antes del switch, para
-      // que exportar inventario no arrastre un año de órdenes que no mira.
-      switch (_selected) {
-        case _ReportType.caja:
-          // Sin convertir: este reporte se cuadra contra la caja.
-          final orders = await dp.ensureDetailedOrdersLocal();
-          final orderDocIds = orders
-              .map((o) => o['_docId'] as String? ?? '')
-              .where((id) => id.isNotEmpty)
-              .toList();
-          final userIdsToResolve = {
-            ...orders
-                .where((o) => (o['paid_by_user_name'] as String? ?? '').isEmpty)
-                .map((o) => o['paid_by_user_id'] as String? ?? ''),
-            // Quién marcó cada cortesía, para la hoja "Cortesías": el pedido
-            // solo guarda su id.
-            ...CortesiasReport.desde(orders).usuarios,
-          }.where((id) => id.isNotEmpty).toList();
-          final results = await Future.wait([
-            dp.fetchCertifiedInvoiceOrderIds(orderDocIds),
-            dp.fetchUserNamesById(userIdsToResolve),
-            dp.fetchCancelledOrders(local: true),
-          ]);
-          final certifiedIds    = results[0] as Set<String>;
-          final userNamesById   = results[1] as Map<String, String>;
-          final cancelledOrders = results[2] as List<Map<String, dynamic>>;
-          ExportService.exportCajaReport(
-            orders,
-            certifiedIds,
-            userNamesById,
-            dp.range.label,
-            cancelledOrders: cancelledOrders,
-            simbolos: dp.simbolosPorMoneda,
-            nombresSucursal: {
-              for (final l in [...dp.locations, ...dp.sucursalesOcultas])
-                l.id: l.name,
-            },
-          );
-        case _ReportType.metodoPago:
-          ExportService.exportPaymentMethodReport(
-            await dp.ensureDetailedOrders(),
-            dp.range.label,
-          );
-        case _ReportType.platillos:
-          ExportService.exportProducts(
-            dp.topProductsFrom(await dp.ensureDetailedOrders()),
-            dp.range.prevLabel,
-          );
-        case _ReportType.inventario:
-          ExportService.exportInventory(ip.items, ip.locations);
-
-        case _ReportType.noUtilizados:
-          final tenantId = dp.tenantId;
-          if (tenantId == null) break;
-          final numeros = await FiscalReportsService()
-              .unusedNumbers(tenantId: tenantId);
-          ExportService.exportUnusedNumbers(numeros, dp.range.label);
-
-        case _ReportType.resumenIsv:
-          final tenantId = dp.tenantId;
-          if (tenantId == null) break;
-          final resumen = await FiscalReportsService().isvSummary(
-            tenantId: tenantId,
-            from: dp.range.start,
-            to: dp.range.end,
-          );
-          ExportService.exportIsvSummary(resumen, dp.range.label);
-      }
-      if (mounted) Navigator.pop(context);
-    } finally {
-      if (mounted) setState(() => _downloading = false);
+    // La vista de año no baja las órdenes: los totales los suma Firestore. Un Excel sí
+    // necesita cada fila, así que se piden a propósito y paginadas, sin el tope que
+    // antes recortaba el período por detrás. Fuera de la vista de año esto devuelve lo
+    // que ya está en memoria.
+    //
+    // Se pide dentro de cada reporte que las usa, y no antes del switch, para que
+    // exportar inventario no arrastre un año de órdenes que no mira.
+    switch (item.id) {
+      case 'caja':
+        // Sin convertir: este reporte se cuadra contra la caja.
+        final orders = await dp.ensureDetailedOrdersLocal();
+        final orderDocIds = orders.map((o) => o['_docId'] as String? ?? '').where((id) => id.isNotEmpty).toList();
+        final userIdsToResolve = {
+          ...orders.where((o) => (o['paid_by_user_name'] as String? ?? '').isEmpty).map((o) => o['paid_by_user_id'] as String? ?? ''),
+          // Quién marcó cada cortesía, para la hoja "Cortesías": el pedido solo guarda su id.
+          ...CortesiasReport.desde(orders).usuarios,
+        }.where((id) => id.isNotEmpty).toList();
+        final results = await Future.wait([
+          dp.fetchCertifiedInvoiceOrderIds(orderDocIds),
+          dp.fetchUserNamesById(userIdsToResolve),
+          dp.fetchCancelledOrders(local: true),
+        ]);
+        ExportService.exportCajaReport(
+          orders,
+          results[0] as Set<String>,
+          results[1] as Map<String, String>,
+          dp.range.label,
+          cancelledOrders: results[2] as List<Map<String, dynamic>>,
+          simbolos: dp.simbolosPorMoneda,
+          nombresSucursal: {
+            for (final l in [...dp.locations, ...dp.sucursalesOcultas]) l.id: l.name,
+          },
+        );
+      case 'metodos':
+        ExportService.exportPaymentMethodReport(await dp.ensureDetailedOrders(), dp.range.label);
+      case 'platillos':
+        ExportService.exportProducts(dp.topProductsFrom(await dp.ensureDetailedOrders()), dp.range.prevLabel);
+      case 'inventario':
+        ExportService.exportInventory(ip.items, ip.locations);
+      case 'sar_no_utilizados':
+        final tenantId = dp.tenantId;
+        if (tenantId == null) throw StateError('Sin negocio');
+        final numeros = await FiscalReportsService().unusedNumbers(tenantId: tenantId);
+        ExportService.exportUnusedNumbers(numeros, dp.range.label);
+      case 'sar_isv':
+        final tenantId = dp.tenantId;
+        if (tenantId == null) throw StateError('Sin negocio');
+        final resumen = await FiscalReportsService().isvSummary(tenantId: tenantId, from: dp.range.start, to: dp.range.end);
+        ExportService.exportIsvSummary(resumen, dp.range.label);
     }
+  }
+
+  // ── Pantallas ──────────────────────────────────────────────────────────────
+
+  Widget _pagina() {
+    final Widget p = switch (_destino) {
+      Destino.inicio => const DashboardScreen(),
+      Destino.avisos => const NotificationsScreen(),
+      Destino.despensa => const InventoryScreen(),
+      Destino.rentabilidad => const ProfitabilityReportScreen(),
+      Destino.comprasVentas => const ComprasVentasScreen(),
+      Destino.gastos => const ExpensesReportScreen(),
+      Destino.cierres => const CashClosuresReportScreen(),
+      Destino.propinas => const PropinasScreen(),
+      Destino.cortesias => const CortesiasScreen(),
+      Destino.cancelados => const CancelledOrdersReportScreen(),
+      Destino.notificaciones => const NotificationSettingsScreen(),
+      Destino.descargas => const SizedBox.shrink(),
+    };
+    // Cada lugar con su propio estado: al cambiar de uno a otro no se arrastra lo del anterior.
+    return ContextoShell(child: KeyedSubtree(key: ValueKey(_destino), child: p));
+  }
+
+  Widget _encabezado(String nombre, {required bool telefono}) {
+    return EncabezadoPagina(
+      miga: Destinos.miga(_destino, hora: DateTime.now().hour, nombre: nombre),
+      titulo: Destinos.nombre(_destino),
+      acciones: [
+        if (Destinos.muestraConfigurarAvisos(_destino))
+          BotonEncabezado(icono: Icons.tune_rounded, ayuda: 'Configurar avisos', texto: 'Configurar avisos', onTap: () => _ir(Destino.notificaciones)),
+        BotonEncabezado(icono: Icons.file_download_outlined, ayuda: 'Descargar reportes', onTap: _abrirDescargas),
+        if (Destinos.muestraFecha(_destino))
+          ConstrainedBox(constraints: BoxConstraints(maxWidth: telefono ? 140 : 260), child: const DateSelectorChip()),
+      ],
+    );
+  }
+
+  static int _agotados(InventoryProvider ip, String? elegida) {
+    final ids = [
+      for (final l in ip.locations)
+        if (elegida == null || l.id == elegida) l.id,
+    ];
+    return ResumenDespensa.de(Despensa.filas(ip.items, ids), ids).agotados;
   }
 
   @override
   Widget build(BuildContext context) {
-    final dp = context.watch<DashboardProvider>();
-    final ip = context.watch<InventoryProvider>();
-    final isLoading = dp.loading || ip.loading || _downloading;
-    return Padding(
-      padding: EdgeInsets.only(
-        left: 24,
-        right: 24,
-        top: 12,
-        bottom: MediaQuery.of(context).viewInsets.bottom + widget.navBarHeight + 16,
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Handle
-          Center(
-            child: Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.white12,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
+    final base = _version == null ? '' : 'v$_version';
+    final versionLabel = _patchNumber != null ? '$base ($_patchNumber)'.trim() : base;
 
-          // Sección Reportes
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
-            children: [
-              Text(
-                'Reportes',
-                style: GoogleFonts.inter(
-                  color: Colors.white,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.3,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                '(${dp.range.label})',
-                style: GoogleFonts.inter(
-                  color: Colors.white38,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w400,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF0F172A),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: Colors.white.withOpacity(0.08)),
-                  ),
-                  child: DropdownButton<_ReportType>(
-                    value: _selected,
-                    isExpanded: true,
-                    underline: const SizedBox(),
-                    dropdownColor: const Color(0xFF1E293B),
-                    iconEnabledColor: Colors.white38,
-                    style: GoogleFonts.inter(
-                      color: Colors.white70,
-                      fontSize: 14,
-                    ),
-                    items: _reportesDisponibles
-                        .map((r) => DropdownMenuItem(
-                              value: r,
-                              child: Text(r.label),
-                            ))
-                        .toList(),
-                    onChanged: (v) {
-                      if (v != null) setState(() => _selected = v);
-                    },
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              GestureDetector(
-                onTap: isLoading ? null : _download,
-                child: Container(
-                  width: 44,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF7444fd).withOpacity(isLoading ? 0.06 : 0.15),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(
-                        color: const Color(0xFF7444fd).withOpacity(isLoading ? 0.1 : 0.3)),
-                  ),
-                  child: isLoading
-                      ? const Padding(
-                          padding: EdgeInsets.all(12),
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Color(0xFF7444fd),
-                          ),
-                        )
-                      : const Icon(Icons.download_rounded,
-                          color: Color(0xFF7444fd), size: 20),
-                ),
-              ),
-            ],
-          ),
+    final sinLeer = context.select<NotificationsProvider, int>((p) => p.sinLeer);
+    final elegida = context.select<DashboardProvider, String?>((d) => d.selectedLocationId);
+    final agotados = context.select<InventoryProvider, int>((p) => _agotados(p, elegida));
+    final sucursales = context.select<DashboardProvider, int>((d) => d.locations.length);
+    final hayCortesias = context.select<DashboardProvider, bool>((d) => (d.metrics?.courtesyCount ?? 0) > 0);
+    final hayOtraMoneda = context.select<DashboardProvider, bool>((d) => d.hayOtraMoneda);
+    final nSucursales = sucursales < 1 ? 1 : sucursales;
+    final nombre = AuthService().displayName ?? AuthService().sessionEmail ?? 'Mi cuenta';
+    final atajo = defaultTargetPlatform == TargetPlatform.macOS ? '⌘ K' : 'Ctrl K';
 
-          const SizedBox(height: 16),
-          Divider(color: Colors.white.withOpacity(0.06)),
-          const SizedBox(height: 4),
-
-          // Biometría (solo Android/iOS con soporte)
-          if (_biometricAvailable == true) ...[
-            GestureDetector(
-              onTap: () => _toggleBiometric(!_biometricEnabled),
-              behavior: HitTestBehavior.opaque,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 6),
-                child: Row(
-                  children: [
-                    Icon(
-                      _biometricIcon,
-                      color: _biometricEnabled
-                          ? const Color(0xFF7444fd)
-                          : Colors.white38,
-                      size: 20,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        _biometricKind.settingsLabel,
-                        style: GoogleFonts.inter(
-                          color: _biometricEnabled
-                              ? Colors.white70
-                              : Colors.white38,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ),
-                    Switch(
-                      value: _biometricEnabled,
-                      onChanged: _toggleBiometric,
-                      activeColor: const Color(0xFF7444fd),
-                      activeTrackColor:
-                          const Color(0xFF7444fd).withOpacity(0.3),
-                      inactiveThumbColor: Colors.white38,
-                      inactiveTrackColor: Colors.white12,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            // _biometricError se venía asignando sin pintarse en ningún lado:
-            // el interruptor rebotaba a apagado y el usuario no sabía por qué.
-            if (_biometricError != null)
-              Padding(
-                padding: const EdgeInsets.only(left: 32, bottom: 8),
-                child: Text(
-                  _biometricError!,
-                  style: GoogleFonts.inter(
-                      color: const Color(0xFFEF4444), fontSize: 12, height: 1.4),
-                ),
-              ),
-            Divider(color: Colors.white.withOpacity(0.06)),
-            const SizedBox(height: 4),
-          ],
-
-          // Notificaciones
-          GestureDetector(
-            onTap: () {
-              // El Navigator se toma ANTES del pop: después de cerrar la hoja,
-              // este context ya está muerto y el push explotaría.
-              final navigator = Navigator.of(context);
-              navigator.pop();
-              navigator.push(
-                MaterialPageRoute(
-                    builder: (_) => const NotificationSettingsScreen()),
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.keyK, control: true): _abrirBuscador,
+        const SingleActivator(LogicalKeyboardKey.keyK, meta: true): _abrirBuscador,
+      },
+      child: Focus(
+        autofocus: true,
+        child: Scaffold(
+          backgroundColor: InicioColores.bg,
+          body: LayoutBuilder(
+            builder: (context, c) {
+              if (c.maxWidth <= kInicioQuiebreTelefono) {
+                return _telefono(context, nombre: nombre, sucursales: nSucursales, sinLeer: sinLeer, versionLabel: versionLabel);
+              }
+              return _ancho(
+                context,
+                ancho: c.maxWidth,
+                nombre: nombre,
+                sucursales: nSucursales,
+                sinLeer: sinLeer,
+                agotados: agotados,
+                puntos: {if (hayCortesias) Destino.cortesias},
+                hayOtraMoneda: hayOtraMoneda,
+                versionLabel: versionLabel,
+                atajo: atajo,
               );
             },
-            behavior: HitTestBehavior.opaque,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 10),
-              child: Row(
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Teléfono: la barra de arriba, el encabezado, la pantalla y la barra de abajo.
+  Widget _telefono(BuildContext context, {required String nombre, required int sucursales, required int sinLeer, required String versionLabel}) {
+    return Column(
+      children: [
+        Container(
+          color: InicioColores.barra,
+          child: SafeArea(
+            bottom: false,
+            child: BarraSuperiorMovil(sucursales: sucursales, nombre: nombre, onBuscar: _abrirBuscador, onCuenta: () => _abrirMas(nombre, sucursales, versionLabel)),
+          ),
+        ),
+        _encabezado(nombre, telefono: true),
+        Expanded(
+          // Las barras ya apartaron lo suyo del borde: la pantalla no lo aparta otra vez.
+          child: MediaQuery.removePadding(context: context, removeTop: true, removeBottom: true, child: _pagina()),
+        ),
+        SafeArea(
+          top: false,
+          child: BarraInferiorMovil(
+            actual: pestanaDe(_destino),
+            avisosSinLeer: sinLeer,
+            onElegir: (p) {
+              switch (p) {
+                case PestanaMovil.inicio:
+                  _ir(Destino.inicio);
+                case PestanaMovil.reportes:
+                  _abrirReportes();
+                case PestanaMovil.despensa:
+                  _ir(Destino.despensa);
+                case PestanaMovil.avisos:
+                  _ir(Destino.avisos);
+                case PestanaMovil.mas:
+                  _abrirMas(nombre, sucursales, versionLabel);
+              }
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Tablet y escritorio: la barra lateral. En tablet (hasta 1199) queda contraída y,
+  /// al expandirla, se abre ENCIMA de la pantalla; en escritorio empuja la pantalla.
+  Widget _ancho(
+    BuildContext context, {
+    required double ancho,
+    required String nombre,
+    required int sucursales,
+    required int sinLeer,
+    required int agotados,
+    required Set<Destino> puntos,
+    required bool hayOtraMoneda,
+    required String versionLabel,
+    required String atajo,
+  }) {
+    final tablet = ancho < 1200;
+    final contraida = tablet ? !_barraAbierta : _barraContraida;
+    final anchoFijo = tablet ? AnchoBarra.contraida : AnchoBarra.de(_barraContraida);
+    final anchoBarra = AnchoBarra.de(contraida);
+    final inset = MediaQuery.paddingOf(context);
+    final alto = MediaQuery.sizeOf(context).height;
+
+    void cerrarCuenta() => setState(() => _cuentaAbierta = false);
+
+    return Stack(
+      children: [
+        Positioned.fill(
+          left: anchoFijo,
+          // El hueco del borde izquierdo ya lo absorbió la barra.
+          child: SafeArea(
+            left: false,
+            child: MediaQuery.removePadding(
+              context: context,
+              removeLeft: true,
+              child: Column(
                 children: [
-                  const Icon(Icons.notifications_outlined,
-                      color: Colors.white38, size: 20),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      'Notificaciones',
-                      style: GoogleFonts.inter(
-                        color: Colors.white70,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                  const Icon(Icons.chevron_right_rounded,
-                      color: Colors.white38, size: 20),
+                  _encabezado(nombre, telefono: false),
+                  Expanded(child: MediaQuery.removePadding(context: context, removeTop: true, removeBottom: true, child: _pagina())),
                 ],
               ),
             ),
           ),
-          Divider(color: Colors.white.withOpacity(0.06)),
-          const SizedBox(height: 4),
-
-          // Moneda y tipo de cambio: solo si hay sucursales que venden en
-          // monedas distintas (a las demás no les dice nada).
-          if (context.watch<DashboardProvider>().hayOtraMoneda) ...[
-            GestureDetector(
-              onTap: () {
-                final navigator = Navigator.of(context);
-                navigator.pop();
-                navigator.push(
-                  MaterialPageRoute(builder: (_) => const MonedaSettingsScreen()),
-                );
-              },
-              behavior: HitTestBehavior.opaque,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 10),
-                child: Row(
-                  children: [
-                    const Icon(Icons.currency_exchange_rounded, color: Colors.white38, size: 20),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        'Moneda y tipo de cambio',
-                        style: GoogleFonts.inter(
-                          color: Colors.white70,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ),
-                    const Icon(Icons.chevron_right_rounded, color: Colors.white38, size: 20),
-                  ],
+        ),
+        if (tablet && _barraAbierta)
+          Positioned.fill(
+            left: AnchoBarra.contraida,
+            child: GestureDetector(behavior: HitTestBehavior.opaque, onTap: () => setState(() => _barraAbierta = false), child: const ColoredBox(color: Color(0x730A0C1C))),
+          ),
+        Positioned(
+          left: 0,
+          top: 0,
+          bottom: 0,
+          child: BarraLateral(
+            actual: _destino,
+            contraida: contraida,
+            avisosSinLeer: sinLeer,
+            agotados: agotados,
+            puntos: puntos,
+            sucursales: sucursales,
+            nombre: nombre,
+            rol: _rol,
+            atajo: atajo,
+            cuentaAbierta: _cuentaAbierta,
+            onElegir: _ir,
+            onBuscar: _abrirBuscador,
+            onCuenta: () => setState(() => _cuentaAbierta = !_cuentaAbierta),
+          ),
+        ),
+        Positioned(
+          left: anchoBarra - 20,
+          top: 57 + inset.top,
+          child: BotonContraer(
+            contraida: contraida,
+            onTap: () => setState(() {
+              if (tablet) {
+                _barraAbierta = !_barraAbierta;
+              } else {
+                _barraContraida = !_barraContraida;
+              }
+            }),
+          ),
+        ),
+        if (_cuentaAbierta) ...[
+          Positioned.fill(child: GestureDetector(behavior: HitTestBehavior.opaque, onTap: cerrarCuenta, child: const SizedBox.expand())),
+          Positioned(
+            left: 12,
+            bottom: 78 + inset.bottom,
+            width: contraida ? 240 : 256,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxHeight: alto - 78 - inset.bottom - 12 - inset.top),
+              child: SingleChildScrollView(
+                child: PanelCuenta(
+                  nombre: nombre,
+                  rol: _rol,
+                  sucursales: sucursales,
+                  version: versionLabel,
+                  actual: _destino,
+                  onDescargas: () {
+                    cerrarCuenta();
+                    _abrirDescargas();
+                  },
+                  onNotificaciones: () => _ir(Destino.notificaciones),
+                  onCerrarSesion: () {
+                    cerrarCuenta();
+                    _logout();
+                  },
+                  extras: _extras(grande: false, hayOtraMoneda: hayOtraMoneda, cerrar: cerrarCuenta),
                 ),
-              ),
-            ),
-            Divider(color: Colors.white.withOpacity(0.06)),
-            const SizedBox(height: 4),
-          ],
-
-          // Botón Salir
-          GestureDetector(
-            onTap: () {
-              Navigator.pop(context);
-              widget.onLogout();
-            },
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 10),
-              child: Row(
-                children: [
-                  const Icon(Icons.logout_rounded,
-                      color: Color(0xFFEF4444), size: 20),
-                  const SizedBox(width: 12),
-                  Text(
-                    'Cerrar sesión',
-                    style: GoogleFonts.inter(
-                      color: Color(0xFFEF4444),
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
               ),
             ),
           ),
         ],
+      ],
+    );
+  }
+}
+
+/// "Apariencia": claro u oscuro. Claro es el modo por defecto; lo que se elige se
+/// guarda en el aparato (ver `TemaManager`).
+class _SelectorApariencia extends StatelessWidget {
+  /// El margen de los lados: en el panel de la cuenta las filas llevan 10; en la hoja
+  /// del teléfono, las de arriba ya traen el suyo.
+  final double sangria;
+  const _SelectorApariencia({this.sangria = 10});
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: TemaManager.instancia,
+      builder: (context, _) => Padding(
+        padding: EdgeInsets.symmetric(horizontal: sangria, vertical: 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.brightness_6_outlined, color: InicioColores.muted, size: 18),
+                const SizedBox(width: 10),
+                Text('Apariencia', style: inicioTexto(14, FontWeight.w500, InicioColores.ink)),
+              ],
+            ),
+            const SizedBox(height: 10),
+            InicioSegmentos<ThemeMode>(
+              opciones: const [(ThemeMode.light, 'Claro'), (ThemeMode.dark, 'Oscuro')],
+              elegido: TemaManager.instancia.modo,
+              onElegir: TemaManager.instancia.poner,
+              completo: true,
+            ),
+          ],
+        ),
       ),
     );
   }

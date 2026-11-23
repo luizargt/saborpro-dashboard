@@ -1,57 +1,42 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
-import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
-import '../../../core/utils/date_range.dart';
-import '../../../core/utils/formato_dinero.dart';
+import '../../../core/utils/formato_dinero.dart' show moneda;
 import '../../../data/models/profitability_data.dart';
+import '../../../data/models/rentabilidad_data.dart';
 import '../../providers/dashboard_provider.dart';
 import '../../providers/menu_margin_provider.dart';
 import '../../providers/profitability_provider.dart';
 import '../../widgets/dish_profit_card.dart';
+import '../../widgets/inicio_ui.dart';
 import '../../widgets/location_selector.dart';
 import '../../widgets/max_content_width.dart';
+import '../../widgets/moneda_vista_aviso.dart';
 import '../../widgets/period_selector.dart';
+import '../../widgets/rentabilidad_view.dart';
+import 'expenses_report_screen.dart';
+import '../../navigation/contexto_shell.dart';
 
-const _fondo = Color(0xFF0F172A);
-const _appbar = Color(0xFF0A1020);
-const _tarjeta = Color(0xFF1E293B);
-const _acento = Color(0xFF7444fd);
-const _verde = Color(0xFF22C55E);
-const _rojo = Color(0xFFEF4444);
-const _ambar = Color(0xFFFBBF24);
-
-// El mismo patrón que el resto de la app (cajas, gastos, detalle de caja):
-// coma para los miles, punto para los decimales y el signo de moneda
-// adelante. El locale es_GT haría lo contrario —"64.733,00 Q"—, que no es
-// como se escribe el quetzal ni como se ve en las demás pantallas.
-final _q = NumberFormat('#,##0.00', 'en_US');
-
-String _money(double v) => '$moneda${_q.format(v)}';
-String _pct(double? v) => v == null ? '—' : '${v.toStringAsFixed(1)}%';
-
-Color _colorDe(Salud s) => switch (s) {
-      Salud.bien => _verde,
-      Salud.atencion => _ambar,
-      Salud.mal => _rojo,
-      Salud.desconocido => Colors.white38,
-    };
-
+/// Rentabilidad: si el negocio ganó o perdió, cuánto hay que vender para no perder y
+/// qué platillos dejan más.
+///
+/// Rediseño 2026-11-22 (rentabilidad.html, en su modo oscuro). Los números de
+/// siempre salen de [ProfitabilityProvider] (la misma cuenta, ahora también por
+/// sucursal) y el menú de [MenuMarginProvider]; lo vendido por platillo sale de los
+/// pedidos que el dashboard ya trajo. Solo arma el andamio; lo que se ve lo dibuja
+/// [RentabilidadBody].
 class ProfitabilityReportScreen extends StatefulWidget {
   const ProfitabilityReportScreen({super.key});
 
   @override
-  State<ProfitabilityReportScreen> createState() =>
-      _ProfitabilityReportScreenState();
+  State<ProfitabilityReportScreen> createState() => _ProfitabilityReportScreenState();
 }
 
 class _ProfitabilityReportScreenState extends State<ProfitabilityReportScreen> {
   final _provider = ProfitabilityProvider();
 
-  /// El costo de receta de cada platillo, para la tarjeta "Utilidad por
-  /// platillo". Vive aquí y no en la tarjeta para que "Ver todos" use el mismo
-  /// sin volver a descargar el menú.
+  /// El costo de receta de cada platillo. Vive aquí y no en cada sección para que
+  /// "Utilidad por platillo" use el mismo sin volver a descargar el menú.
   final _menu = MenuMarginProvider();
 
   @override
@@ -77,52 +62,40 @@ class _ProfitabilityReportScreenState extends State<ProfitabilityReportScreen> {
         ChangeNotifierProvider.value(value: _menu),
       ],
       child: Scaffold(
-        backgroundColor: _fondo,
-        appBar: AppBar(
-          backgroundColor: _appbar,
-          elevation: 0,
-          title: const Text('Rentabilidad'),
-        ),
+        backgroundColor: kInicioBg,
         body: SafeArea(
-          top: false,
           child: LocationSwipeArea(
             child: MaxContentWidth(
+              maxWidth: 1280,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // El reparto por platillo necesita Mes o Año: sin esto, en
-                  // teléfono habría que salir del reporte para cambiar el
-                  // período.
-                  const SelectorFechaEnTelefono(),
-                  const LocationHeaderBar(),
+                  const _Encabezado(),
+                  // Las pestañas de sucursal (si hay varias) y la moneda de la vista;
+                  // la fecha ya va en el encabezado.
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [LocationTabsBar(), MonedaVistaAviso()],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
                   Expanded(
                     child: LocationContentSwitcher(
-                      child: Consumer<ProfitabilityProvider>(
-                      builder: (context, p, _) => RefreshIndicator(
-                        color: _acento,
-                        backgroundColor: _tarjeta,
-                        // El menú se recarga en paralelo: esperarlo en fila
-                        // alargaba el giro del indicador sin necesidad.
-                        onRefresh: () => Future.wait([
-                          dash.load().then((_) => p.load(dash)),
-                          _menu.recargar(),
-                        ]),
-                        // dash.loading cuenta como cargando: las ventas salen
-                        // de ahí, y mientras no lleguen no hay reporte que
-                        // mostrar. Sin esto quedaban en pantalla los números
-                        // del mes anterior, sin ninguna señal de que ya no
-                        // correspondían.
-                        child: _Cuerpo(
-                          provider: p,
-                          cargandoVentas: dash.loading,
-                          rango: dash.range,
-                          // El dashboard se traga los fallos de gastos y de
-                          // cajas; estas dos señales son la única huella.
-                          gastosLeidos:
-                              dash.expenseRawCount >= 0 && dash.cajasLeidas,
+                      child: Consumer2<ProfitabilityProvider, MenuMarginProvider>(
+                        builder: (context, p, menu, _) => RefreshIndicator(
+                          color: InicioColores.accent,
+                          backgroundColor: InicioColores.card,
+                          // El menú se recarga en paralelo: esperarlo en fila alargaba
+                          // el giro del indicador sin necesidad.
+                          onRefresh: () => Future.wait([
+                            dash.load().then((_) => p.load(dash)),
+                            menu.recargar(),
+                          ]),
+                          child: _Cuerpo(dash: dash, provider: p, menu: menu),
                         ),
                       ),
-                    ),
                     ),
                   ),
                 ],
@@ -136,881 +109,161 @@ class _ProfitabilityReportScreenState extends State<ProfitabilityReportScreen> {
 }
 
 class _Cuerpo extends StatelessWidget {
+  final DashboardProvider dash;
   final ProfitabilityProvider provider;
-  final bool cargandoVentas;
+  final MenuMarginProvider menu;
 
-  /// Para el aviso de preproducción: solo en Mes o Año se compara categoría
-  /// por categoría, y solo si los gastos se leyeron enteros.
-  final DateRange rango;
-  final bool gastosLeidos;
-
-  const _Cuerpo({
-    required this.provider,
-    this.cargandoVentas = false,
-    required this.rango,
-    required this.gastosLeidos,
-  });
+  const _Cuerpo({required this.dash, required this.provider, required this.menu});
 
   @override
   Widget build(BuildContext context) {
-    if (provider.loading || cargandoVentas) {
-      return ListView(children: const [
-        SizedBox(
-          height: 320,
-          child: Center(child: CircularProgressIndicator(color: _acento)),
-        ),
-      ]);
+    // dash.loading cuenta como cargando: las ventas salen de ahí, y mientras no
+    // lleguen no hay reporte que mostrar. Sin esto quedaban en pantalla los números
+    // del mes anterior, sin ninguna señal de que ya no correspondían.
+    if (provider.loading || dash.loading) {
+      return _Relleno(child: CircularProgressIndicator(color: InicioColores.accent));
     }
-
     if (provider.error != null) {
-      return _Aviso(
-        icono: Icons.cloud_off_rounded,
-        titulo: provider.error!,
-        detalle: 'Deslizá hacia abajo para reintentar.',
-      );
+      return _Relleno(child: _TextoAviso('${provider.error!}\n\nDesliza hacia abajo para reintentar.'));
     }
-
     final d = provider.data;
     if (d.sinDatos) {
-      return const _Aviso(
-        icono: Icons.query_stats_rounded,
-        titulo: 'Sin movimientos en este período',
-        detalle: 'Elegí otro rango de fechas para ver tu rentabilidad.',
-      );
-    }
-    final avisoPrepro =
-        avisoPreproduccion(d, rango: rango, gastosLeidos: gastosLeidos);
-
-    return ListView(
-      padding: EdgeInsets.only(
-        left: 16,
-        right: 16,
-        top: 4,
-        bottom: 28 + MediaQuery.of(context).padding.bottom,
-      ),
-      children: [
-        _Indicadores(d: d),
-        const SizedBox(height: 18),
-        _Cascada(d: d),
-        const SizedBox(height: 14),
-        _PuntoDeEquilibrio(d: d),
-        const SizedBox(height: 14),
-        // Escucha por su cuenta al menú: cuando llega, se redibuja la tarjeta
-        // y no todo el reporte.
-        const UtilidadPlatillosSeccion(),
-        const SizedBox(height: 14),
-        _FueraDeLaCuenta(d: d),
-        if (avisoPrepro != null) ...[
-          const SizedBox(height: 14),
-          _AvisoPreproduccion(aviso: avisoPrepro),
-        ],
-        if (!d.costoConfiable && d.itemsTotales > 0) ...[
-          const SizedBox(height: 14),
-          _AvisoCobertura(d: d),
-        ],
-      ],
-    );
-  }
-}
-
-/// Los tres números que un gerente mira primero. En porcentaje, porque en
-/// quetzales no se pueden comparar dos meses de distinto volumen.
-class _Indicadores extends StatelessWidget {
-  final ProfitabilityData d;
-  const _Indicadores({required this.d});
-
-  @override
-  Widget build(BuildContext context) {
-    final tiles = [
-      _IndicadorTile(
-        label: 'Costo de comida',
-        valor: _pct(d.foodCostPct),
-        meta: 'Meta: menos de 35%',
-        salud: evaluarFoodCost(d.foodCostPct),
-      ),
-      _IndicadorTile(
-        label: 'Costo primo',
-        valor: _pct(d.primeCostPct),
-        meta: 'Comida + sueldos. Meta: menos de 65%',
-        salud: evaluarPrimeCost(d.primeCostPct),
-      ),
-      _IndicadorTile(
-        label: 'Margen',
-        valor: _pct(d.marginPct),
-        meta: 'Lo que queda de cada venta',
-        salud: evaluarMargen(d.marginPct),
-      ),
-    ];
-
-    return LayoutBuilder(
-      builder: (context, c) {
-        // A 360dp tres tarjetas lado a lado dejan el número ilegible.
-        if (c.maxWidth < 520) {
-          return Column(
-            children: [
-              for (final t in tiles) ...[t, const SizedBox(height: 8)],
-            ],
-          );
-        }
-        return Row(
-          children: [
-            for (var i = 0; i < tiles.length; i++) ...[
-              Expanded(child: tiles[i]),
-              if (i < tiles.length - 1) const SizedBox(width: 10),
-            ],
-          ],
-        );
-      },
-    );
-  }
-}
-
-class _IndicadorTile extends StatelessWidget {
-  final String label;
-  final String valor;
-  final String meta;
-  final Salud salud;
-
-  const _IndicadorTile({
-    required this.label,
-    required this.valor,
-    required this.meta,
-    required this.salud,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final c = _colorDe(salud);
-    return Container(
-      padding: const EdgeInsets.fromLTRB(14, 13, 14, 13),
-      decoration: BoxDecoration(
-        color: _tarjeta,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: c.withValues(alpha: 0.28)),
-      ),
-      child: Row(
-        children: [
-          Container(width: 3, height: 38, color: c),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(label,
-                    style: GoogleFonts.inter(
-                        color: Colors.white54,
-                        fontSize: 11.5,
-                        fontWeight: FontWeight.w600)),
-                const SizedBox(height: 2),
-                Text(valor,
-                    style: GoogleFonts.inter(
-                        color: c,
-                        fontSize: 22,
-                        fontWeight: FontWeight.w800,
-                        height: 1.1)),
-                const SizedBox(height: 2),
-                Text(meta,
-                    style: GoogleFonts.inter(
-                        color: Colors.white24, fontSize: 10.5)),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// El estado de resultados en cascada.
-class _Cascada extends StatelessWidget {
-  final ProfitabilityData d;
-  const _Cascada({required this.d});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
-      decoration: BoxDecoration(
-        color: _tarjeta,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _Fila(
-            label: 'Ventas netas',
-            monto: d.netSales,
-            pct: d.netSales > 0 ? 100 : null,
-            fuerte: true,
-          ),
-          const SizedBox(height: 2),
-          Text('sin propinas ni envíos',
-              style:
-                  GoogleFonts.inter(color: Colors.white24, fontSize: 10.5)),
-          const SizedBox(height: 10),
-          _Fila(
-            label: 'Costo de lo vendido',
-            monto: -d.cogs,
-            pct: d.foodCostPct,
-          ),
-          _Separador(),
-          _Fila(
-            label: 'Utilidad bruta',
-            monto: d.grossProfit,
-            pct: d.pct(d.grossProfit),
-            fuerte: true,
-            resaltar: true,
-          ),
-          const SizedBox(height: 12),
-          for (final e in d.expenses)
-            _Fila(
-                label: e.label,
-                // Una categoría que la preproducción dejó en cero daba −0.0,
-                // y el formato lo pintaba "Q-0.00".
-                monto: e.amount == 0 ? 0.0 : -e.amount,
-                pct: d.pct(e.amount)),
-          if (d.expenses.isEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 6),
-              child: Text('Sin gastos registrados en el período',
-                  style: GoogleFonts.inter(
-                      color: Colors.white24, fontSize: 12)),
-            ),
-          _Separador(),
-          _Fila(
-            label: 'Utilidad operativa',
-            monto: d.operatingProfit,
-            pct: d.marginPct,
-            fuerte: true,
-            resaltar: true,
-            colorear: true,
-          ),
-          const SizedBox(height: 10),
-        ],
-      ),
-    );
-  }
-}
-
-class _Separador extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        child: Divider(
-            color: Colors.white.withValues(alpha: 0.1), height: 1),
-      );
-}
-
-class _Fila extends StatelessWidget {
-  final String label;
-  final double monto;
-  final double? pct;
-  final bool fuerte;
-  final bool resaltar;
-  final bool colorear;
-
-  const _Fila({
-    required this.label,
-    required this.monto,
-    this.pct,
-    this.fuerte = false,
-    this.resaltar = false,
-    this.colorear = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final negativo = monto < 0;
-    final color = colorear
-        ? (monto >= 0 ? _verde : _rojo)
-        : (resaltar ? Colors.white : (negativo ? Colors.white70 : Colors.white));
-
-    return Padding(
-      padding: EdgeInsets.symmetric(vertical: fuerte ? 4 : 3),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              label,
-              style: GoogleFonts.inter(
-                color: fuerte ? Colors.white : Colors.white60,
-                fontSize: fuerte ? 14 : 13,
-                fontWeight: fuerte ? FontWeight.w700 : FontWeight.w400,
-              ),
-            ),
-          ),
-          const SizedBox(width: 10),
-          Text(
-            // El signo lo lleva la resta, no el número: "− Q 32,000" se lee
-            // como una resta de la cascada, no como un saldo negativo.
-            negativo ? '−${_money(monto.abs())}' : _money(monto),
-            style: GoogleFonts.inter(
-              color: color,
-              fontSize: fuerte ? 15 : 13,
-              fontWeight: fuerte ? FontWeight.w800 : FontWeight.w500,
-            ),
-          ),
-          SizedBox(
-            width: 54,
-            child: Text(
-              _pct(pct),
-              textAlign: TextAlign.right,
-              style: GoogleFonts.inter(
-                color: fuerte ? Colors.white54 : Colors.white30,
-                fontSize: 11.5,
-                fontWeight: fuerte ? FontWeight.w700 : FontWeight.w500,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Cuánto hay que vender para no perder.
-///
-/// Es la conclusión de la cascada, no un dato suelto: por eso va después y no
-/// arriba. Traduce todos los porcentajes anteriores a una sola frase
-/// accionable — "te faltan Q14,000" — que es lo que de verdad se puede usar
-/// para decidir algo un martes a media tarde.
-class _PuntoDeEquilibrio extends StatelessWidget {
-  final ProfitabilityData d;
-  const _PuntoDeEquilibrio({required this.d});
-
-  @override
-  Widget build(BuildContext context) {
-    // Cada venta cuesta más de lo que deja: no existe volumen que salve esto.
-    if (d.pierdeConCadaVenta) {
-      return _Caja(
-        color: _rojo,
-        titulo: 'Cada venta te cuesta dinero',
-        cuerpo: 'Lo que gastás en comida y costos variables supera lo que '
-            'cobrás. Vender más aumenta la pérdida en lugar de reducirla: lo '
-            'que hay que revisar son los precios del menú o el costo de los '
-            'insumos, no el volumen.',
+      return const _Relleno(
+        child: _TextoAviso('Sin movimientos en este período.\nElige otro rango de fechas para ver tu rentabilidad.'),
       );
     }
 
-    if (d.sinCostosFijos) {
-      return _Caja(
-        color: _ambar,
-        titulo: 'Falta registrar tus gastos fijos',
-        cuerpo: 'En este período no hay gastos marcados como fijos (renta, '
-            'sueldos, seguros). Sin ellos no se puede calcular cuánto '
-            'necesitás vender para no perder. Si estás viendo un solo día, es '
-            'normal: esos gastos se registran una vez al mes — probá con el '
-            'rango mensual.',
+    // Las sucursales que se ven: la elegida o, sin elegir, las de la barra.
+    final elegida = dash.selectedLocationId;
+    final todas = [for (final l in dash.locations) (l.id, l.name)];
+    final visibles = elegida != null && elegida.isNotEmpty ? [for (final s in todas) if (s.$1 == elegida) s] : todas;
+    final enTodas = elegida == null || elegida.isEmpty;
+
+    final sinFijos = sucursalesSinGastosFijos(gastos: dash.expenseItems, sucursales: visibles);
+    final comparacion = enTodas
+        ? ComparacionSucursales.armar(porSucursal: provider.porSucursal, sucursales: todas, ventasTotales: d.netSales)
+        : ComparacionSucursales.vacia;
+
+    // El menú cruzado con lo vendido. En la vista de año no hay pedidos en memoria.
+    AnalisisMenu? analisis;
+    final vista = platillosDeLaVista(dash, menu);
+    if (vista != null && !dash.sinOrdenesEnMemoria) {
+      final sucursal = sucursalEfectiva(elegida, [for (final s in todas) s.$1]);
+      final vendidas = UnidadesVendidas.desde(
+        dash.currentOrders,
+        vista.platillos,
+        sucursal: sucursal,
+        soloSucursales: vista.soloSucursales,
+      );
+      analisis = AnalisisMenu.armar(
+        platillos: vista.platillos,
+        vendidas: vendidas,
+        clasificacion: dash.clasificacionDeProductos,
       );
     }
 
-    final be = d.breakEven;
-    if (be == null) {
-      return _Caja(
-        color: _ambar,
-        titulo: 'Sin ventas en el período',
-        cuerpo: 'Con ventas en cero no se puede medir qué parte de cada '
-            'quetzal queda libre para pagar los costos fijos.',
-      );
-    }
+    final nombreSucursal = [for (final s in visibles) s.$2];
+    final notaPrecios = enTodas && todas.length > 1
+        ? 'En "Todas" se usa el precio base y el costo de la sucursal donde se armó cada receta. '
+            'Elige una sucursal para verlo con sus precios.'
+        : (nombreSucursal.length == 1 ? 'Precios y costos de ${nombreSucursal.first}.' : '');
 
-    final avance = (d.avanceBreakEven ?? 0).clamp(0.0, 1.0);
-    final falta = d.faltaParaBreakEven ?? 0;
-    final superado = falta <= 0;
-    final color = superado ? _verde : _acento;
-
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 15, 16, 16),
-      decoration: BoxDecoration(
-        color: _tarjeta,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withValues(alpha: 0.3)),
+    return RentabilidadBody(
+      datos: d,
+      rango: dash.range,
+      signo: moneda,
+      sinGastosFijos: sinFijos,
+      variasSucursales: visibles.length > 1,
+      comparacion: comparacion,
+      menu: analisis,
+      menuCargando: menu.cargando && !menu.listo,
+      menuError: menu.error,
+      menuSinPedidos: dash.sinOrdenesEnMemoria,
+      ventasIncompletas: !dash.sinOrdenesEnMemoria && dash.ordenesCortadas,
+      notaMoneda: notaMonedaPlatillos(dash),
+      notaPrecios: notaPrecios,
+      avisoPreproduccion: avisoPreproduccion(
+        d,
+        rango: dash.range,
+        // El dashboard se traga los fallos de gastos y de cajas; estas dos señales
+        // son la única huella.
+        gastosLeidos: dash.expenseRawCount >= 0 && dash.cajasLeidas,
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(superado ? Icons.flag_rounded : Icons.golf_course_rounded,
-                  color: color, size: 18),
-              const SizedBox(width: 8),
-              Text('PUNTO DE EQUILIBRIO',
-                  style: GoogleFonts.inter(
-                      color: Colors.white54,
-                      fontSize: 10.5,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.8)),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Text(
-            superado
-                ? 'Ya cubriste tus costos'
-                : 'Te faltan ${_money(falta)}',
-            style: GoogleFonts.inter(
-                color: color,
-                fontSize: 20,
-                fontWeight: FontWeight.w800,
-                height: 1.15),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            superado
-                // Con el margen de contribución en 60%, de cada Q100 vendidos
-                // quedan Q60 — ya sin costos fijos que cubrir, esos son
-                // ganancia limpia.
-                ? 'Pasaste la meta de ${_money(be)}. Desde aquí, de cada ${moneda}100 '
-                    'que vendas te quedan '
-                    '$moneda${(d.contributionMarginPct ?? 0).toStringAsFixed(0)} '
-                    'de ganancia.'
-                : 'Necesitás vender ${_money(be)} en este período para no '
-                    'perder ni ganar.',
-            style: GoogleFonts.inter(
-                color: Colors.white60, fontSize: 12.5, height: 1.45),
-          ),
-          const SizedBox(height: 14),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(6),
-            child: LinearProgressIndicator(
-              value: avance,
-              minHeight: 9,
-              backgroundColor: Colors.white.withValues(alpha: 0.07),
-              valueColor: AlwaysStoppedAnimation(color),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: Text('Vendiste ${_money(d.netSales)}',
-                    style: GoogleFonts.inter(
-                        color: Colors.white54,
-                        fontSize: 11.5,
-                        fontWeight: FontWeight.w600)),
-              ),
-              Text('Meta ${_money(be)}',
-                  style: GoogleFonts.inter(
-                      color: Colors.white30, fontSize: 11.5)),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Divider(color: Colors.white.withValues(alpha: 0.07), height: 1),
-          const SizedBox(height: 10),
-          _MiniDato(
-            label: 'Costos fijos del período',
-            valor: _money(d.fixedCosts),
-            nota: 'Se pagan aunque no vendas',
-          ),
-          const SizedBox(height: 6),
-          _MiniDato(
-            label: 'De cada venta queda libre',
-            valor: _pct(d.contributionMarginPct),
-            nota: 'Después de comida y costos variables',
-          ),
-        ],
-      ),
+      onReintentarMenu: menu.recargar,
+      onIrAGastos: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ExpensesReportScreen())),
+      onVerUtilidadPlatillos: () => abrirUtilidadPlatillos(context),
     );
   }
 }
 
-class _MiniDato extends StatelessWidget {
-  final String label;
-  final String valor;
-  final String nota;
-  const _MiniDato(
-      {required this.label, required this.valor, required this.nota});
+/// Regresar, el título y la fecha del período (como el diseño). En el teléfono la
+/// fecha baja a su propia línea: al lado se comía el título.
+class _Encabezado extends StatelessWidget {
+  const _Encabezado();
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(label,
-                  style: GoogleFonts.inter(
-                      color: Colors.white60, fontSize: 12.5)),
-              Text(nota,
-                  style: GoogleFonts.inter(
-                      color: Colors.white24, fontSize: 10.5)),
-            ],
-          ),
+    // Dentro del shell el encabezado (migas, título y fecha) lo pone el shell.
+    if (ContextoShell.enShell(context)) return const SizedBox.shrink();
+
+    final telefono = MediaQuery.sizeOf(context).width < 640;
+    final regresar = SizedBox(
+      width: 48,
+      height: 48,
+      child: Material(
+        color: InicioColores.card,
+        borderRadius: BorderRadius.circular(15),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(15),
+          onTap: () => Navigator.of(context).maybePop(),
+          child: Tooltip(message: 'Regresar', child: Icon(Icons.arrow_back_rounded, color: InicioColores.ink, size: 22)),
         ),
-        const SizedBox(width: 10),
-        Text(valor,
-            style: GoogleFonts.inter(
-                color: Colors.white70,
-                fontSize: 13.5,
-                fontWeight: FontWeight.w700)),
-      ],
-    );
-  }
-}
-
-/// Caja de explicación para cuando el punto de equilibrio no se puede calcular.
-class _Caja extends StatelessWidget {
-  final Color color;
-  final String titulo;
-  final String cuerpo;
-
-  const _Caja({
-    required this.color,
-    required this.titulo,
-    required this.cuerpo,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(14, 13, 14, 13),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.09),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: color.withValues(alpha: 0.28)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(titulo,
-              style: GoogleFonts.inter(
-                  color: color, fontSize: 13, fontWeight: FontWeight.w700)),
-          const SizedBox(height: 4),
-          Text(cuerpo,
-              style: GoogleFonts.inter(
-                  color: Colors.white60, fontSize: 11.5, height: 1.45)),
-        ],
       ),
     );
-  }
-}
-
-/// Lo que NO entra en la cascada, y por qué.
-class _FueraDeLaCuenta extends StatelessWidget {
-  final ProfitabilityData d;
-  const _FueraDeLaCuenta({required this.d});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-      decoration: BoxDecoration(
-        color: _tarjeta.withValues(alpha: 0.55),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text('FUERA DE LA CUENTA',
-              style: GoogleFonts.inter(
-                  color: Colors.white38,
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.8)),
-          const SizedBox(height: 10),
-          // Ya está sumado arriba, en los gastos. Se muestra solo para saber
-          // cuánto de la operación se está pagando con el efectivo de la caja
-          // en vez de por otra vía.
-          if (d.paidFromCash > 0)
-            _Dato(
-              label: 'Pagado en efectivo desde caja',
-              monto: d.paidFromCash,
-              nota: 'Ya contado arriba en los gastos',
-            ),
-          // Entra arriba, en el costo de lo vendido, al venderse el preparado.
-          // Se muestra para que se entienda por qué el gas, la luz o los
-          // sueldos salen acá más bajos que en la pantalla de Gastos.
-          if (d.cargadoPreproduccion > 0)
-            _Dato(
-              label: 'Cargado a la preproducción',
-              monto: d.cargadoPreproduccion,
-              nota: _notaPreproduccion(d),
-            ),
-          _Dato(
-            label: 'Invertido en compras',
-            monto: d.purchases,
-            nota: d.entradasSinCosto > 0
-                ? 'Mercadería que entró a la despensa · '
-                    '${d.entradasSinCosto} entrada(s) sin costo quedan fuera'
-                : 'Mercadería que entró a la despensa; el gasto se cuenta al vender',
-          ),
-          _Dato(
-            label: 'Valor de tu despensa hoy',
-            monto: d.inventoryValue,
-            nota: d.rotacion != null
-                ? 'Se renovó ${d.rotacion!.toStringAsFixed(1)} veces en el período'
-                : 'A precio de compra',
-            destacar: true,
-          ),
-          if (d.ingredientesSinPrecio > 0)
-            Padding(
-              padding: const EdgeInsets.only(top: 6),
-              child: Text(
-                '${d.ingredientesSinPrecio} ingrediente(s) con stock pero sin '
-                'precio de compra: no suman al valor.',
-                style: GoogleFonts.inter(
-                    color: _ambar.withValues(alpha: 0.85), fontSize: 11),
-              ),
-            ),
-          // El valor de arriba puede salir disparado por existencias que nadie
-          // pudo haber comprado. No se corrige el número (eso es tocar el
-          // inventario del cliente) pero sí se dice de dónde viene y cuáles
-          // revisar, que es lo único que el dueño puede accionar.
-          if (d.existenciasImposibles.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: 6),
-              child: Text(
-                _avisoExistencias(d.existenciasImposibles),
-                style: GoogleFonts.inter(
-                    color: _ambar.withValues(alpha: 0.85), fontSize: 11),
-              ),
-            ),
-        ],
-      ),
+    final titulo = Text(
+      'Rentabilidad',
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: inicioTexto(telefono ? 20 : 24, FontWeight.w700, InicioColores.ink),
     );
-  }
-}
 
-/// Si no todo lo cargado se pudo restar, lo dice y manda al aviso que explica
-/// en qué categoría quedó la diferencia.
-String _notaPreproduccion(ProfitabilityData d) {
-  if (d.restadoPreproduccion >= d.cargadoPreproduccion) {
-    return 'Gas, luz o mano de obra que tus recetas suman al preparado. Entra '
-        'al costo de lo vendido al venderse, por eso se restó de esos gastos';
-  }
-  if (d.restadoPreproduccion > 0) {
-    return 'Entra al costo de lo vendido al venderse el preparado. De tus '
-        'gastos se restaron ${_money(d.restadoPreproduccion)}: ver el aviso de '
-        'abajo';
-  }
-  return 'Entra al costo de lo vendido al venderse el preparado, pero en '
-      'Gastos no había de dónde restarlo: ver el aviso de abajo';
-}
-
-/// Nombra los ingredientes mal digitados en vez de decir solo cuántos son: el
-/// dueño tiene que poder ir a corregirlos sin adivinar.
-String _avisoExistencias(List<String> nombres) {
-  final muestra = nombres.take(3).join(', ');
-  final resto = nombres.length - 3;
-  final lista = resto > 0 ? '$muestra y $resto más' : muestra;
-  if (nombres.length == 1) {
-    return 'Ojo: $lista tiene una cantidad imposible en Despensa y por eso '
-        'este valor sale tan alto. Revisá cuánto tenés de verdad.';
-  }
-  return 'Ojo: ${nombres.length} ingredientes tienen una cantidad imposible en '
-      'Despensa y por eso este valor sale tan alto ($lista). '
-      'Revisá cuánto tenés de verdad.';
-}
-
-class _Dato extends StatelessWidget {
-  final String label;
-  final double monto;
-  final String nota;
-  final bool destacar;
-
-  const _Dato({
-    required this.label,
-    required this.monto,
-    required this.nota,
-    this.destacar = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 5),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: Column(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
+      child: telefono
+          ? Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
               children: [
-                Text(label,
-                    style: GoogleFonts.inter(
-                        color: Colors.white70,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500)),
-                Text(nota,
-                    style: GoogleFonts.inter(
-                        color: Colors.white24, fontSize: 10.5, height: 1.35)),
+                Row(children: [regresar, const SizedBox(width: 14), Expanded(child: titulo)]),
+                const SizedBox(height: 10),
+                const DateSelectorChip(),
               ],
-            ),
-          ),
-          const SizedBox(width: 10),
-          Text(
-            _money(monto),
-            style: GoogleFonts.inter(
-              color: destacar ? _acento : Colors.white70,
-              fontSize: destacar ? 15 : 13.5,
-              fontWeight: destacar ? FontWeight.w800 : FontWeight.w600,
-            ),
-          ),
-        ],
-      ),
+            )
+          : Row(children: [regresar, const SizedBox(width: 14), Expanded(child: titulo), const SizedBox(width: 14), const DateSelectorChip()]),
     );
   }
 }
 
-/// Se muestra cuando parte de lo vendido no tiene costo cargado. Callarlo sería
-/// peor que no mostrar el margen: un costo bajo por falta de datos se ve
-/// idéntico a un costo bajo por buena gestión.
-class _AvisoCobertura extends StatelessWidget {
-  final ProfitabilityData d;
-  const _AvisoCobertura({required this.d});
+class _TextoAviso extends StatelessWidget {
+  final String texto;
+  const _TextoAviso(this.texto);
 
   @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-      decoration: BoxDecoration(
-        color: _ambar.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: _ambar.withValues(alpha: 0.3)),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Icon(Icons.info_outline_rounded, color: _ambar, size: 18),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  d.costoMayormenteEstimado
-                      ? 'El costo es una estimación'
-                      : 'Tu ganancia real puede ser menor',
-                  style: GoogleFonts.inter(
-                      color: _ambar,
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  d.costoMayormenteEstimado
-                      // Caso típico al mirar meses anteriores: el POS no
-                      // guardó el costo de esas ventas, así que se valorizan
-                      // con el precio de compra de hoy.
-                      ? '${_pct(d.porcentajeEstimado)} del costo se calculó con '
-                          'los precios de compra de hoy, porque esas ventas no '
-                          'guardaron el costo del momento. Sirve para orientarte, '
-                          'pero si los precios cambiaron desde entonces, el '
-                          'margen real es distinto.'
-                      : 'Solo ${_pct(d.coberturaCosto)} de lo que vendiste tiene '
-                          'costo. Los ingredientes sin precio de compra cuentan '
-                          'como costo cero, así que el margen de arriba sale '
-                          'optimista.',
-                  style: GoogleFonts.inter(
-                      color: Colors.white60, fontSize: 11.5, height: 1.45),
-                ),
-                if (d.itemsSinCosto > 0 && d.costoMayormenteEstimado) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    'Otro ${_pct(100 - (d.coberturaCosto ?? 0))} no tiene ni '
-                    'precio actual: esos cuentan como cero.',
-                    style: GoogleFonts.inter(
-                        color: Colors.white38, fontSize: 11, height: 1.4),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  Widget build(BuildContext context) =>
+      Text(texto, textAlign: TextAlign.center, style: inicioTexto(13.5, FontWeight.w400, InicioColores.muted, height: 1.5));
 }
 
-/// Lo de la preproducción que no cuadra con Gastos, o que no se pudo leer
-/// (qué decir lo arma [avisoPreproduccion]).
-///
-/// Va aparte del aviso de cobertura: aquel dice que el costo puede estar
-/// corto; este, que un gasto puede estar contado dos veces o que las recetas
-/// cargan más gas, luz o mano de obra de lo que se anotó.
-class _AvisoPreproduccion extends StatelessWidget {
-  final AvisoPreproduccion aviso;
-  const _AvisoPreproduccion({required this.aviso});
+class _Relleno extends StatelessWidget {
+  final Widget child;
+  const _Relleno({required this.child});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-      decoration: BoxDecoration(
-        color: _ambar.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: _ambar.withValues(alpha: 0.3)),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Icon(Icons.info_outline_rounded, color: _ambar, size: 18),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  aviso.titulo,
-                  style: GoogleFonts.inter(
-                      color: _ambar,
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w700),
-                ),
-                for (final p in aviso.parrafos) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    p,
-                    style: GoogleFonts.inter(
-                        color: Colors.white60, fontSize: 11.5, height: 1.45),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _Aviso extends StatelessWidget {
-  final IconData icono;
-  final String titulo;
-  final String detalle;
-
-  const _Aviso({
-    required this.icono,
-    required this.titulo,
-    required this.detalle,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    // ListView y no Center: el pull-to-refresh necesita algo desplazable.
+    // ListView y no Center: el RefreshIndicator necesita algo desplazable para que se
+    // pueda reintentar jalando hacia abajo.
     return ListView(
-      padding: const EdgeInsets.symmetric(horizontal: 32),
-      children: [
-        const SizedBox(height: 120),
-        Icon(icono, color: Colors.white24, size: 34),
-        const SizedBox(height: 14),
-        Text(titulo,
-            textAlign: TextAlign.center,
-            style: GoogleFonts.inter(
-                color: Colors.white70,
-                fontSize: 14.5,
-                fontWeight: FontWeight.w600)),
-        const SizedBox(height: 6),
-        Text(detalle,
-            textAlign: TextAlign.center,
-            style: GoogleFonts.inter(
-                color: Colors.white30, fontSize: 12.5, height: 1.5)),
-      ],
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      children: [const SizedBox(height: 140), Center(child: child)],
     );
   }
 }

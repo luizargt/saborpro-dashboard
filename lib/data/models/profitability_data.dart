@@ -342,12 +342,27 @@ class CargosPreproduccion {
   /// False si el período tiene más preparaciones de las que se leyeron.
   final bool completa;
 
+  /// Lo mismo, separado por sucursal (id de sucursal → lo suyo): para comparar
+  /// sucursales con la misma cuenta que el total.
+  final Map<String, CargosPreproduccion> porSucursal;
+
   const CargosPreproduccion({
     this.porCategoria = const {},
     this.nombres = const {},
     this.leida = true,
     this.completa = true,
+    this.porSucursal = const {},
   });
+
+  /// Este mismo cargo, con lo suyo separado por sucursal.
+  CargosPreproduccion conPorSucursal(Map<String, CargosPreproduccion> porSucursal) =>
+      CargosPreproduccion(
+        porCategoria: porCategoria,
+        nombres: nombres,
+        leida: leida,
+        completa: completa,
+        porSucursal: porSucursal,
+      );
 
   /// La lectura falló: no se resta nada.
   static const noLeida = CargosPreproduccion(leida: false);

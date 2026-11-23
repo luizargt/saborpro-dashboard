@@ -4,19 +4,8 @@ import 'package:flutter/foundation.dart';
 import '../../core/services/auth_service.dart';
 import '../../core/utils/date_range.dart';
 import '../../data/models/profitability_data.dart';
+import '../../data/models/rentabilidad_calculo.dart';
 import 'dashboard_provider.dart';
-
-/// Categorías de gasto que son sueldos. Entran en el costo primo.
-const _idsSueldos = {'salarios'};
-
-/// Categorías que se pagan igual se venda o no. Son las que el POS marca como
-/// `fixed` al crear un gasto.
-///
-/// Se consulta por id además de mirar el campo `type` porque los retiros de
-/// caja llegan con `type: 'variable'` puesto a la fuerza, sin importar de qué
-/// sean: un sueldo pagado en efectivo desde la caja es un costo fijo, y
-/// tratarlo como variable descuadra el punto de equilibrio.
-const _idsFijos = {'renta', 'salarios', 'internet', 'seguros'};
 
 /// A partir de acá una existencia deja de ser creíble y se avisa.
 ///
@@ -49,17 +38,33 @@ class ProfitabilityProvider extends ChangeNotifier {
   /// más) y la pantalla lo dice.
   static const int _kPreparacionesLimit = 5000;
 
+  /// Movimientos de inventario que se leen de una vez (ventas y entradas del
+  /// período). Si se alcanza, el costo y lo comprado salen cortos: ver
+  /// [CostoLeido.truncado].
+  static const int _kMovimientosLimit = 8000;
+
   /// Sin red, una consulta puede quedarse esperando para siempre y el reporte
   /// entero espera con ella. Holgado a propósito, como el del menú: un año en
   /// una red lenta no debe confundirse con "sin conexión".
   static const _topePreproduccion = Duration(seconds: 30);
 
   ProfitabilityData _data = ProfitabilityData.vacio;
+
+  /// Los mismos números, uno por sucursal (id → lo suyo). Solo se arma en
+  /// "Todas", con las órdenes en memoria y más de una sucursal a la vista: es lo
+  /// que dibuja "¿qué sucursal gana más?". Sale de la MISMA cuenta que [data].
+  Map<String, ProfitabilityData> _porSucursal = const {};
+  CostoLeido _costo = CostoLeido.vacio;
   bool _loading = false;
   String? _error;
   String? _cacheKey;
 
   ProfitabilityData get data => _data;
+  Map<String, ProfitabilityData> get porSucursal => _porSucursal;
+
+  /// El costo de lo vendido y lo comprado, con su desglose por día y por ingrediente
+  /// (es lo que usa Compras vs Ventas). Vacío mientras no se calcula.
+  CostoLeido get costo => _costo;
   bool get loading => _loading;
   String? get error => _error;
 
@@ -87,6 +92,9 @@ class ProfitabilityProvider extends ChangeNotifier {
       '|${dash.metrics?.totalSales.toStringAsFixed(2) ?? "-"}'
       '|${dash.expenseItems.length}'
       '|${dash.purchaseItems.length}'
+      // Las sucursales pueden llegar después de armar: la comparación por
+      // sucursal (que necesita ≥2) quedaría vacía hasta que cambiara otra cosa.
+      '|${dash.locations.length}'
       '|${dash.firmaMoneda}';
 
   /// Período y sucursal: lo que el usuario está mirando. Si esto cambia, lo
@@ -101,7 +109,7 @@ class ProfitabilityProvider extends ChangeNotifier {
   String? _contextoMostrado;
   String? _contextoPedido;
   Future<_Inventario>? _invPendiente;
-  Future<_Cogs>? _cogsPendiente;
+  Future<CostoLeido>? _cogsPendiente;
   Future<CargosPreproduccion>? _preproPendiente;
 
   /// Cada carga lleva un número y solo la última escribe el resultado. Al
@@ -121,6 +129,8 @@ class ProfitabilityProvider extends ChangeNotifier {
     if (ctx != _contextoMostrado) {
       _contextoMostrado = ctx;
       _data = ProfitabilityData.vacio;
+      _porSucursal = const {};
+      _costo = CostoLeido.vacio;
       _error = null;
       _loading = true;
       _cacheKey = null;
@@ -256,6 +266,8 @@ class ProfitabilityProvider extends ChangeNotifier {
       }
 
       _data = _armar(dash, cogs, inventario, prepro);
+      _porSucursal = _armarPorSucursal(dash, cogs, prepro);
+      _costo = cogs;
       _loading = false;
       notifyListeners();
     } catch (e, stack) {
@@ -287,7 +299,7 @@ class ProfitabilityProvider extends ChangeNotifier {
   // precio del ingrediente al momento de descontarlo. Es el dato histórico
   // correcto: valorizar hoy con el precio de hoy reescribiría el pasado cada
   // vez que sube un proveedor.
-  Future<_Cogs> _fetchCogs(
+  Future<CostoLeido> _fetchCogs(
     String tenantId,
     DateRange range,
     String? locationId,
@@ -315,15 +327,14 @@ class ProfitabilityProvider extends ChangeNotifier {
         // ya filtrados por período, así que en la práctica no se alcanza; si
         // se alcanzara, el costo saldría corto y el aviso de cobertura lo
         // delata en vez de mentir en silencio.
-        .limit(8000)
+        .limit(_kMovimientosLimit)
         .get();
 
-    var total = 0.0;
-    var exactos = 0;
-    var estimados = 0;
-    var sinCosto = 0;
-    var comprado = 0.0;
-    var entradasSinCosto = 0;
+    // Lo del total y lo de cada sucursal se acumulan en el mismo paso, con las
+    // mismas reglas: la comparación entre sucursales no puede salir de otra
+    // cuenta que el total.
+    final global = _AcumCosto(detallado: true);
+    final porSucursal = <String, _AcumCosto>{};
 
     for (final doc in snap.docs) {
       final d = doc.data();
@@ -337,17 +348,32 @@ class ProfitabilityProvider extends ChangeNotifier {
       // Moneda sin tipo de cambio: no se puede sumar con lo demás.
       if (factor == null) continue;
 
+      final sucursal = d['locationId'];
+      // El día y el ingrediente de este movimiento, para el desglose del total.
+      final dia = rawFecha is String && _esDia.hasMatch(rawFecha.length >= 10 ? rawFecha.substring(0, 10) : '')
+          ? rawFecha.substring(0, 10)
+          : null;
+      final ingrediente = d['ingredientId'] is String ? d['ingredientId'] as String : null;
+      final acums = [
+        global,
+        if (sucursal is String) porSucursal.putIfAbsent(sucursal, _AcumCosto.new),
+      ];
+
       // Mercadería que entró: es inversión en despensa, no costo del período.
       // Se acumula aparte y NO toca la cascada.
       if (d['type'] == _tipoEntrada) {
         final costoEntrada = (d['totalCost'] as num?)?.toDouble();
         if (costoEntrada != null) {
-          comprado += costoEntrada.abs() * factor;
+          for (final a in acums) {
+            a.compra(costoEntrada.abs() * factor, dia, ingrediente);
+          }
         } else {
           // Entrada sin costo: no se puede valorizar. Se cuenta para poder
           // decir que lo invertido está incompleto en vez de dar por bueno un
           // número corto.
-          entradasSinCosto++;
+          for (final a in acums) {
+            a.entradasSinCosto++;
+          }
         }
         continue;
       }
@@ -356,8 +382,10 @@ class ProfitabilityProvider extends ChangeNotifier {
       // magnitud.
       final costo = (d['totalCost'] as num?)?.toDouble();
       if (costo != null) {
-        total += costo.abs() * factor;
-        exactos++;
+        for (final a in acums) {
+          a.usa(costo.abs() * factor, dia, ingrediente);
+          a.exactos++;
+        }
         continue;
       }
 
@@ -372,20 +400,20 @@ class ProfitabilityProvider extends ChangeNotifier {
       final cantidad = (d['quantity'] as num?)?.toDouble();
 
       if (precio != null && cantidad != null && cantidad != 0) {
-        total += precio * cantidad.abs() * factor;
-        estimados++;
+        for (final a in acums) {
+          a.usa(precio * cantidad.abs() * factor, dia, ingrediente);
+          a.estimados++;
+        }
       } else {
-        sinCosto++;
+        for (final a in acums) {
+          a.sinCosto++;
+        }
       }
     }
 
-    return _Cogs(
-      total: total,
-      exactos: exactos,
-      estimados: estimados,
-      sinCosto: sinCosto,
-      comprado: comprado,
-      entradasSinCosto: entradasSinCosto,
+    return global.aCosto(
+      porSucursal: {for (final e in porSucursal.entries) e.key: e.value.aCosto()},
+      truncado: snap.docs.length >= _kMovimientosLimit,
     );
   }
 
@@ -496,13 +524,29 @@ class ProfitabilityProvider extends ChangeNotifier {
           .get(const GetOptions(source: Source.server))
           .timeout(_topePreproduccion);
 
-      return CargosPreproduccion.sumar(
-        [for (final d in snap.docs) d.data()],
+      final docs = [for (final d in snap.docs) d.data()];
+      final completa = snap.docs.length < _kPreparacionesLimit;
+      final total = CargosPreproduccion.sumar(
+        docs,
         sucursal: locationId,
         permitidas: permitidas,
         factorDe: factorDe,
-        completa: snap.docs.length < _kPreparacionesLimit,
+        completa: completa,
       );
+      // Lo mismo por sucursal, para compararlas con la misma cuenta.
+      final sucursales = {
+        for (final p in docs)
+          if (p['locationId'] is String) p['locationId'] as String,
+      };
+      return total.conPorSucursal({
+        for (final id in sucursales)
+          id: CargosPreproduccion.sumar(
+            docs,
+            sucursal: id,
+            factorDe: factorDe,
+            completa: completa,
+          ),
+      });
     } catch (e, stack) {
       debugPrint('[RENTABILIDAD] preproducción: $e\n$stack');
       return CargosPreproduccion.noLeida;
@@ -510,161 +554,111 @@ class ProfitabilityProvider extends ChangeNotifier {
   }
 
   // ── Armado ─────────────────────────────────────────────────────────────
+  //
+  // La cuenta vive en [armarRentabilidad] (rentabilidad_calculo.dart): la usan
+  // el total y cada sucursal.
   ProfitabilityData _armar(
     DashboardProvider dash,
-    _Cogs cogs,
+    CostoLeido cogs,
     _Inventario inv,
     CargosPreproduccion prepro,
   ) {
-    final locId = dash.selectedLocationId;
-
-    // Venta neta: lo cobrado menos propina y envío. La propina es del personal
-    // y el envío se cobra para pagarlo; ninguno es ingreso del negocio.
-    //
-    // En la vista de año el dashboard no baja las órdenes (los totales los suma
-    // Firestore), así que la venta sale de las métricas, que ya son esa misma
-    // resta y ya vienen filtradas por sucursal. Sin esto la rentabilidad anual
-    // daría venta cero y una pérdida inventada del tamaño de los gastos.
     final m = dash.metrics;
-    final sinOrdenesEnMemoria = m != null && dash.sinOrdenesEnMemoria;
-
-    var netSales = 0.0;
-    if (sinOrdenesEnMemoria) {
-      // `ventaBruta` es exactamente cobrado menos propina y envío, ya filtrado
-      // por sucursal por las consultas de agregación.
-      netSales = m.ventaBruta;
-    } else {
-      for (final o in dash.currentOrders) {
-        if (locId != null && o['location_id'] != locId) continue;
-        final cobrado = (o['payment_amount'] as num?)?.toDouble() ??
-            (o['total_amount'] as num? ?? 0).toDouble();
-        final propina = (o['tip_amount'] as num? ?? 0).toDouble();
-        final envio = (o['delivery_fee'] as num? ?? 0).toDouble();
-        netSales += cobrado - propina - envio;
-      }
-    }
-
-    // Gastos por categoría. Los retiros de caja vienen mezclados en la misma
-    // lista (el dashboard los inyecta) y CUENTAN COMO GASTO igual que los
-    // manuales: en los datos reales son insumos, pago a proveedores, sueldos,
-    // gas y gasolina pagados en efectivo desde la caja. Es operación, no
-    // reparto de utilidad. Sacarlos de la cuenta —como se hacía antes— infla
-    // la ganancia y deja los sueldos pagados así fuera del costo primo.
-    //
-    // Se sigue midiendo cuánto de todo eso salió por caja, pero como dato
-    // informativo, no como una resta aparte.
-    final porCategoria = <String, ExpenseLine>{};
-    var sueldos = 0.0;
-    var pagadoEnEfectivo = 0.0;
-
-    for (final e in dash.expenseItems) {
-      if (locId != null && e['location_id'] != locId) continue;
-      final monto = (e['amount'] as num? ?? 0).toDouble();
-      if (monto == 0) continue;
-
-      if (e['source'] == 'cashRegister') pagadoEnEfectivo += monto;
-
-      final id = (e['category_id'] as String?) ?? 'otros';
-      final nombre = (e['category_name'] as String?) ?? 'Otros gastos';
-      if (_idsSueldos.contains(id)) sueldos += monto;
-
-      // El POS marca cada gasto como 'fixed' o 'variable' al crearlo, pero los
-      // retiros de caja llegan siempre como 'variable'; por eso la categoría
-      // también decide. Ante la duda, variable: contar de más en los fijos
-      // infla el punto de equilibrio y le diría al usuario que necesita vender
-      // más de lo que realmente necesita.
-      final esFijo = e['type'] == 'fixed' || _idsFijos.contains(id);
-
-      final previa = porCategoria[id];
-      porCategoria[id] = ExpenseLine(
-        categoryId: id,
-        label: nombre,
-        amount: (previa?.amount ?? 0) + monto,
-        esFijo: previa?.esFijo ?? esFijo,
-      );
-    }
-
-    // Lo que la preproducción cargó por tiempo (gas, luz, mano de obra) entra
-    // al costo de lo vendido con cada venta del preparado: se le resta a su
-    // categoría, que baja como mucho hasta cero. Sin esto esa parte se
-    // contaría dos veces, en la cascada y en el reparto por platillo, que lee
-    // estas mismas líneas.
-    final sinPrepro =
-        descontarPreproduccion(porCategoria.values.toList(), prepro);
-    final lineas = sinPrepro.lineas
-      ..sort((a, b) => b.amount.compareTo(a.amount));
-
-    // Compras: informativas. No se restan — el gasto de esa mercadería ya lo
-    // cuenta el costo de lo vendido cuando se vende. Restar ambas sería
-    // contar dos veces lo mismo.
-    //
-    // El monto sale de las ENTRADAS de inventario (cogs.comprado) y no de la
-    // colección de compras: en los datos reales muchas entradas con costo
-    // nunca generan documento de compra, y leyendo solo allí esto mostraba
-    // Q0.00 con 64 entradas valorizadas en el mismo período. Si por alguna
-    // razón no hubiera entradas pero sí órdenes de compra, se usa esa segunda
-    // fuente en vez de mostrar cero.
-    var comprasFormales = 0.0;
-    for (final p in dash.purchaseItems) {
-      if (locId != null && p['location_id'] != locId) continue;
-      comprasFormales += (p['total'] as num? ?? 0).toDouble();
-    }
-    final compras = cogs.comprado > 0 ? cogs.comprado : comprasFormales;
-
-    return ProfitabilityData(
-      netSales: netSales,
-      cogs: cogs.total,
-      itemsConCosto: cogs.exactos,
-      itemsEstimados: cogs.estimados,
-      itemsSinCosto: cogs.sinCosto,
-      expenses: lineas,
-      // La mano de obra cargada a la preproducción sale también del costo
-      // primo, que si no la sumaría dos veces: queda igual a la línea de
-      // sueldos de la cascada. Sin nada restado, el mismo número de siempre.
-      payroll: sinPrepro.restadoEn(_idsSueldos) > 0
-          ? sinPrepro.montoEn(_idsSueldos)
-          : sueldos,
-      paidFromCash: pagadoEnEfectivo,
-      purchases: compras,
-      entradasSinCosto: cogs.entradasSinCosto,
-      inventoryValue: inv.valor,
+    return armarRentabilidad(
+      ordenes: dash.currentOrders,
+      gastos: dash.expenseItems,
+      compras: dash.purchaseItems,
+      sucursal: dash.selectedLocationId,
+      // En la vista de año no hay órdenes en memoria: la venta sale de las
+      // métricas (ver armarRentabilidad).
+      ventaDeMetricas: m != null && dash.sinOrdenesEnMemoria ? m.ventaBruta : null,
+      costo: cogs,
+      valorInventario: inv.valor,
       ingredientesSinPrecio: inv.sinPrecio,
       existenciasImposibles: inv.existenciasImposibles,
-      cargadoPreproduccion: prepro.total / 100,
-      restadoPreproduccion: sinPrepro.totalRestado / 100,
-      excesosPreproduccion: sinPrepro.excesos,
-      preproduccionLeida: prepro.leida,
-      preproduccionCompleta: prepro.completa,
+      prepro: prepro,
     );
+  }
+
+  /// Lo mismo por cada sucursal a la vista, para compararlas. Solo en "Todas",
+  /// con las órdenes en memoria (en la vista de año no hay pedidos por sucursal)
+  /// y con más de una sucursal. El inventario y las compras no se separan: no
+  /// entran en la comparación.
+  Map<String, ProfitabilityData> _armarPorSucursal(
+    DashboardProvider dash,
+    CostoLeido cogs,
+    CargosPreproduccion prepro,
+  ) {
+    if (dash.selectedLocationId != null || dash.sinOrdenesEnMemoria) return const {};
+    if (dash.locations.length < 2) return const {};
+    return {
+      for (final l in dash.locations)
+        l.id: armarRentabilidad(
+          ordenes: dash.currentOrders,
+          gastos: dash.expenseItems,
+          compras: const [],
+          sucursal: l.id,
+          costo: cogs.porSucursal[l.id] ?? CostoLeido.vacio,
+          prepro: prepro.porSucursal[l.id] ?? CargosPreproduccion(leida: prepro.leida, completa: prepro.completa),
+        ),
+    };
   }
 }
 
-class _Cogs {
-  final double total;
+/// "2026-10-14": el día de un movimiento (su `createdAt` es texto ISO local).
+final _esDia = RegExp(r'^\d{4}-\d{2}-\d{2}$');
 
-  /// Con el costo sellado al momento de la venta. Es el dato bueno.
-  final int exactos;
+class _Par {
+  double costo = 0;
+  double comprado = 0;
+}
 
-  /// Valorizados con el precio de hoy porque el histórico no existe.
-  final int estimados;
+/// Suma el costo de lo vendido mientras se recorren los movimientos. Uno para
+/// el total (con el desglose por día y por ingrediente) y uno por cada sucursal.
+class _AcumCosto {
+  _AcumCosto({this.detallado = false});
 
-  /// Ni sellado ni estimable: el ingrediente tampoco tiene precio hoy.
-  final int sinCosto;
+  /// Solo el del total guarda el desglose: por sucursal serían tres copias de lo
+  /// mismo en memoria.
+  final bool detallado;
 
-  /// Mercadería que entró a la despensa en el período, valorizada.
-  final double comprado;
+  double total = 0;
+  int exactos = 0;
+  int estimados = 0;
+  int sinCosto = 0;
+  double comprado = 0;
+  int entradasSinCosto = 0;
+  final _porDia = <String, _Par>{};
+  final _porIngrediente = <String, _Par>{};
 
-  /// Entradas que no traían costo: lo invertido queda corto y hay que decirlo.
-  final int entradasSinCosto;
+  /// Lo que salió por una venta.
+  void usa(double monto, String? dia, String? ingrediente) {
+    total += monto;
+    if (!detallado) return;
+    if (dia != null) (_porDia[dia] ??= _Par()).costo += monto;
+    if (ingrediente != null) (_porIngrediente[ingrediente] ??= _Par()).costo += monto;
+  }
 
-  const _Cogs({
-    required this.total,
-    required this.exactos,
-    required this.estimados,
-    required this.sinCosto,
-    this.comprado = 0,
-    this.entradasSinCosto = 0,
-  });
+  /// Mercadería que entró.
+  void compra(double monto, String? dia, String? ingrediente) {
+    comprado += monto;
+    if (!detallado) return;
+    if (dia != null) (_porDia[dia] ??= _Par()).comprado += monto;
+    if (ingrediente != null) (_porIngrediente[ingrediente] ??= _Par()).comprado += monto;
+  }
+
+  CostoLeido aCosto({Map<String, CostoLeido> porSucursal = const {}, bool truncado = false}) => CostoLeido(
+        total: total,
+        exactos: exactos,
+        estimados: estimados,
+        sinCosto: sinCosto,
+        comprado: comprado,
+        entradasSinCosto: entradasSinCosto,
+        porSucursal: porSucursal,
+        porDia: {for (final e in _porDia.entries) e.key: ParCosto(e.value.costo, e.value.comprado)},
+        porIngrediente: {for (final e in _porIngrediente.entries) e.key: ParCosto(e.value.costo, e.value.comprado)},
+        truncado: truncado,
+      );
 }
 
 class _Inventario {

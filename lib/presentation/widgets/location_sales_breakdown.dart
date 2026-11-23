@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import '../../core/services/location_service.dart';
+import 'inicio_ui.dart';
+
+typedef _C = InicioColores;
+const _t = inicioTexto;
 
 // ── LOCATION SALES BREAKDOWN ─────────────────────────────────────────────────
 // Tabla que se muestra solo en la vista "Todas las sucursales": monto vendido
@@ -42,13 +45,13 @@ class LocationSalesBreakdown extends StatelessWidget {
     this.excluidas = const {},
   });
 
-  static const _palette = [
-    Color(0xFF22C55E),
-    Color(0xFF3B82F6),
-    Color(0xFFF59E0B),
-    Color(0xFFEF4444),
-    Color(0xFF7444fd),
-    Color(0xFF14B8A6),
+  static List<Color> get _palette => [
+    _C.gift,
+    _C.don,
+    _C.warn,
+    _C.bad,
+    _C.accent,
+    Color(0xFF22B5D6),
   ];
 
   Map<String, double> _sumByLocation(List<Map<String, dynamic>> items, String amountField) {
@@ -98,26 +101,13 @@ class LocationSalesBreakdown extends StatelessWidget {
     final total = rows.fold<double>(0, (s, r) => s + r.sales);
     final fmt = NumberFormat('#,##0', 'en_US');
 
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1E293B),
-        borderRadius: BorderRadius.circular(12),
-      ),
+    return InicioCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-            'Ventas por sucursal',
-            style: GoogleFonts.inter(
-              color: Colors.white,
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 16),
+          const InicioTituloTarjeta(titulo: 'Ventas por sucursal'),
           for (var i = 0; i < rows.length; i++) ...[
-            if (i > 0) const SizedBox(height: 14),
+            if (i > 0) const SizedBox(height: 12),
             _LocationRow(
               color: _palette[i % _palette.length],
               name: rows[i].loc.visible
@@ -165,49 +155,43 @@ class _LocationRow extends StatelessWidget {
         Row(
           children: [
             Container(
-              width: 8,
-              height: 8,
+              width: 10,
+              height: 10,
               decoration: BoxDecoration(color: color, shape: BoxShape.circle),
             ),
-            const SizedBox(width: 10),
+            const SizedBox(width: 9),
             Expanded(
               child: Text(
                 name,
-                style: GoogleFonts.inter(
-                  color: Colors.white,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                ),
+                style: _t(15, FontWeight.w500, _C.ink),
               ),
             ),
             Text(
               '${percent.toStringAsFixed(0)}%',
-              style: GoogleFonts.inter(
-                color: Colors.white,
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
-              ),
+              style: _t(15, FontWeight.w700, _C.ink),
             ),
           ],
         ),
         const SizedBox(height: 6),
         ClipRRect(
-          borderRadius: BorderRadius.circular(3),
-          child: LinearProgressIndicator(
-            value: (percent / 100).clamp(0, 1),
-            minHeight: 4,
-            backgroundColor: Colors.white10,
-            valueColor: AlwaysStoppedAnimation(color),
+          borderRadius: BorderRadius.circular(999),
+          child: SizedBox(
+            height: 7,
+            child: Stack(
+              children: [
+                Positioned.fill(child: ColoredBox(color: _C.subtle)),
+                FractionallySizedBox(
+                  widthFactor: (percent / 100).clamp(0.0, 1.0),
+                  child: ColoredBox(color: color, child: const SizedBox.expand()),
+                ),
+              ],
+            ),
           ),
         ),
         const SizedBox(height: 6),
         Text(
           '$simbolo ${fmt.format(sales)} · utilidad ${utilidad < 0 ? '-' : ''}$simbolo ${fmt.format(utilidad.abs())}',
-          style: GoogleFonts.inter(
-            color: Colors.white70,
-            fontSize: 12,
-            fontWeight: FontWeight.w400,
-          ),
+          style: _t(13, FontWeight.w400, _C.muted),
         ),
       ],
     );

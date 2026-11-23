@@ -192,6 +192,23 @@ class CancellationItem {
   /// que alimenta el corte por persona.
   final bool declaredLost;
 
+  /// Lo que valía a precio de venta (precio × cantidad, con sus extras, como
+  /// el ticket), leído del pedido. null cuando no se pudo leer el pedido: se
+  /// muestra un guion, nunca Q0.00.
+  final double? value;
+
+  /// false cuando el renglón sale del pedido y no de los movimientos: no tiene
+  /// receta o nunca se mandó a cocina, así que no movió inventario. Esos
+  /// renglones se listan para que el detalle muestre el pedido completo.
+  final bool movedInventory;
+
+  /// El renglón pasó por la pregunta de despensa ("¿regresa o se pierde?")
+  /// aunque no haya dejado movimiento (un producto sin receta): alguien
+  /// contestó y su respuesta ([declaredLost]) cuenta en los porcentajes de la
+  /// casa y de quien la dio, igual que la de un producto con receta. Lo que no
+  /// se preguntó (nunca se mandó a cocina) no cuenta.
+  final bool asked;
+
   const CancellationItem({
     required this.itemId,
     required this.name,
@@ -199,7 +216,13 @@ class CancellationItem {
     required this.returned,
     required this.wasted,
     required this.declaredLost,
+    this.value,
+    this.movedInventory = true,
+    this.asked = false,
   });
+
+  /// Cuenta en los porcentajes: dejó movimiento o se le preguntó a alguien.
+  bool get counts => movedInventory || asked;
 }
 
 /// El desperdicio declarado, valorado al PRECIO DE VENTA del producto.
@@ -262,6 +285,17 @@ class CancellationEvent {
   final PartialValue returned;
   final PartialValue wasted;
 
+  /// Lo que valía lo anulado a precio de venta. null si no se pudo leer el
+  /// pedido (o algún renglón): una suma a medias no se muestra.
+  final double? value;
+
+  /// Quiénes firmaron los renglones con movimiento de esta cancelación (uno por
+  /// renglón, sin repetir). [userName] es el primero. Una persona del corte
+  /// puede haber firmado solo un renglón de un pedido que el primero abrió:
+  /// sin esto, filtrar por ella no encontraría ese pedido. Vacío = solo
+  /// [userName].
+  final List<String> authors;
+
   const CancellationEvent({
     required this.orderId,
     required this.orderLabel,
@@ -273,7 +307,12 @@ class CancellationEvent {
     required this.items,
     required this.returned,
     required this.wasted,
+    this.value,
+    this.authors = const [],
   });
+
+  /// ¿Esta persona firmó algo de esta cancelación?
+  bool signedBy(String name) => userName == name || authors.contains(name);
 
   bool get movedInventory => impact == InventoryImpact.conMovimiento;
 }
@@ -292,7 +331,9 @@ class PersonCut {
   /// Cancelaciones (pedidos) en las que aparece.
   final int events;
 
-  /// Items anulados que sí movieron inventario.
+  /// Items anulados a los que se les preguntó qué regresaba a la despensa: los
+  /// que dejaron movimiento y los sin receta que pasaron por la misma pregunta
+  /// (ver [CancellationItem.counts]).
   final int itemsCancelled;
 
   /// De esos, cuántos declaró perdidos.
@@ -300,6 +341,11 @@ class PersonCut {
 
   final PartialValue wasted;
   final PartialValue returned;
+
+  /// De sus cancelaciones, cuántas no tocaron inventario (sin receta o antes
+  /// de cocina). No entran en el porcentaje, pero dicen cuántos pedidos toma
+  /// y deshace.
+  final int eventsWithoutInventory;
 
   const PersonCut({
     required this.userId,
@@ -309,6 +355,7 @@ class PersonCut {
     required this.itemsLost,
     required this.wasted,
     required this.returned,
+    this.eventsWithoutInventory = 0,
   });
 
   /// Fracción 0..1 de items anulados que declaró perdidos.
@@ -345,6 +392,22 @@ class CancellationsReport {
   /// La consulta llegó al tope: hay más movimientos de los que se leyeron.
   final bool truncated;
 
+  /// Todo lo anulado a precio de venta: el pedido entero si se canceló, o solo
+  /// los renglones anulados si el pedido se cobró (anulados, con decisión de
+  /// inventario o con movimiento). Sale de los MISMOS pedidos que [saleWaste] y
+  /// cuenta todo renglón que este pueda tocar, así que lo perdido no pasa de
+  /// esto. Incluye lo que no tiene receta ni fila en la lista.
+  final double cancelledValue;
+
+  /// En cuántos pedidos distintos se anuló algo ([cancelledValue]).
+  final int cancelledValueOrders;
+
+  /// No se leyeron los pedidos cobrados (vista de año: el dashboard pide los
+  /// totales a Firestore y no baja los pedidos). Lo anulado dentro de pedidos
+  /// cobrados falta de [cancelledValue] y de [saleWaste]: los montos a precio
+  /// de venta quedan cortos, y la vista lo dice.
+  final bool withoutPaidOrders;
+
   const CancellationsReport({
     required this.events,
     required this.people,
@@ -357,6 +420,9 @@ class CancellationsReport {
     required this.unpricedIngredients,
     required this.saleWaste,
     required this.truncated,
+    this.cancelledValue = 0,
+    this.cancelledValueOrders = 0,
+    this.withoutPaidOrders = false,
   });
 
   static const empty = CancellationsReport(

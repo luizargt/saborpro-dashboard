@@ -12,6 +12,7 @@ import '../../widgets/dish_profit_widgets.dart';
 import '../../widgets/location_selector.dart';
 import '../../widgets/max_content_width.dart';
 import '../../widgets/period_selector.dart';
+import '../../widgets/inicio_ui.dart' show InicioColores;
 
 
 enum FiltroPlatillos {
@@ -190,7 +191,7 @@ Future<void> _abrirHoja(BuildContext context, Widget contenido) {
               height: 4,
               margin: const EdgeInsets.only(bottom: 14),
               decoration: BoxDecoration(
-                color: Colors.white24,
+                color: InicioColores.soft,
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
@@ -421,22 +422,22 @@ class UtilidadPlatillosView extends StatelessWidget {
                       onTapOutside: (_) =>
                           FocusManager.instance.primaryFocus?.unfocus(),
                       style:
-                          GoogleFonts.inter(color: Colors.white, fontSize: 14),
+                          GoogleFonts.inter(color: InicioColores.ink, fontSize: 14),
                       decoration: InputDecoration(
                         isDense: true,
                         filled: true,
                         fillColor: kTarjeta,
                         hintText: 'Buscar platillo',
                         hintStyle: GoogleFonts.inter(
-                            color: Colors.white54, fontSize: 14),
-                        prefixIcon: const Icon(Icons.search_rounded,
-                            color: Colors.white54, size: 20),
+                            color: InicioColores.muted, fontSize: 14),
+                        prefixIcon: Icon(Icons.search_rounded,
+                            color: InicioColores.muted, size: 20),
                         suffixIcon: vista.busqueda.isEmpty
                             ? null
                             : IconButton(
                                 tooltip: 'Limpiar búsqueda',
-                                icon: const Icon(Icons.close_rounded,
-                                    color: Colors.white54, size: 18),
+                                icon: Icon(Icons.close_rounded,
+                                    color: InicioColores.muted, size: 18),
                                 onPressed: vista.limpiarBusqueda,
                               ),
                         contentPadding:
@@ -486,7 +487,7 @@ class _BotonGuia extends StatelessWidget {
         clipBehavior: Clip.none,
         children: [
           Icon(Icons.lightbulb_outline_rounded,
-              color: encendido ? kAmbar : Colors.white70, size: 24),
+              color: encendido ? kAmbar : InicioColores.muted, size: 24),
           if (encendido)
             Positioned(
               right: -2,
@@ -494,7 +495,7 @@ class _BotonGuia extends StatelessWidget {
               child: Container(
                 width: 9,
                 height: 9,
-                decoration: const BoxDecoration(
+                decoration: BoxDecoration(
                     color: kAmbar, shape: BoxShape.circle),
               ),
             ),
@@ -565,18 +566,18 @@ class _SinMenu extends StatelessWidget {
       children: [
         const SizedBox(height: 100),
         if (error != null && !cargando) ...[
-          const Icon(Icons.cloud_off_rounded, color: Colors.white54, size: 34),
+          Icon(Icons.cloud_off_rounded, color: InicioColores.muted, size: 34),
           const SizedBox(height: 14),
           Text(error!,
               textAlign: TextAlign.center,
               style: GoogleFonts.inter(
-                  color: Colors.white70, fontSize: 14, height: 1.45)),
+                  color: InicioColores.muted, fontSize: 14, height: 1.45)),
           const SizedBox(height: 6),
           Text('Deslizá hacia abajo para reintentar.',
               textAlign: TextAlign.center,
-              style: GoogleFonts.inter(color: Colors.white60, fontSize: 12.5)),
+              style: GoogleFonts.inter(color: InicioColores.muted, fontSize: 12.5)),
         ] else
-          const Center(child: CircularProgressIndicator(color: kAcento)),
+          Center(child: CircularProgressIndicator(color: kAcento)),
       ],
     );
   }
@@ -598,7 +599,7 @@ class _SinResultados extends StatelessWidget {
               ? 'Ningún platillo coincide con "${vista.busqueda.trim()}"'
               : 'Ningún platillo en este filtro',
           textAlign: TextAlign.center,
-          style: GoogleFonts.inter(color: Colors.white70, fontSize: 13.5),
+          style: GoogleFonts.inter(color: InicioColores.muted, fontSize: 13.5),
         ),
         if (buscando)
           Center(

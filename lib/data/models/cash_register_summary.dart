@@ -247,6 +247,13 @@ class CashRegisterSummary {
   factory CashRegisterSummary.fromMap(Map<String, dynamic> map) {
     DateTime parseTs(dynamic v) {
       if (v is Timestamp) return v.toDate().toLocal();
+      // Una caja guardada sin conexión puede traer la fecha como texto ISO (el
+      // provider ya lo da por posible al consultar `closedAt`). Sin leerla, la
+      // caja "se abría" ahora mismo: una olvidada de hace días no avisaba.
+      if (v is String) {
+        final d = DateTime.tryParse(v);
+        if (d != null) return d.toLocal();
+      }
       return DateTime.now();
     }
 

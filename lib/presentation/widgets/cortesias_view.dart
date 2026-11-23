@@ -15,31 +15,59 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 
+import '../../core/theme/paleta.dart';
 import '../../core/utils/formato_dinero.dart';
 import '../../data/models/cortesias_data.dart';
+import 'inicio_ui.dart' show InicioColores;
 
 /// Fondo de la pantalla.
-const kCortesiasBg = Color(0xFF0E1220);
+Color get kCortesiasBg => paletaActual.bg;
 
-/// La paleta oscura del diseño.
+/// La paleta de los diseños, en el modo que esté puesto (claro por defecto, oscuro si
+/// se elige; ver `TemaManager`).
+///
+/// Son getters y no constantes: leen [paletaActual] cada vez que se pintan. Por eso no
+/// se pueden usar dentro de un `const` (un `const Icon(color: _C.muted)` no compila):
+/// el widget se arma sin `const`.
 abstract final class CortesiasColores {
-  static const card = Color(0xFF1A1F2E);
-  static const subtle = Color(0xFF222838);
-  static const line = Color(0xFF2C3344);
-  static const lineStrong = Color(0xFF46506A);
-  static const ink = Color(0xFFEEF0F6);
-  static const muted = Color(0xFFA3A9BB);
-  static const soft = Color(0xFF7A8197);
-  static const accent = Color(0xFF9B7BFF);
-  static const tint = Color(0xFF2A2546);
-  static const gift = Color(0xFF4FD1B0);
-  static const giftTint = Color(0xFF163A34);
-  static const don = Color(0xFF7AA8F5);
-  static const donTint = Color(0xFF1B2A45);
-  static const warn = Color(0xFFF2B84B);
-  static const warnTint = Color(0xFF3A2E14);
-  static const bad = Color(0xFFFF7A6E);
-  static const badTint = Color(0xFF3B1D1C);
+  static Color get bg => paletaActual.bg;
+  static Color get card => paletaActual.card;
+  static Color get subtle => paletaActual.subtle;
+  static Color get line => paletaActual.line;
+  static Color get lineStrong => paletaActual.lineStrong;
+  static Color get ink => paletaActual.ink;
+  static Color get muted => paletaActual.muted;
+  static Color get soft => paletaActual.soft;
+  static Color get accent => paletaActual.accent;
+  static Color get tint => paletaActual.tint;
+  static Color get gift => paletaActual.ok;
+  static Color get giftTint => paletaActual.okTint;
+  static Color get don => paletaActual.blue;
+  static Color get donTint => paletaActual.blueTint;
+  static Color get warn => paletaActual.warn;
+  static Color get warnTint => paletaActual.warnTint;
+  static Color get bad => paletaActual.bad;
+  static Color get badTint => paletaActual.badTint;
+
+  /// El naranja de "gasto / compra" y su fondo.
+  static Color get exp => paletaActual.exp;
+  static Color get expTint => paletaActual.expTint;
+
+  /// Texto sobre un fondo de color pleno.
+  static Color get onAccent => paletaActual.onAccent;
+
+  // La barra de navegación (barra lateral, barra inferior, menú de la cuenta).
+  static Color get barra => paletaActual.barra;
+  static Color get barra2 => paletaActual.barra2;
+  static Color get barraLinea => paletaActual.barraLinea;
+  static Color get barraTexto => paletaActual.barraTexto;
+  static Color get barraApagado => paletaActual.barraApagado;
+  static Color get barraHover => paletaActual.barraHover;
+  static Color get barraActivo => paletaActual.barraActivo;
+  static Color get barraActivoIcono => paletaActual.barraActivoIcono;
+  static Color get barraActivoTexto => paletaActual.barraActivoTexto;
+  static Color get barraChip => paletaActual.barraChip;
+  static Color get sombra => paletaActual.sombra;
 }
 
 typedef _C = CortesiasColores;
@@ -217,7 +245,7 @@ class _CortesiasReportBodyState extends State<CortesiasReportBody> {
       );
       final porque = _SeccionPorQue(pedidos: r.pedidos);
 
-      return SingleChildScrollView(
+      final lista = SingleChildScrollView(
         // Siempre desplazable: el RefreshIndicator lo necesita aunque haya
         // un solo pedido.
         physics: const AlwaysScrollableScrollPhysics(),
@@ -319,6 +347,18 @@ class _CortesiasReportBodyState extends State<CortesiasReportBody> {
           ],
         ),
       );
+
+      // Sin pedidos (o con pocos) el contenido es más bajo que la pantalla. El
+      // cambio de sucursal (un AnimatedSwitcher) entrega restricciones sueltas y
+      // un SingleChildScrollView mide lo que mide su contenido: sin esto quedaba
+      // CENTRADO en vertical, con un hueco enorme entre las pestañas y la
+      // primera tarjeta. Obligándolo a medir al menos el alto disponible, el
+      // contenido se queda arriba y la zona de jalar para actualizar cubre todo
+      // el alto. (Mismo arreglo que Pedidos cancelados.)
+      return ConstrainedBox(
+        constraints: BoxConstraints(minHeight: c.hasBoundedHeight ? c.maxHeight : 0),
+        child: lista,
+      );
     });
   }
 }
@@ -385,11 +425,11 @@ class _Barra extends StatelessWidget {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            const ColoredBox(color: _C.subtle),
+            ColoredBox(color: _C.subtle),
             FractionallySizedBox(
               alignment: Alignment.centerLeft,
               widthFactor: parte.isFinite ? parte.clamp(0.0, 1.0) : 0.0,
-              child: const ColoredBox(color: _C.gift),
+              child: ColoredBox(color: _C.gift),
             ),
           ],
         ),
@@ -401,7 +441,7 @@ class _Barra extends StatelessWidget {
 class _Separador extends StatelessWidget {
   const _Separador();
   @override
-  Widget build(BuildContext context) => const Divider(height: 1, thickness: 1, color: _C.line);
+  Widget build(BuildContext context) => Divider(height: 1, thickness: 1, color: _C.line);
 }
 
 // ── EL RESUMEN ───────────────────────────────────────────────────────────────
@@ -460,7 +500,7 @@ class _Resumen extends StatelessWidget {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Padding(
+                Padding(
                   padding: EdgeInsets.only(top: 1),
                   child: Icon(Icons.info_outline_rounded, size: 16, color: _C.soft),
                 ),
@@ -504,7 +544,7 @@ class _Rejilla extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             for (var j = 0; j < columnas; j++) ...[
-              if (j > 0) const VerticalDivider(width: 1, thickness: 1, color: _C.line),
+              if (j > 0) VerticalDivider(width: 1, thickness: 1, color: _C.line),
               Expanded(
                 flex: primeraMasAncha && i + j == 0 ? 13 : 10,
                 child: j < fila.length ? fila[j] : const SizedBox.shrink(),
@@ -709,7 +749,7 @@ class _AlertaSinMotivo extends StatelessWidget {
           width: 40,
           height: 40,
           decoration: BoxDecoration(color: _C.card, borderRadius: BorderRadius.circular(12)),
-          child: const Icon(Icons.warning_amber_rounded, color: _C.warn, size: 22),
+          child: Icon(Icons.warning_amber_rounded, color: _C.warn, size: 22),
         );
         if (c.maxWidth < 520) {
           return Column(
@@ -836,7 +876,7 @@ class _FilaQuien extends StatelessWidget {
                 width: 40,
                 height: 40,
                 alignment: Alignment.center,
-                decoration: const BoxDecoration(color: _C.tint, shape: BoxShape.circle),
+                decoration: BoxDecoration(color: _C.tint, shape: BoxShape.circle),
                 child: Text(_iniciales(nombre), style: _t(14, FontWeight.w700, _C.accent)),
               ),
               const SizedBox(width: 12),
@@ -1051,7 +1091,7 @@ class _FilaPlatillo extends StatelessWidget {
     final p = platillo;
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 10),
-      decoration: const BoxDecoration(border: Border(top: BorderSide(color: _C.line))),
+      decoration: BoxDecoration(border: Border(top: BorderSide(color: _C.line))),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1327,7 +1367,7 @@ class _MarcaSinMotivo extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        const Icon(Icons.warning_amber_rounded, size: 15, color: _C.warn),
+        Icon(Icons.warning_amber_rounded, size: 15, color: _C.warn),
         const SizedBox(width: 6),
         Text('Sin motivo', style: _t(13.5, FontWeight.w600, _C.warn)),
       ],
@@ -1418,7 +1458,7 @@ class _TablaPedidos extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
           child: Align(alignment: derecha ? Alignment.topRight : Alignment.topLeft, child: child),
         );
-    const borde = BoxDecoration(border: Border(bottom: BorderSide(color: _C.line)));
+    final borde = BoxDecoration(border: Border(bottom: BorderSide(color: _C.line)));
 
     return Table(
       columnWidths: const {
@@ -1550,9 +1590,10 @@ class _PedidoTile extends StatelessWidget {
 class _Notice extends StatelessWidget {
   final IconData icon;
   final String text;
-  final Color color;
+  final Color? _color;
+  Color get color => _color ?? _C.warn;
 
-  const _Notice({required this.icon, required this.text, this.color = _C.warn});
+  const _Notice({required this.icon, required this.text, Color? color}) : _color = color;
 
   @override
   Widget build(BuildContext context) {
@@ -1620,7 +1661,7 @@ class PanelDetalleAnio extends StatelessWidget {
             children: [
               Row(
                 children: [
-                  const Icon(Icons.card_giftcard_rounded, color: _C.gift, size: 20),
+                  Icon(Icons.card_giftcard_rounded, color: _C.gift, size: 20),
                   const SizedBox(width: 10),
                   Expanded(child: Text('Detalle del año', style: _t(17, FontWeight.w700, _C.ink))),
                 ],
@@ -1642,7 +1683,7 @@ class PanelDetalleAnio extends StatelessWidget {
               ],
               const SizedBox(height: 16),
               if (cargando)
-                const Center(
+                Center(
                   child: Padding(
                     padding: EdgeInsets.symmetric(vertical: 4),
                     child: CircularProgressIndicator(color: _C.accent),
@@ -1655,14 +1696,14 @@ class PanelDetalleAnio extends StatelessWidget {
                     onPressed: onCargar,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: _C.accent,
-                      foregroundColor: Colors.white,
+                      foregroundColor: InicioColores.onAccent,
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                     ),
                     child: Text(
                       error != null ? 'Intentar de nuevo' : 'Cargar el detalle del año',
                       textAlign: TextAlign.center,
-                      style: _t(14, FontWeight.w600, Colors.white),
+                      style: _t(14, FontWeight.w600, InicioColores.onAccent),
                     ),
                   ),
                 ),

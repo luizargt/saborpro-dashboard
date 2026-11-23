@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../core/services/biometric_service.dart';
+import '../../widgets/inicio_ui.dart' show InicioColores;
 
 /// Acceso con huella / Face ID debajo del formulario de correo y contraseña.
 ///
@@ -40,7 +41,7 @@ class BiometricLoginButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final accent = const Color(0xFF7444fd);
+    final accent = InicioColores.accent;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -48,18 +49,18 @@ class BiometricLoginButton extends StatelessWidget {
         Row(
           children: [
             Expanded(
-              child: Divider(color: Colors.white.withValues(alpha: 0.08)),
+              child: Divider(color: InicioColores.line),
             ),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12),
               child: Text(
                 'o',
                 style:
-                    GoogleFonts.inter(color: Colors.white38, fontSize: 12),
+                    GoogleFonts.inter(color: InicioColores.soft, fontSize: 12),
               ),
             ),
             Expanded(
-              child: Divider(color: Colors.white.withValues(alpha: 0.08)),
+              child: Divider(color: InicioColores.line),
             ),
           ],
         ),
@@ -76,18 +77,18 @@ class BiometricLoginButton extends StatelessWidget {
                   width: 72,
                   height: 72,
                   decoration: BoxDecoration(
-                    color: const Color(0xFF1E293B),
+                    color: InicioColores.card,
                     shape: BoxShape.circle,
                     border: Border.all(
                       color: enabled
                           ? accent.withValues(alpha: 0.5)
-                          : Colors.white.withValues(alpha: 0.12),
+                          : InicioColores.line,
                       width: 1.5,
                     ),
                   ),
                   child: Icon(
                     iconFor(kind),
-                    color: enabled ? accent : Colors.white30,
+                    color: enabled ? accent : InicioColores.soft,
                     size: 40,
                   ),
                 ),
@@ -96,7 +97,7 @@ class BiometricLoginButton extends StatelessWidget {
                   _label,
                   textAlign: TextAlign.center,
                   style: GoogleFonts.inter(
-                    color: enabled ? Colors.white70 : Colors.white38,
+                    color: enabled ? InicioColores.muted : InicioColores.soft,
                     fontSize: 13,
                     fontWeight: FontWeight.w500,
                   ),
@@ -110,7 +111,7 @@ class BiometricLoginButton extends StatelessWidget {
                     textAlign: TextAlign.center,
                     overflow: TextOverflow.ellipsis,
                     style:
-                        GoogleFonts.inter(color: Colors.white24, fontSize: 11),
+                        GoogleFonts.inter(color: InicioColores.soft, fontSize: 11),
                   ),
                 ],
               ],

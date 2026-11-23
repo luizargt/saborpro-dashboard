@@ -161,6 +161,10 @@ enum EstadoLinea {
 
 class LineaCosto {
   final String ingrediente;
+
+  /// El id del ingrediente que se costeó (el de la sucursal, si se encontró), para
+  /// poder ligar el platillo con su categoría de despensa. Null si no se conoce.
+  final String? ingredienteId;
   final double cantidad;
   final String unidad;
   final double? precio;
@@ -172,6 +176,7 @@ class LineaCosto {
 
   const LineaCosto({
     required this.ingrediente,
+    this.ingredienteId,
     required this.cantidad,
     this.unidad = '',
     this.precio,
@@ -257,6 +262,7 @@ class MargenPlatillo {
             for (final l in lineas)
               LineaCosto(
                 ingrediente: l.ingrediente,
+                ingredienteId: l.ingredienteId,
                 cantidad: l.cantidad,
                 unidad: l.unidad,
                 precio: l.precio == null ? null : l.precio! * factor,
@@ -433,6 +439,7 @@ List<MargenPlatillo> calcularMargenes(
     if (encontrado == null || !permitida(encontrado.sucursalId)) {
       return LineaCosto(
         ingrediente: nombre,
+        ingredienteId: propio?.id,
         cantidad: r.cantidad,
         unidad: propio?.abreviatura ?? '',
         estado: EstadoLinea.noEnSucursal,
@@ -440,6 +447,7 @@ List<MargenPlatillo> calcularMargenes(
     }
     return LineaCosto(
       ingrediente: nombre,
+      ingredienteId: encontrado.id,
       cantidad: r.cantidad,
       unidad: encontrado.abreviatura,
       precio: encontrado.tienePrecio ? encontrado.precio : null,

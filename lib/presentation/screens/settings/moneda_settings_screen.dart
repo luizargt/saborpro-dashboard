@@ -9,11 +9,12 @@ import '../../../core/utils/monedas.dart';
 import '../../../data/models/config_moneda.dart';
 import '../../providers/dashboard_provider.dart';
 import '../../widgets/max_content_width.dart';
+import '../../widgets/inicio_ui.dart' show InicioColores;
 
-const _fondo = Color(0xFF0F172A);
-const _tarjeta = Color(0xFF1E293B);
-const _acento = Color(0xFF7444fd);
-const _ambar = Color(0xFFF59E0B);
+Color get _fondo => InicioColores.bg;
+Color get _tarjeta => InicioColores.card;
+Color get _acento => InicioColores.accent;
+Color get _ambar => InicioColores.warn;
 
 final _fmtTasa = NumberFormat('#,##0.####', 'en_US');
 final _fmtFecha = DateFormat("d 'de' MMMM 'de' y", 'es');
@@ -67,11 +68,11 @@ class _MonedaSettingsScreenState extends State<MonedaSettingsScreen> {
         builder: (ctx) => AlertDialog(
           backgroundColor: _tarjeta,
           title: Text('¿Cambiar la moneda principal?',
-              style: GoogleFonts.inter(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w700)),
+              style: GoogleFonts.inter(color: InicioColores.ink, fontSize: 17, fontWeight: FontWeight.w700)),
           content: Text(
             'Los tipos de cambio están escritos contra ${describirMoneda(implicita)}. '
             'Con otra moneda principal ya no sirven: se borran y tendrás que ponerlos de nuevo.',
-            style: GoogleFonts.inter(color: Colors.white70, fontSize: 14, height: 1.4),
+            style: GoogleFonts.inter(color: InicioColores.muted, fontSize: 14, height: 1.4),
           ),
           actions: [
             TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
@@ -136,12 +137,12 @@ class _MonedaSettingsScreenState extends State<MonedaSettingsScreen> {
       builder: (ctx) => AlertDialog(
         backgroundColor: _tarjeta,
         title: Text('¿Borrar este tipo de cambio?',
-            style: GoogleFonts.inter(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w700)),
+            style: GoogleFonts.inter(color: InicioColores.ink, fontSize: 17, fontWeight: FontWeight.w700)),
         content: Text(
           lista.length == 1
               ? 'Es el único: sin él, las ventas en ${describirMoneda(codigo)} dejan de sumarse con las demás.'
               : 'Las ventas desde el ${_fmtFecha.format(t.desde)} se convertirán con el tipo de cambio anterior.',
-          style: GoogleFonts.inter(color: Colors.white70, fontSize: 14, height: 1.4),
+          style: GoogleFonts.inter(color: InicioColores.muted, fontSize: 14, height: 1.4),
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
@@ -185,15 +186,15 @@ class _MonedaSettingsScreenState extends State<MonedaSettingsScreen> {
     return Scaffold(
       backgroundColor: _fondo,
       appBar: AppBar(
-        backgroundColor: const Color(0xFF0A1020),
+        backgroundColor: InicioColores.bg,
         elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.white),
+        iconTheme: IconThemeData(color: InicioColores.ink),
         title: Text(
           'Moneda y tipo de cambio',
-          style: GoogleFonts.inter(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700),
+          style: GoogleFonts.inter(color: InicioColores.ink, fontSize: 16, fontWeight: FontWeight.w700),
         ),
         bottom: _guardando
-            ? const PreferredSize(
+            ? PreferredSize(
                 preferredSize: Size.fromHeight(2),
                 child: LinearProgressIndicator(minHeight: 2, color: _acento),
               )
@@ -207,7 +208,7 @@ class _MonedaSettingsScreenState extends State<MonedaSettingsScreen> {
             Text(
               'Para ver juntas sucursales que venden en monedas distintas, cada venta se pasa '
               'a tu moneda principal con el tipo de cambio del día en que se cobró.',
-              style: GoogleFonts.inter(color: Colors.white60, fontSize: 13.5, height: 1.45),
+              style: GoogleFonts.inter(color: InicioColores.muted, fontSize: 13.5, height: 1.45),
             ),
             if (!dash.configMonedaLeida) ...[
               const SizedBox(height: 10),
@@ -232,8 +233,8 @@ class _MonedaSettingsScreenState extends State<MonedaSettingsScreen> {
                   value: principal,
                   isExpanded: true,
                   dropdownColor: _tarjeta,
-                  iconEnabledColor: Colors.white54,
-                  style: GoogleFonts.inter(color: Colors.white, fontSize: 15),
+                  iconEnabledColor: InicioColores.muted,
+                  style: GoogleFonts.inter(color: InicioColores.ink, fontSize: 15),
                   items: [
                     for (final c in opciones)
                       DropdownMenuItem(
@@ -250,14 +251,14 @@ class _MonedaSettingsScreenState extends State<MonedaSettingsScreen> {
               const SizedBox(height: 6),
               Text(
                 'Sin elegir, es la que más sucursales usan.',
-                style: GoogleFonts.inter(color: Colors.white38, fontSize: 12),
+                style: GoogleFonts.inter(color: InicioColores.soft, fontSize: 12),
               ),
             ],
             const SizedBox(height: 24),
             if (otras.isEmpty)
               Text(
                 'Todas tus sucursales venden en ${describirMoneda(principal)}: no hace falta tipo de cambio.',
-                style: GoogleFonts.inter(color: Colors.white54, fontSize: 13.5, height: 1.4),
+                style: GoogleFonts.inter(color: InicioColores.muted, fontSize: 13.5, height: 1.4),
               )
             else ...[
               _Titulo('Tipos de cambio'),
@@ -285,11 +286,11 @@ class _MonedaSettingsScreenState extends State<MonedaSettingsScreen> {
                   activeColor: _acento,
                   onChanged: (v) => dash.setVerEnLocal(v),
                   title: Text('Ver cada sucursal en su moneda',
-                      style: GoogleFonts.inter(color: Colors.white, fontSize: 14.5, fontWeight: FontWeight.w600)),
+                      style: GoogleFonts.inter(color: InicioColores.ink, fontSize: 14.5, fontWeight: FontWeight.w600)),
                   subtitle: Text(
                     'Al elegir una sola sucursal. "Todas" siempre se ve en la principal: '
                     'no se pueden sumar monedas distintas.',
-                    style: GoogleFonts.inter(color: Colors.white54, fontSize: 12.5, height: 1.35),
+                    style: GoogleFonts.inter(color: InicioColores.muted, fontSize: 12.5, height: 1.35),
                   ),
                 ),
               ),
@@ -309,7 +310,7 @@ class _Titulo extends StatelessWidget {
   Widget build(BuildContext context) => Text(
         texto.toUpperCase(),
         style: GoogleFonts.inter(
-            color: Colors.white38, fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 0.8),
+            color: InicioColores.soft, fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 0.8),
       );
 }
 
@@ -367,7 +368,7 @@ class _MonedaCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(describirMoneda(codigo),
-              style: GoogleFonts.inter(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w700)),
+              style: GoogleFonts.inter(color: InicioColores.ink, fontSize: 15, fontWeight: FontWeight.w700)),
           const SizedBox(height: 2),
           Text(
             sucursales
@@ -377,7 +378,7 @@ class _MonedaCard extends StatelessWidget {
                         ? '${l.name} (bodega)'
                         : '${l.name} (inactiva)')
                 .join(', '),
-            style: GoogleFonts.inter(color: Colors.white54, fontSize: 12.5),
+            style: GoogleFonts.inter(color: InicioColores.muted, fontSize: 12.5),
           ),
           const SizedBox(height: 12),
           if (vigente == null)
@@ -388,11 +389,11 @@ class _MonedaCard extends StatelessWidget {
           else ...[
             Text(
               '1 $simboloPrincipal = ${_fmtTasa.format(vigente.valor)} $simboloMoneda',
-              style: GoogleFonts.inter(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700),
+              style: GoogleFonts.inter(color: InicioColores.ink, fontSize: 20, fontWeight: FontWeight.w700),
             ),
             Text(
               'desde el ${_fmtFecha.format(vigente.desde)}',
-              style: GoogleFonts.inter(color: Colors.white54, fontSize: 12.5),
+              style: GoogleFonts.inter(color: InicioColores.muted, fontSize: 12.5),
             ),
           ],
           if (puedeEditar) ...[
@@ -402,8 +403,8 @@ class _MonedaCard extends StatelessWidget {
               child: OutlinedButton(
                 onPressed: onPoner,
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.white,
-                  side: const BorderSide(color: Colors.white24),
+                  foregroundColor: InicioColores.onAccent,
+                  side: BorderSide(color: InicioColores.soft),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                 ),
                 child: Text(vigente == null ? 'Poner tipo de cambio' : 'Cambiar tipo de cambio'),
@@ -412,7 +413,7 @@ class _MonedaCard extends StatelessWidget {
           ],
           if (historial.length > 1 || (historial.isNotEmpty && puedeEditar)) ...[
             const SizedBox(height: 12),
-            Divider(color: Colors.white.withOpacity(0.06), height: 1),
+            Divider(color: InicioColores.line, height: 1),
             const SizedBox(height: 6),
             for (final t in historial)
               Padding(
@@ -422,18 +423,18 @@ class _MonedaCard extends StatelessWidget {
                     Expanded(
                       child: Text(
                         'Desde el ${_fmtFecha.format(t.desde)}',
-                        style: GoogleFonts.inter(color: Colors.white60, fontSize: 12.5),
+                        style: GoogleFonts.inter(color: InicioColores.muted, fontSize: 12.5),
                       ),
                     ),
                     Text(
                       '${_fmtTasa.format(t.valor)} $simboloMoneda',
-                      style: GoogleFonts.inter(color: Colors.white70, fontSize: 12.5, fontWeight: FontWeight.w600),
+                      style: GoogleFonts.inter(color: InicioColores.muted, fontSize: 12.5, fontWeight: FontWeight.w600),
                     ),
                     if (puedeEditar)
                       IconButton(
                         tooltip: 'Borrar',
                         visualDensity: VisualDensity.compact,
-                        icon: const Icon(Icons.delete_outline_rounded, size: 18, color: Colors.white38),
+                        icon: Icon(Icons.delete_outline_rounded, size: 18, color: InicioColores.soft),
                         onPressed: () => onBorrar(t),
                       ),
                   ],
@@ -490,12 +491,12 @@ class _TasaDialogState extends State<_TasaDialog> {
       firstDate: DateTime(2020),
       lastDate: DateTime(_hoy().year + 1, 12, 31),
       builder: (ctx, child) => Theme(
-        data: ThemeData.dark().copyWith(
-          colorScheme: const ColorScheme.dark(
-            primary: _acento,
-            onPrimary: Colors.white,
-            surface: _tarjeta,
-          ),
+        data: Theme.of(ctx).copyWith(
+          colorScheme: Theme.of(ctx).colorScheme.copyWith(
+                primary: _acento,
+                onPrimary: InicioColores.onAccent,
+                surface: _tarjeta,
+              ),
         ),
         child: child!,
       ),
@@ -518,7 +519,7 @@ class _TasaDialogState extends State<_TasaDialog> {
       backgroundColor: _tarjeta,
       title: Text(
         widget.nombreMoneda,
-        style: GoogleFonts.inter(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w700),
+        style: GoogleFonts.inter(color: InicioColores.ink, fontSize: 17, fontWeight: FontWeight.w700),
       ),
       content: SingleChildScrollView(
         child: Column(
@@ -527,7 +528,7 @@ class _TasaDialogState extends State<_TasaDialog> {
           children: [
             Text(
               '¿Cuántos ${widget.simboloMoneda} son 1 ${widget.simboloPrincipal}?',
-              style: GoogleFonts.inter(color: Colors.white70, fontSize: 14),
+              style: GoogleFonts.inter(color: InicioColores.muted, fontSize: 14),
             ),
             const SizedBox(height: 10),
             TextField(
@@ -535,7 +536,7 @@ class _TasaDialogState extends State<_TasaDialog> {
               autofocus: true,
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
               inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))],
-              style: GoogleFonts.inter(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600),
+              style: GoogleFonts.inter(color: InicioColores.ink, fontSize: 18, fontWeight: FontWeight.w600),
               decoration: InputDecoration(
                 prefixText: '1 ${widget.simboloPrincipal} = ',
                 suffixText: widget.simboloMoneda,
@@ -555,12 +556,12 @@ class _TasaDialogState extends State<_TasaDialog> {
                 decoration: BoxDecoration(color: _fondo, borderRadius: BorderRadius.circular(10)),
                 child: Row(
                   children: [
-                    const Icon(Icons.event_rounded, size: 18, color: Colors.white54),
+                    Icon(Icons.event_rounded, size: 18, color: InicioColores.muted),
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(
                         'Desde el ${_fmtFecha.format(_desde)}',
-                        style: GoogleFonts.inter(color: Colors.white, fontSize: 14),
+                        style: GoogleFonts.inter(color: InicioColores.ink, fontSize: 14),
                       ),
                     ),
                     Text('Cambiar', style: GoogleFonts.inter(color: _acento, fontSize: 13, fontWeight: FontWeight.w600)),
@@ -573,7 +574,7 @@ class _TasaDialogState extends State<_TasaDialog> {
               widget.esLaPrimera
                   ? 'Como es el primero, también se usa para las ventas anteriores a esa fecha.'
                   : 'Las ventas desde ese día se convierten con este valor; las anteriores siguen con el que tenían.',
-              style: GoogleFonts.inter(color: Colors.white54, fontSize: 12.5, height: 1.4),
+              style: GoogleFonts.inter(color: InicioColores.muted, fontSize: 12.5, height: 1.4),
             ),
           ],
         ),

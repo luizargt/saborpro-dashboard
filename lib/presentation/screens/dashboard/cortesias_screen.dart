@@ -8,9 +8,10 @@ import '../../widgets/location_selector.dart';
 import '../../widgets/max_content_width.dart';
 import '../../widgets/moneda_vista_aviso.dart';
 import '../../widgets/period_selector.dart';
+import '../../navigation/contexto_shell.dart';
 
-const _kCard = CortesiasColores.card;
-const _kAccent = CortesiasColores.accent;
+Color get _kCard => CortesiasColores.card;
+Color get _kAccent => CortesiasColores.accent;
 
 /// Abre el detalle desde la tarjeta "Cortesías / Donaciones" del Inicio.
 void abrirCortesias(BuildContext context) {
@@ -118,7 +119,7 @@ class _CortesiasScreenState extends State<CortesiasScreen> {
     if (dash.error != null) {
       contenido = _Relleno(child: _TextoAviso(dash.error!));
     } else if (dash.loading) {
-      contenido = const _Relleno(
+      contenido = _Relleno(
           child: CircularProgressIndicator(color: _kAccent));
     } else if (reporte == null) {
       // Solo pasa en la vista de año, antes de bajar los pedidos.
@@ -187,6 +188,9 @@ class _Encabezado extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Dentro del shell el encabezado (migas, título y fecha) lo pone el shell.
+    if (ContextoShell.enShell(context)) return const SizedBox.shrink();
+
     final telefono = MediaQuery.sizeOf(context).width < 640;
     final regresar = SizedBox(
       width: 48,
@@ -197,7 +201,7 @@ class _Encabezado extends StatelessWidget {
         child: InkWell(
           borderRadius: BorderRadius.circular(15),
           onTap: () => Navigator.of(context).maybePop(),
-          child: const Tooltip(
+          child: Tooltip(
             message: 'Regresar',
             child: Icon(Icons.arrow_back_rounded, color: CortesiasColores.ink, size: 22),
           ),

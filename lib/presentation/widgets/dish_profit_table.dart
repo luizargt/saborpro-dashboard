@@ -7,6 +7,7 @@ import '../../core/utils/formato_dinero.dart';
 import '../../data/models/menu_margin_data.dart';
 import '../../data/models/profitability_data.dart';
 import 'dish_profit_widgets.dart';
+import 'inicio_ui.dart' show InicioColores;
 
 /// Columnas por las que se puede ordenar la tabla.
 enum ColumnaOrden { producto, costo, gasto, precio, ganancia, pct }
@@ -48,7 +49,7 @@ class CeldasFila {
     final d = f.desglose;
 
     final String costo;
-    Color colorCosto = Colors.white70;
+    Color colorCosto = InicioColores.muted;
     switch (p.estado) {
       case EstadoCosto.completo:
         costo = formatoDinero(p.costo!);
@@ -57,7 +58,7 @@ class CeldasFila {
         colorCosto = kAmbar;
       case EstadoCosto.sinReceta:
         costo = 'Sin receta';
-        colorCosto = Colors.white60;
+        colorCosto = InicioColores.muted;
     }
 
     String ganancia;
@@ -89,7 +90,7 @@ class CeldasFila {
     } else {
       ganancia = '—';
       pct = '—';
-      color = Colors.white60;
+      color = InicioColores.muted;
     }
 
     final banda = d?.banda;
@@ -179,8 +180,8 @@ class _Col {
 
   Color color(CeldasFila c) => switch (tipo) {
         _Tipo.costo => c.colorCosto,
-        _Tipo.gasto => Colors.white70,
-        _Tipo.precio => Colors.white,
+        _Tipo.gasto => InicioColores.muted,
+        _Tipo.precio => InicioColores.ink,
         _Tipo.ganancia || _Tipo.pct => c.colorGanancia,
       };
 
@@ -196,13 +197,13 @@ TextStyle _estiloNumero(Color color, {bool fuerte = false}) => GoogleFonts.inter
     );
 
 final _estiloTitulo = GoogleFonts.inter(
-    color: Colors.white70, fontSize: 11.5, fontWeight: FontWeight.w700);
+    color: InicioColores.muted, fontSize: 11.5, fontWeight: FontWeight.w700);
 final _estiloNombre = GoogleFonts.inter(
-    color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600);
+    color: InicioColores.ink, fontSize: 13, fontWeight: FontWeight.w600);
 final _estiloPresentacion =
-    GoogleFonts.inter(color: Colors.white70, fontSize: 11.5);
+    GoogleFonts.inter(color: InicioColores.muted, fontSize: 11.5);
 
-const _cebraClara = Color(0xFF243247);
+Color get _cebraClara => InicioColores.subtle;
 
 /// La tabla tipo hoja de cálculo.
 ///
@@ -293,7 +294,7 @@ class _TablaUtilidadState extends State<TablaUtilidad> {
 
   double _anchoColumna(
       BuildContext context, _Tipo tipo, List<CeldasFila> celdas) {
-    final estilo = _estiloNumero(Colors.white, fuerte: tipo == _Tipo.ganancia);
+    final estilo = _estiloNumero(InicioColores.ink, fuerte: tipo == _Tipo.ganancia);
     final escala = MediaQuery.textScalerOf(context);
     var ancho = _ancho(context, _Col(tipo, 0).titulo, _estiloTitulo) +
         escala.scale(16); // la flecha de orden
@@ -348,7 +349,7 @@ class _TablaUtilidadState extends State<TablaUtilidad> {
           48.0,
           (conPresentacion
                   ? math.max(_alto(context, _estiloNombre),
-                      _alto(context, _estiloNumero(Colors.white)))
+                      _alto(context, _estiloNumero(InicioColores.ink)))
                   : _alto(context, _estiloNombre) +
                       _alto(context, _estiloPresentacion)) +
               16);
@@ -535,7 +536,7 @@ class _FilaTitulo extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: activo
-                  ? _estiloTitulo.copyWith(color: Colors.white)
+                  ? _estiloTitulo.copyWith(color: InicioColores.ink)
                   : _estiloTitulo),
         ),
         if (activo)
@@ -577,7 +578,7 @@ class _FilaTitulo extends StatelessWidget {
       decoration: BoxDecoration(
         color: kFondo,
         border: Border(
-            bottom: BorderSide(color: Colors.white.withValues(alpha: 0.12))),
+            bottom: BorderSide(color: InicioColores.line)),
       ),
       child: _ConProductoFijo(
         altura: altura,
@@ -668,7 +669,7 @@ class _FilaDatos extends StatelessWidget {
     );
 
     final colorIdea =
-        !c.conConsejo ? Colors.white54 : (c.grave ? kRojoTexto : kAmbar);
+        !c.conConsejo ? InicioColores.muted : (c.grave ? kRojoTexto : kAmbar);
 
     return Semantics(
       container: true,
@@ -699,7 +700,7 @@ class _FilaDatos extends StatelessWidget {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: GoogleFonts.inter(
-                              color: Colors.white70, fontSize: 13)),
+                              color: InicioColores.muted, fontSize: 13)),
                     ),
                   ),
                 ),

@@ -1,8 +1,15 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
-import '../../core/utils/formato_dinero.dart';
 
+import '../../core/utils/formato_dinero.dart';
+import 'inicio_ui.dart';
+
+typedef _C = InicioColores;
+const _t = inicioTexto;
+
+/// "Ventas por método de pago": una fila por método con su monto, su parte del
+/// total y una barra, y el total abajo. Rediseño 2026-11-20 (inicio-manager.html,
+/// modo oscuro); los métodos, el orden y las cuentas son los de siempre.
 class PaymentMethodBreakdown extends StatelessWidget {
   final Map<String, double> salesByMethod;
   final Map<String, String> customMethodNames;
@@ -22,14 +29,24 @@ class PaymentMethodBreakdown extends StatelessWidget {
     '_tips': 'Propinas',
   };
 
-  static const _knownColors = {
-    'cash': Color(0xFF22C55E),
-    'card': Color(0xFF3B82F6),
-    'transfer': Color(0xFF06B6D4),
-    'pedidosya': Color(0xFFF59E0B),
-    'ubereats': Color(0xFFEF4444),
-    '_tips': Color(0xFFF59E0B),
+  static Map<String, Color> get _knownColors => {
+    'cash': _C.gift,
+    'card': _C.don,
+    'transfer': _C.accent,
+    'pedidosya': _C.warn,
+    'ubereats': _C.bad,
+    '_tips': _C.warn,
   };
+
+  // Para los métodos que el negocio inventó: colores que no se confunden con
+  // los de arriba.
+  static const _fallback = [
+    Color(0xFF22B5D6),
+    Color(0xFFF28BC8),
+    Color(0xFFB4D86A),
+    Color(0xFFE9967A),
+    Color(0xFF8E9AAF),
+  ];
 
   String _name(String key) {
     if (_knownNames.containsKey(key)) return _knownNames[key]!;
@@ -40,20 +57,14 @@ class PaymentMethodBreakdown extends StatelessWidget {
 
   Color _color(String key, int index) {
     if (_knownColors.containsKey(key)) return _knownColors[key]!;
-    const fallback = [
-      Color(0xFF7444fd), Color(0xFFF97316), Color(0xFFEC4899),
-      Color(0xFF8B5CF6), Color(0xFF14B8A6),
-    ];
-    return fallback[index % fallback.length];
+    return _fallback[index % _fallback.length];
   }
 
   @override
   Widget build(BuildContext context) {
     final fmt = NumberFormat('#,##0.00', 'en_US');
     // Propinas al final, el resto ordenado por monto
-    final entries = salesByMethod.entries
-        .where((e) => e.value > 0)
-        .toList()
+    final entries = salesByMethod.entries.where((e) => e.value > 0).toList()
       ..sort((a, b) {
         if (a.key == '_tips') return 1;
         if (b.key == '_tips') return -1;
@@ -65,108 +76,113 @@ class PaymentMethodBreakdown extends StatelessWidget {
     final total = entries.fold(0.0, (s, e) => s + e.value);
 
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(
-          'VENTAS POR MÉTODO DE PAGO',
-          style: GoogleFonts.inter(
-            color: Colors.white38,
-            fontSize: 11,
-            fontWeight: FontWeight.w600,
-            letterSpacing: 0.8,
+        const InicioTituloTarjeta(titulo: 'Ventas por método de pago'),
+        for (var idx = 0; idx < entries.length; idx++)
+          _FilaMetodo(
+            nombre: _name(entries[idx].key),
+            color: _color(entries[idx].key, idx),
+            monto: '$moneda${fmt.format(entries[idx].value)}',
+            porcentaje: total > 0 ? entries[idx].value / total : 0.0,
+          ),
+        Container(
+          margin: const EdgeInsets.only(top: 8),
+          padding: const EdgeInsets.only(top: 14),
+          decoration: BoxDecoration(border: Border(top: BorderSide(color: _C.line))),
+          child: Row(
+            children: [
+              Text('Total', style: _t(15, FontWeight.w500, _C.ink)),
+              const SizedBox(width: 14),
+              Expanded(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerRight,
+                  child: Text('$moneda${fmt.format(total)}', maxLines: 1, style: _t(18, FontWeight.w700, _C.accent)),
+                ),
+              ),
+            ],
           ),
         ),
-        const SizedBox(height: 8),
-        ...entries.asMap().entries.map((entry) {
-          final idx = entry.key;
-          final e = entry.value;
-          final color = _color(e.key, idx);
-          final pct = total > 0 ? e.value / total : 0.0;
-
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 8,
-                      height: 8,
-                      margin: const EdgeInsets.only(right: 8),
-                      decoration: BoxDecoration(
-                        color: color,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    Expanded(
-                      child: Text(
-                        _name(e.key),
-                        style: GoogleFonts.inter(
-                          color: Colors.white70,
-                          fontSize: 13,
-                        ),
-                      ),
-                    ),
-                    Text(
-                      '$moneda${fmt.format(e.value)}',
-                      style: GoogleFonts.inter(
-                        color: Colors.white,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    SizedBox(
-                      width: 38,
-                      child: Text(
-                        '${(pct * 100).toStringAsFixed(0)}%',
-                        textAlign: TextAlign.right,
-                        style: GoogleFonts.inter(
-                          color: Colors.white38,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(2),
-                  child: LinearProgressIndicator(
-                    value: pct,
-                    backgroundColor: Colors.white10,
-                    valueColor: AlwaysStoppedAnimation<Color>(color),
-                    minHeight: 3,
-                  ),
-                ),
-              ],
-            ),
-          );
-        }),
-        const Divider(color: Color(0x1AFFFFFF)),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              'Total',
-              style: GoogleFonts.inter(
-                color: Colors.white54,
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            Text(
-              '$moneda${fmt.format(total)}',
-              style: GoogleFonts.inter(
-                color: const Color(0xFF7444fd),
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ],
-        ),
       ],
+    );
+  }
+}
+
+class _FilaMetodo extends StatelessWidget {
+  final String nombre;
+  final Color color;
+  final String monto;
+  final double porcentaje;
+
+  const _FilaMetodo({
+    required this.nombre,
+    required this.color,
+    required this.monto,
+    required this.porcentaje,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // El monto manda sobre el nombre (el nombre se acorta primero), pero
+          // nunca pasa de la mitad de la pantalla: con una cifra enorme se
+          // achica. El tope sale del ancho de la pantalla y NO de un
+          // LayoutBuilder: esta tarjeta va dentro de un IntrinsicHeight (junto a
+          // "Ventas por sucursal"), que no admite LayoutBuilders.
+          Row(
+            children: [
+              Container(width: 10, height: 10, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+              const SizedBox(width: 9),
+              Expanded(
+                child: Text(
+                  nombre,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: _t(15, FontWeight.w500, _C.ink),
+                ),
+              ),
+              const SizedBox(width: 14),
+              ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width * 0.5),
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(monto, maxLines: 1, style: _t(16, FontWeight.w700, _C.ink)),
+                ),
+              ),
+              const SizedBox(width: 14),
+              SizedBox(
+                width: 48,
+                child: Text(
+                  '${(porcentaje * 100).toStringAsFixed(0)}%',
+                  textAlign: TextAlign.right,
+                  style: _t(13.5, FontWeight.w400, _C.muted),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: SizedBox(
+              height: 7,
+              child: Stack(
+                children: [
+                  Positioned.fill(child: ColoredBox(color: _C.subtle)),
+                  FractionallySizedBox(
+                    widthFactor: porcentaje.clamp(0.0, 1.0),
+                    child: ColoredBox(color: color, child: const SizedBox.expand()),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

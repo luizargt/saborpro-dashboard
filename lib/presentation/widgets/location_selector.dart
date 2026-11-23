@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../providers/dashboard_provider.dart';
 import 'moneda_vista_aviso.dart';
 import 'period_selector.dart';
+import 'inicio_ui.dart' show InicioColores;
 
 // ── LOCATION TABS BAR ────────────────────────────────────────────────────────
 // Barra horizontal con una pestaña por sucursal ("Todas" + cada una). Solo
@@ -110,11 +111,11 @@ class _LocationTabsViewState extends State<LocationTabsView> {
       height: 46,
       child: Stack(
         children: [
-          const Positioned(
+          Positioned(
             left: 0,
             right: 0,
             bottom: 0,
-            child: SizedBox(height: 1, child: ColoredBox(color: Colors.white12)),
+            child: SizedBox(height: 1, child: ColoredBox(color: InicioColores.line)),
           ),
           Positioned(
             left: 0,
@@ -216,7 +217,7 @@ class _LocationTab extends StatelessWidget {
                 duration: const Duration(milliseconds: 220),
                 curve: Curves.easeOut,
                 style: GoogleFonts.inter(
-                  color: selected ? Colors.white : Colors.white38,
+                  color: selected ? InicioColores.ink : InicioColores.soft,
                   fontSize: 16,
                   fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
                 ),
@@ -235,7 +236,7 @@ class _LocationTab extends StatelessWidget {
               duration: const Duration(milliseconds: 220),
               curve: Curves.easeOut,
               height: 2,
-              color: selected ? const Color(0xFF7444fd) : Colors.transparent,
+              color: selected ? InicioColores.accent : Colors.transparent,
             ),
           ],
         ),

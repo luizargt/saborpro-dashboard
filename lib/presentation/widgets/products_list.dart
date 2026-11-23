@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
+
+import '../../core/services/export_service.dart';
 import '../../core/utils/formato_dinero.dart';
 import '../../data/models/dashboard_data.dart';
-import '../../core/services/export_service.dart';
+import 'inicio_ui.dart';
+
+typedef _C = InicioColores;
+const _t = inicioTexto;
 
 String _paymentLabel(String method) {
   switch (method.toLowerCase()) {
@@ -21,6 +25,15 @@ String _paymentLabel(String method) {
   }
 }
 
+// Anchos de las columnas de la tabla. El nombre toma lo que sobra.
+const _anchoCant = 56.0;
+const _anchoTotal = 96.0;
+const _anchoVar = 76.0;
+
+/// "Platillos vendidos": la tabla de lo vendido en el período, con pestañas por
+/// clasificación del menú, la variación contra el período anterior y el Excel.
+/// Rediseño 2026-11-20 (inicio-manager.html, modo oscuro); lo que se filtra, se
+/// suma y se exporta es lo de siempre.
 class ProductsList extends StatefulWidget {
   final List<ProductSummary> products;
   final Map<String, List<ProductSummary>> productsByMethod;
@@ -74,8 +87,7 @@ class _ProductsListState extends State<ProductsList> {
 
   /// Etiqueta de la pestaña. El valor guardado es 'Comida' pero en la pestaña
   /// se lee mejor en plural, igual que las demás.
-  static String _tabLabel(String category) =>
-      category == 'Comida' ? 'Comidas' : category;
+  static String _tabLabel(String category) => category == 'Comida' ? 'Comidas' : category;
 
   /// Clasificaciones presentes en los datos, en el orden canónico. Las que no
   /// estén en la lista conocida se agregan al final en vez de descartarse.
@@ -87,8 +99,7 @@ class _ProductsListState extends State<ProductsList> {
 
   /// Clasificación de un producto. Los que vienen sin clasificar caen en
   /// "Otros": sin la pestaña "Todo" desaparecerían de la tabla por completo.
-  static String _catOf(ProductSummary p) =>
-      p.category.isEmpty ? 'Otros' : p.category;
+  static String _catOf(ProductSummary p) => p.category.isEmpty ? 'Otros' : p.category;
 
   /// Mueve la pestaña una posición dentro de las clasificaciones disponibles.
   void _shiftTab(List<String> tabs, String? current, int delta) {
@@ -125,9 +136,9 @@ class _ProductsListState extends State<ProductsList> {
   void _showFiltersSheet(List<String> paymentMethods) {
     showModalBottomSheet(
       context: context,
-      backgroundColor: const Color(0xFF1E293B),
+      backgroundColor: _C.card,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       useSafeArea: true,
       builder: (ctx) => _FiltersSheet(
@@ -142,6 +153,7 @@ class _ProductsListState extends State<ProductsList> {
   @override
   Widget build(BuildContext context) {
     final fmt = NumberFormat('#,##0', 'en_US');
+    final telefono = MediaQuery.sizeOf(context).width <= kInicioQuiebreTelefono;
 
     final baseProducts = _selectedPaymentMethod != null
         ? (widget.productsByMethod[_selectedPaymentMethod] ?? widget.products)
@@ -158,9 +170,7 @@ class _ProductsListState extends State<ProductsList> {
         ? _selectedCategory
         : (tabs.isNotEmpty ? tabs.first : null);
 
-    final filtered = active == null
-        ? baseProducts
-        : baseProducts.where((p) => _catOf(p) == active).toList();
+    final filtered = active == null ? baseProducts : baseProducts.where((p) => _catOf(p) == active).toList();
 
     final paymentMethods = widget.productsByMethod.keys.toList()..sort();
 
@@ -177,286 +187,200 @@ class _ProductsListState extends State<ProductsList> {
             }
           : null,
       child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Expanded(
-              child: Text(
-                _title(active, _selectedPaymentMethod),
-                style: GoogleFonts.inter(
-                  color: Colors.white,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                ),
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          InicioTituloTarjeta(
+            titulo: _title(active, _selectedPaymentMethod),
+            nota: widget.tips > 0 ? 'Propinas no incluidas' : null,
+            derecha: Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
-                  'vs ${widget.prevLabel}',
-                  style: GoogleFonts.inter(color: Colors.white60, fontSize: 11),
-                ),
-                const SizedBox(width: 8),
-                // Botón filtro
-                if (widget.products.isNotEmpty)
-                  Tooltip(
-                    message: 'Filtrar',
-                    child: InkWell(
-                      onTap: () => _showFiltersSheet(paymentMethods),
-                      borderRadius: BorderRadius.circular(8),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
-                        decoration: BoxDecoration(
-                          color: _hasActiveFilters
-                              ? const Color(0xFF7444fd).withValues(alpha: 0.15)
-                              : const Color(0xFF0F172A),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                            color: _hasActiveFilters
-                                ? const Color(0xFF7444fd)
-                                : Colors.white24,
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              Icons.tune_rounded,
-                              color: _hasActiveFilters
-                                  ? const Color(0xFF7444fd)
-                                  : Colors.white,
-                              size: 16,
-                            ),
-                            if (_hasActiveFilters) ...[
-                              const SizedBox(width: 4),
-                              Text(
-                                '$_activeFilterCount',
-                                style: GoogleFonts.inter(
-                                  color: const Color(0xFF7444fd),
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
-                    ),
+                // En teléfono no cabe: el diseño lo esconde.
+                if (!telefono)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 12),
+                    child: Text('vs ${widget.prevLabel}', style: _t(13.5, FontWeight.w400, _C.muted)),
                   ),
-                const SizedBox(width: 8),
-                if (widget.products.isNotEmpty)
-                  Tooltip(
-                    message: 'Descargar Excel',
-                    child: InkWell(
-                      onTap: () => ExportService.exportProducts(widget.products, widget.prevLabel),
-                      borderRadius: BorderRadius.circular(8),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF1E293B),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.white12),
-                        ),
-                        child: const Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.download_rounded, color: Colors.white70, size: 16),
-                            SizedBox(width: 4),
-                            Text('Excel', style: TextStyle(color: Colors.white70, fontSize: 11)),
-                          ],
-                        ),
-                      ),
-                    ),
+                if (widget.products.isNotEmpty) ...[
+                  _BotonFiltro(
+                    activo: _hasActiveFilters,
+                    cuantos: _activeFilterCount,
+                    onTap: () => _showFiltersSheet(paymentMethods),
                   ),
+                  const SizedBox(width: 8),
+                  _BotonExcel(
+                    conTexto: !telefono,
+                    onTap: () => ExportService.exportProducts(widget.products, widget.prevLabel),
+                  ),
+                ],
               ],
             ),
-          ],
-        ),
-        if (widget.tips > 0) ...[
-          const SizedBox(height: 4),
-          Text(
-            'Propinas no incluidas',
-            style: GoogleFonts.inter(color: Colors.white60, fontSize: 11),
           ),
-        ],
-        // Pestañas por clasificación del menú. Solo aparecen si hay más de una
-        // clasificación con ventas: con una sola no habría nada que elegir.
-        if (tabs.length > 1) ...[
-          const SizedBox(height: 10),
-          _CategoryTabs(
-            tabs: tabs,
-            selected: active,
-            labelFor: _tabLabel,
-            onChanged: (c) => setState(() => _selectedCategory = c),
-          ),
-        ],
-        const SizedBox(height: 4),
-        // Header tabla
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-          child: Row(
-            children: [
-              Expanded(
-                child: Text('Nombre', style: GoogleFonts.inter(color: Colors.white60, fontSize: 11)),
-              ),
-              SizedBox(
-                width: 50,
-                child: Text('Cant.', textAlign: TextAlign.center, style: GoogleFonts.inter(color: Colors.white60, fontSize: 11)),
-              ),
-              SizedBox(
-                width: 80,
-                child: Text('Total', textAlign: TextAlign.right, style: GoogleFonts.inter(color: Colors.white60, fontSize: 11)),
-              ),
-              SizedBox(
-                width: 52,
-                child: Text('Var.', textAlign: TextAlign.right, style: GoogleFonts.inter(color: Colors.white60, fontSize: 11)),
-              ),
-            ],
-          ),
-        ),
-        const Divider(color: Colors.white12, height: 1),
-        if (filtered.isEmpty)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 24),
-            child: Center(
-              child: Text(
-                widget.products.isEmpty
-                    ? 'Sin ventas en este período'
-                    : 'Sin productos con estos filtros',
-                style: GoogleFonts.inter(color: Colors.white60, fontSize: 13),
-              ),
+          // Pestañas por clasificación del menú. Solo aparecen si hay más de una
+          // clasificación con ventas: con una sola no habría nada que elegir.
+          if (tabs.length > 1) ...[
+            InicioSegmentos<String>(
+              completo: true,
+              opciones: [for (final c in tabs) (c, _tabLabel(c))],
+              elegido: active ?? tabs.first,
+              onElegir: (c) => setState(() => _selectedCategory = c),
             ),
-          )
-        else ...[
-          ...filtered.map((p) => _ProductRow(product: p, fmt: fmt)),
-          _FooterRow(
-            label: 'Total (${filtered.length} ${_countNoun(active)})',
-            qty: filtered.fold<int>(0, (s, p) => s + p.quantity),
-            amount: filtered.fold<double>(0, (s, p) => s + p.total),
-            fmt: fmt,
-            labelColor: Colors.white70,
-            amountColor: Colors.white70,
+            const SizedBox(height: 12),
+          ],
+          // Encabezado de la tabla
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 12),
+            decoration: BoxDecoration(border: Border(bottom: BorderSide(color: _C.line))),
+            child: Row(
+              children: [
+                Expanded(child: Text('NOMBRE', style: _encabezado)),
+                SizedBox(width: _anchoCant, child: Text('CANT.', textAlign: TextAlign.right, style: _encabezado)),
+                SizedBox(width: _anchoTotal, child: Text('TOTAL', textAlign: TextAlign.right, style: _encabezado)),
+                SizedBox(width: _anchoVar, child: Text('VAR.', textAlign: TextAlign.right, style: _encabezado)),
+              ],
+            ),
           ),
-          // Estos totales son del período completo, no de una clasificación. Solo
-          // aplican cuando el menú no tiene clasificaciones (sin pestañas).
-          if (active == null && _selectedPaymentMethod == null) ...[
-            if (widget.tips > 0)
-              _FooterRow(
-                label: '+ Propinas',
-                amount: widget.tips,
-                fmt: fmt,
-                labelColor: const Color(0xFFF59E0B),
-                amountColor: const Color(0xFFF59E0B),
+          if (filtered.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 30),
+              child: Center(
+                child: Text(
+                  widget.products.isEmpty ? 'Sin ventas en este período' : 'Sin productos con estos filtros',
+                  textAlign: TextAlign.center,
+                  style: _t(14, FontWeight.w400, _C.muted),
+                ),
               ),
-            if (widget.discounts > 0)
-              _FooterRow(
-                label: '− Descuentos',
-                amount: -widget.discounts,
-                fmt: fmt,
-                labelColor: const Color(0xFFEF4444),
-                amountColor: const Color(0xFFEF4444),
-              ),
-            if (widget.totalSales > 0)
-              _FooterRow(
-                label: 'Total cobrado',
-                amount: widget.totalSales,
-                fmt: fmt,
-                labelColor: Colors.white,
-                amountColor: const Color(0xFF7444fd),
-                bold: true,
-                topBorder: true,
-              ),
+            )
+          else ...[
+            ...filtered.map((p) => _ProductRow(product: p, fmt: fmt)),
+            _FooterRow(
+              label: 'Total (${filtered.length} ${_countNoun(active)})',
+              qty: filtered.fold<int>(0, (s, p) => s + p.quantity),
+              amount: filtered.fold<double>(0, (s, p) => s + p.total),
+              fmt: fmt,
+              labelColor: _C.ink,
+              amountColor: _C.ink,
+              bold: true,
+            ),
+            // Estos totales son del período completo, no de una clasificación. Solo
+            // aplican cuando el menú no tiene clasificaciones (sin pestañas).
+            if (active == null && _selectedPaymentMethod == null) ...[
+              if (widget.tips > 0)
+                _FooterRow(
+                  label: '+ Propinas',
+                  amount: widget.tips,
+                  fmt: fmt,
+                  labelColor: _C.warn,
+                  amountColor: _C.warn,
+                ),
+              if (widget.discounts > 0)
+                _FooterRow(
+                  label: '− Descuentos',
+                  amount: -widget.discounts,
+                  fmt: fmt,
+                  labelColor: _C.bad,
+                  amountColor: _C.bad,
+                ),
+              if (widget.totalSales > 0)
+                _FooterRow(
+                  label: 'Total cobrado',
+                  amount: widget.totalSales,
+                  fmt: fmt,
+                  labelColor: _C.ink,
+                  amountColor: _C.accent,
+                  bold: true,
+                  topBorder: true,
+                ),
+            ],
           ],
         ],
-      ],
       ),
     );
   }
 }
 
-// ─── Pestañas por clasificación ───────────────────────────────────────────────
+TextStyle get _encabezado => _t(12, FontWeight.w600, _C.muted).copyWith(letterSpacing: 0.6);
 
-/// Barra de pestañas subrayadas, del mismo estilo que las de sucursal. Es
-/// deslizable en horizontal para que quepan cinco clasificaciones aun en un
-/// teléfono angosto.
-class _CategoryTabs extends StatelessWidget {
-  final List<String> tabs;
-  final String? selected;
-  final String Function(String) labelFor;
-  final ValueChanged<String> onChanged;
+// ─── Botones de la cabecera ───────────────────────────────────────────────────
 
-  const _CategoryTabs({
-    required this.tabs,
-    required this.selected,
-    required this.labelFor,
-    required this.onChanged,
-  });
+/// El botón de filtros (44×44): se enciende en el color de acento cuando hay un
+/// filtro puesto.
+class _BotonFiltro extends StatelessWidget {
+  final bool activo;
+  final int cuantos;
+  final VoidCallback onTap;
+
+  const _BotonFiltro({required this.activo, required this.cuantos, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: 34,
-      child: Stack(
-        children: [
-          const Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: SizedBox(height: 1, child: ColoredBox(color: Colors.white12)),
-          ),
-          // Cada pestaña ocupa una fracción igual del ancho, así el subrayado
-          // abarca todo su segmento y el área táctil es cómoda para el dedo.
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
+    return Tooltip(
+      message: 'Filtrar',
+      child: Material(
+        color: activo ? _C.tint : _C.card,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: BorderSide(color: activo ? _C.accent : _C.line, width: 1.5),
+        ),
+        child: InkWell(
+          onTap: onTap,
+          customBorder: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          child: SizedBox(
+            height: 44,
+            width: activo ? 58 : 44,
             child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                for (final tab in tabs)
-                  Expanded(
-                    child: GestureDetector(
-                      onTap: () => onChanged(tab),
-                      behavior: HitTestBehavior.opaque,
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 7),
-                            child: Text(
-                              labelFor(tab),
-                              textAlign: TextAlign.center,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: GoogleFonts.inter(
-                                color: selected == tab
-                                    ? Colors.white
-                                    : Colors.white60,
-                                fontSize: 12,
-                                fontWeight: selected == tab
-                                    ? FontWeight.w600
-                                    : FontWeight.w400,
-                              ),
-                            ),
-                          ),
-                          AnimatedContainer(
-                            duration: const Duration(milliseconds: 150),
-                            height: 2,
-                            color: selected == tab
-                                ? const Color(0xFF7444fd)
-                                : Colors.transparent,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
+                Icon(Icons.tune_rounded, size: 19, color: activo ? _C.accent : _C.ink),
+                if (activo) ...[
+                  const SizedBox(width: 4),
+                  Text('$cuantos', style: _t(12, FontWeight.w700, _C.accent)),
+                ],
               ],
             ),
           ),
-        ],
+        ),
+      ),
+    );
+  }
+}
+
+class _BotonExcel extends StatelessWidget {
+  final bool conTexto;
+  final VoidCallback onTap;
+
+  const _BotonExcel({required this.conTexto, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: 'Descargar Excel',
+      child: Material(
+        color: _C.card,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: BorderSide(color: _C.line, width: 1.5),
+        ),
+        child: InkWell(
+          onTap: onTap,
+          customBorder: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          child: Container(
+            height: 44,
+            constraints: const BoxConstraints(minWidth: 44),
+            padding: EdgeInsets.symmetric(horizontal: conTexto ? 16 : 0),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.download_rounded, size: 18, color: _C.ink),
+                if (conTexto) ...[
+                  const SizedBox(width: 8),
+                  Text('Excel', style: _t(14, FontWeight.w600, _C.ink)),
+                ],
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -504,10 +428,7 @@ class _FiltersSheetState extends State<_FiltersSheet> {
             width: 36,
             height: 4,
             margin: const EdgeInsets.symmetric(vertical: 12),
-            decoration: BoxDecoration(
-              color: Colors.white24,
-              borderRadius: BorderRadius.circular(2),
-            ),
+            decoration: BoxDecoration(color: _C.line, borderRadius: BorderRadius.circular(2)),
           ),
         ),
         // Título
@@ -516,14 +437,7 @@ class _FiltersSheetState extends State<_FiltersSheet> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                'Filtros',
-                style: GoogleFonts.inter(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
+              Text('Filtros', style: _t(17, FontWeight.w700, _C.ink)),
               if (_hasFilters)
                 TextButton(
                   onPressed: () {
@@ -534,16 +448,10 @@ class _FiltersSheetState extends State<_FiltersSheet> {
                   },
                   style: TextButton.styleFrom(
                     padding: const EdgeInsets.symmetric(horizontal: 8),
-                    minimumSize: Size.zero,
+                    minimumSize: const Size(0, 36),
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
-                  child: Text(
-                    'Limpiar todo',
-                    style: GoogleFonts.inter(
-                      color: const Color(0xFF7444fd),
-                      fontSize: 13,
-                    ),
-                  ),
+                  child: Text('Limpiar todo', style: _t(13.5, FontWeight.w600, _C.accent)),
                 ),
             ],
           ),
@@ -555,15 +463,7 @@ class _FiltersSheetState extends State<_FiltersSheet> {
         if (widget.paymentMethods.isNotEmpty) ...[
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
-            child: Text(
-              'Método de pago',
-              style: GoogleFonts.inter(
-                color: Colors.white70,
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-                letterSpacing: 0.5,
-              ),
-            ),
+            child: Text('Método de pago', style: _t(13, FontWeight.w600, _C.muted)),
           ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -610,22 +510,15 @@ class _Chip extends StatelessWidget {
       onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        constraints: const BoxConstraints(minHeight: 38),
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: selected ? const Color(0xFF7444fd) : const Color(0xFF0F172A),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: selected ? const Color(0xFF7444fd) : Colors.white12,
-          ),
+          color: selected ? _C.ink : _C.card,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: selected ? _C.ink : _C.line, width: 1.5),
         ),
-        child: Text(
-          label,
-          style: GoogleFonts.inter(
-            color: selected ? Colors.white : Colors.white70,
-            fontSize: 13,
-            fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-          ),
-        ),
+        child: Text(label, style: _t(13.5, FontWeight.w600, selected ? _C.card : _C.ink)),
       ),
     );
   }
@@ -656,50 +549,35 @@ class _FooterRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final style = GoogleFonts.inter(
-      color: amountColor,
-      fontSize: 13,
-      fontWeight: bold ? FontWeight.w700 : FontWeight.w600,
-    );
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 14),
       decoration: BoxDecoration(
         border: Border(
-          top: topBorder
-              ? const BorderSide(color: Color(0x33FFFFFF), width: 1)
-              : BorderSide.none,
+          top: topBorder ? BorderSide(color: kInicioLineaFuerte, width: 2) : BorderSide(color: _C.line),
         ),
-        color: topBorder ? const Color(0x0AFFFFFF) : Colors.transparent,
       ),
       child: Row(
         children: [
           Expanded(
-            child: Text(
-              label,
-              style: GoogleFonts.inter(
-                color: labelColor,
-                fontSize: bold ? 13 : 12,
-                fontWeight: bold ? FontWeight.w600 : FontWeight.w500,
-              ),
-            ),
+            child: Text(label, style: _t(14.5, bold ? FontWeight.w700 : FontWeight.w600, labelColor)),
           ),
           SizedBox(
-            width: 50,
+            width: _anchoCant,
             child: qty != null
-                ? Text('$qty',
-                    textAlign: TextAlign.center,
-                    style: GoogleFonts.inter(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w700))
+                ? _Cifra(Text('$qty', maxLines: 1, style: _t(14.5, FontWeight.w700, _C.ink)))
                 : const SizedBox(),
           ),
           SizedBox(
-            width: 80,
-            child: Text(
-              amount < 0 ? '−$moneda${fmt.format(amount.abs())}' : '$moneda${fmt.format(amount)}',
-              textAlign: TextAlign.right,
-              style: style,
+            width: _anchoTotal,
+            child: _Cifra(
+              Text(
+                amount < 0 ? '−$moneda${fmt.format(amount.abs())}' : '$moneda${fmt.format(amount)}',
+                maxLines: 1,
+                style: _t(14.5, FontWeight.w700, amountColor),
+              ),
             ),
           ),
-          const SizedBox(width: 52),
+          const SizedBox(width: _anchoVar),
         ],
       ),
     );
@@ -717,73 +595,68 @@ class _ProductRow extends StatelessWidget {
     final change = product.changePercent;
     final isPositive = change > 0;
     final isNeutral = change == 0;
-    final changeColor = isNeutral
-        ? Colors.white60
-        : isPositive
-            ? const Color(0xFF22C55E)
-            : const Color(0xFFEF4444);
+    final changeColor = isNeutral ? _C.soft : (isPositive ? _C.gift : _C.bad);
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 10),
-      decoration: const BoxDecoration(
-        border: Border(bottom: BorderSide(color: Color(0x14FFFFFF))),
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 12),
+      decoration: BoxDecoration(border: Border(bottom: BorderSide(color: _C.line))),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Expanded(
             child: Text(
               product.name,
-              style: GoogleFonts.inter(color: Colors.white, fontSize: 11.5),
+              style: _t(14.5, FontWeight.w400, _C.ink, height: 1.3),
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
             ),
           ),
           SizedBox(
-            width: 50,
-            child: Text(
-              '${product.quantity}',
-              textAlign: TextAlign.center,
-              style: GoogleFonts.inter(color: Colors.white70, fontSize: 13),
+            width: _anchoCant,
+            child: _Cifra(
+              Text('${product.quantity}', maxLines: 1, style: _t(14.5, FontWeight.w400, _C.muted)),
             ),
           ),
           SizedBox(
-            width: 80,
-            child: Text(
-              '$moneda${fmt.format(product.total)}',
-              textAlign: TextAlign.right,
-              style: GoogleFonts.inter(
-                color: Colors.white,
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
+            width: _anchoTotal,
+            child: _Cifra(
+              Text('$moneda${fmt.format(product.total)}', maxLines: 1, style: _t(14.5, FontWeight.w700, _C.ink)),
+            ),
+          ),
+          SizedBox(
+            width: _anchoVar,
+            // Un producto nuevo contra un período casi vacío da porcentajes de
+            // seis cifras: se achica en vez de salirse de la columna.
+            child: _Cifra(
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (!isNeutral)
+                    Icon(isPositive ? Icons.arrow_upward_rounded : Icons.arrow_downward_rounded,
+                        size: 13, color: changeColor),
+                  const SizedBox(width: 2),
+                  Text(
+                    isNeutral ? '—' : '${change.abs().toStringAsFixed(0)}%',
+                    maxLines: 1,
+                    style: _t(13, FontWeight.w700, changeColor),
+                  ),
+                ],
               ),
-            ),
-          ),
-          SizedBox(
-            width: 52,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                if (!isNeutral)
-                  Icon(
-                    isPositive ? Icons.arrow_upward : Icons.arrow_downward,
-                    size: 10,
-                    color: changeColor,
-                  ),
-                const SizedBox(width: 2),
-                Text(
-                  isNeutral ? '—' : '${change.abs().toStringAsFixed(0)}%',
-                  style: GoogleFonts.inter(
-                    color: changeColor,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
             ),
           ),
         ],
       ),
     );
   }
+}
+
+/// Una cifra de la tabla pegada a la derecha de su columna: si no cabe, se
+/// achica.
+class _Cifra extends StatelessWidget {
+  final Widget child;
+  const _Cifra(this.child);
+
+  @override
+  Widget build(BuildContext context) =>
+      FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerRight, child: child);
 }

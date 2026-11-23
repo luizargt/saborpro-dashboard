@@ -9,6 +9,7 @@ import 'package:saborpro_reports/presentation/widgets/dish_profit_widgets.dart';
 
 import '../../helpers/menu_de_prueba.dart';
 import '../../helpers/texto_completo.dart';
+import 'package:saborpro_reports/presentation/widgets/inicio_ui.dart' show InicioColores;
 
 /// "Ver todos": la tabla de Utilidad por platillo, en teléfono y en pantalla
 /// ancha.
@@ -66,7 +67,7 @@ void main() {
       expect(tester.takeException(), isNull);
       expectCifrasCompletas(tester);
       expectContrasteDeCifras(tester,
-          fondo: const Color(0xFF243247), // la fila más clara de la cebra
+          fondo: InicioColores.subtle, // la fila más clara de la cebra
           excepto: find.byType(ChipFiltro));
     });
   }

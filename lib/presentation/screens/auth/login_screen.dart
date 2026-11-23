@@ -4,6 +4,7 @@ import '../../../core/services/auth_service.dart';
 import '../../../core/services/biometric_service.dart';
 import '../shell_screen.dart';
 import 'biometric_login_button.dart';
+import '../../widgets/inicio_ui.dart' show InicioColores;
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -150,11 +151,11 @@ class _LoginScreenState extends State<LoginScreen> {
     await showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: InicioColores.card,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Row(
           children: [
-            Icon(_biometricIcon, color: const Color(0xFF7444fd), size: 22),
+            Icon(_biometricIcon, color: InicioColores.accent, size: 22),
             const SizedBox(width: 10),
             Expanded(
               child: Text(
@@ -162,7 +163,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     ? 'Activa el acceso rápido'
                     : 'Sin ${_biometricKind.label} registrada',
                 style: GoogleFonts.inter(
-                  color: Colors.white,
+                  color: InicioColores.ink,
                   fontSize: 15,
                   fontWeight: FontWeight.w600,
                 ),
@@ -179,13 +180,13 @@ class _LoginScreenState extends State<LoginScreen> {
               : 'Tu dispositivo todavía no tiene ${_biometricKind.label} '
                   'registrada.\n\n${_biometricKind.enrollHint}',
           style: GoogleFonts.inter(
-              color: Colors.white70, fontSize: 14, height: 1.5),
+              color: InicioColores.muted, fontSize: 14, height: 1.5),
         ),
         actions: [
           ElevatedButton(
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF7444fd),
-              foregroundColor: Colors.white,
+              backgroundColor: InicioColores.accent,
+              foregroundColor: InicioColores.onAccent,
               shape:
                   RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
             ),
@@ -231,11 +232,11 @@ class _LoginScreenState extends State<LoginScreen> {
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: InicioColores.card,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Text(
           '¿A qué restaurante querés entrar?',
-          style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.w700),
+          style: GoogleFonts.inter(color: InicioColores.ink, fontWeight: FontWeight.w700),
         ),
         contentPadding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
         content: SizedBox(
@@ -258,29 +259,29 @@ class _LoginScreenState extends State<LoginScreen> {
                   margin: const EdgeInsets.only(bottom: 10),
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF0F172A),
+                    color: InicioColores.bg,
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFF7444fd).withValues(alpha: 0.3)),
+                    border: Border.all(color: InicioColores.accent.withValues(alpha: 0.3)),
                   ),
                   child: Row(
                     children: [
                       Container(
                         width: 40, height: 40,
                         decoration: BoxDecoration(
-                          color: const Color(0xFF7444fd).withValues(alpha: 0.15),
+                          color: InicioColores.accent.withValues(alpha: 0.15),
                           borderRadius: BorderRadius.circular(10),
                         ),
-                        child: const Icon(Icons.store_rounded, size: 20, color: Color(0xFF7444fd)),
+                        child: Icon(Icons.store_rounded, size: 20, color: InicioColores.accent),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Text(
                           name,
-                          style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.w600),
+                          style: GoogleFonts.inter(color: InicioColores.ink, fontWeight: FontWeight.w600),
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
-                      const Icon(Icons.chevron_right, color: Colors.white38),
+                      Icon(Icons.chevron_right, color: InicioColores.soft),
                     ],
                   ),
                 ),
@@ -292,7 +293,7 @@ class _LoginScreenState extends State<LoginScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, null),
-            child: Text('Cancelar', style: GoogleFonts.inter(color: Colors.white38)),
+            child: Text('Cancelar', style: GoogleFonts.inter(color: InicioColores.soft)),
           ),
         ],
       ),
@@ -346,16 +347,16 @@ class _LoginScreenState extends State<LoginScreen> {
       context: context,
       barrierDismissible: false,
       builder: (_) => AlertDialog(
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: InicioColores.card,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Text(
           '¿Activar acceso rápido?',
-          style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.w700),
+          style: GoogleFonts.inter(color: InicioColores.ink, fontWeight: FontWeight.w700),
         ),
         content: Text(
           'La próxima vez entras a $email con tu ${_biometricKind.label}, sin '
           'escribir tu contraseña.',
-          style: GoogleFonts.inter(color: Colors.white70),
+          style: GoogleFonts.inter(color: InicioColores.muted),
         ),
         actions: [
           TextButton(
@@ -363,7 +364,7 @@ class _LoginScreenState extends State<LoginScreen> {
               Navigator.pop(context);
               _goToDashboard();
             },
-            child: Text('No, gracias', style: GoogleFonts.inter(color: Colors.white38)),
+            child: Text('No, gracias', style: GoogleFonts.inter(color: InicioColores.soft)),
           ),
           ElevatedButton(
             onPressed: () async {
@@ -382,8 +383,8 @@ class _LoginScreenState extends State<LoginScreen> {
               _goToDashboard();
             },
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF7444fd),
-              foregroundColor: Colors.white,
+              backgroundColor: InicioColores.accent,
+              foregroundColor: InicioColores.onAccent,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
             ),
             child: Text('Activar', style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
@@ -410,7 +411,7 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
+      backgroundColor: InicioColores.bg,
       // Sin AppBar ni bottomNavigationBar, el Scaffold dibuja el body hasta el
       // último píxel de la pantalla: el logo se metía bajo el reloj y el botón
       // "Ingresar" quedaba contra la barra de navegación. Y es la primera
@@ -438,7 +439,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     'Sabor Suite',
                     textAlign: TextAlign.center,
                     style: GoogleFonts.inter(
-                      color: Colors.white54,
+                      color: InicioColores.muted,
                       fontSize: 16,
                       fontWeight: FontWeight.w400,
                       letterSpacing: 2,
@@ -448,7 +449,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     'Manager',
                     textAlign: TextAlign.center,
                     style: GoogleFonts.inter(
-                      color: Colors.white,
+                      color: InicioColores.ink,
                       fontSize: 32,
                       fontWeight: FontWeight.w800,
                     ),
@@ -457,7 +458,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   TextFormField(
                     controller: _emailCtrl,
                     keyboardType: TextInputType.emailAddress,
-                    style: const TextStyle(color: Colors.white),
+                    style: TextStyle(color: InicioColores.ink),
                     decoration: _inputDecoration('Email'),
                     validator: (v) =>
                         (v == null || !v.contains('@')) ? 'Email inválido' : null,
@@ -466,12 +467,12 @@ class _LoginScreenState extends State<LoginScreen> {
                   TextFormField(
                     controller: _passCtrl,
                     obscureText: _obscure,
-                    style: const TextStyle(color: Colors.white),
+                    style: TextStyle(color: InicioColores.ink),
                     decoration: _inputDecoration('Contraseña').copyWith(
                       suffixIcon: IconButton(
                         icon: Icon(
                           _obscure ? Icons.visibility_off : Icons.visibility,
-                          color: Colors.white38,
+                          color: InicioColores.soft,
                         ),
                         onPressed: () => setState(() => _obscure = !_obscure),
                       ),
@@ -484,7 +485,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     const SizedBox(height: 12),
                     Text(
                       _error!,
-                      style: const TextStyle(color: Color(0xFFEF4444)),
+                      style: TextStyle(color: InicioColores.bad),
                       textAlign: TextAlign.center,
                     ),
                   ],
@@ -494,18 +495,18 @@ class _LoginScreenState extends State<LoginScreen> {
                     child: ElevatedButton(
                       onPressed: _loading ? null : _login,
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF7444fd),
+                        backgroundColor: InicioColores.accent,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(10),
                         ),
                       ),
                       child: _loading
-                          ? const SizedBox(
+                          ? SizedBox(
                               width: 20,
                               height: 20,
                               child: CircularProgressIndicator(
                                 strokeWidth: 2,
-                                color: Colors.white,
+                                color: InicioColores.ink,
                               ),
                             )
                           : Text(
@@ -513,7 +514,7 @@ class _LoginScreenState extends State<LoginScreen> {
                               style: GoogleFonts.inter(
                                 fontSize: 16,
                                 fontWeight: FontWeight.w600,
-                                color: Colors.white,
+                                color: InicioColores.ink,
                               ),
                             ),
                     ),
@@ -542,18 +543,18 @@ class _LoginScreenState extends State<LoginScreen> {
   InputDecoration _inputDecoration(String label) {
     return InputDecoration(
       labelText: label,
-      labelStyle: const TextStyle(color: Colors.white54),
+      labelStyle: TextStyle(color: InicioColores.muted),
       filled: true,
-      fillColor: const Color(0xFF1E293B),
+      fillColor: InicioColores.card,
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(10),
         borderSide: BorderSide.none,
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(10),
-        borderSide: const BorderSide(color: Color(0xFF7444fd)),
+        borderSide: BorderSide(color: InicioColores.accent),
       ),
-      errorStyle: const TextStyle(color: Color(0xFFEF4444)),
+      errorStyle: TextStyle(color: InicioColores.bad),
     );
   }
 }

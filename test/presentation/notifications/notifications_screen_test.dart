@@ -154,9 +154,9 @@ void main() {
       expect(find.text('1 sin leer'), findsOneWidget);
     });
 
-    testWidgets('sin pendientes muestra el rango, no un cero', (tester) async {
+    testWidgets('sin pendientes dice "Todo leído", no un cero', (tester) async {
       await _pump(tester, [_aviso(read: true)]);
-      expect(find.text('Últimos 7 días'), findsOneWidget);
+      expect(find.text('Todo leído'), findsOneWidget);
       expect(find.text('0 sin leer'), findsNothing);
     });
 
@@ -190,14 +190,27 @@ void main() {
       expect(p.marcadas, ['n7']);
     });
 
-    testWidgets('"Marcar leídas" solo existe si hay pendientes',
+    testWidgets('tocar uno ya leído no escribe nada', (tester) async {
+      final p = await _pump(tester, [_aviso(id: 'n8', read: true)]);
+      await tester.tap(find.text('Ana registró un gasto de Q50.00'));
+      await tester.pump();
+      expect(p.marcadas, isEmpty);
+    });
+
+    testWidgets('"Marcar leídas" siempre está, pero solo actúa si hay pendientes',
         (tester) async {
-      await _pump(tester, [_aviso(read: true)]);
-      expect(find.text('Marcar leídas'), findsNothing);
+      // En el teléfono es solo el ícono; el nombre sale en el tooltip.
+      final boton = find.byTooltip('Marcar leídas');
+
+      final sinPendientes = await _pump(tester, [_aviso(read: true)]);
+      expect(boton, findsOneWidget);
+      await tester.tap(boton);
+      await tester.pump();
+      expect(sinPendientes.marcarTodasLlamado, 0);
 
       final p = await _pump(tester, [_aviso()]);
-      expect(find.text('Marcar leídas'), findsOneWidget);
-      await tester.tap(find.text('Marcar leídas'));
+      expect(boton, findsOneWidget);
+      await tester.tap(boton);
       await tester.pump();
       expect(p.marcarTodasLlamado, 1);
     });

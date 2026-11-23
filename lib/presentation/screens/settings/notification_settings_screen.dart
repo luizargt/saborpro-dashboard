@@ -11,6 +11,8 @@ import '../../../core/services/auth_service.dart';
 import '../../../core/services/notification_service.dart';
 import '../../../presentation/providers/notification_settings_provider.dart';
 import '../../../presentation/widgets/max_content_width.dart';
+import '../../widgets/inicio_ui.dart' show InicioColores;
+import '../../navigation/contexto_shell.dart';
 
 /// Pantalla de preferencias de notificaciones push.
 ///
@@ -292,24 +294,29 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
         (_permiso == AuthorizationStatus.denied ||
             _permiso == AuthorizationStatus.notDetermined);
 
+    // Dentro del shell el título "Notificaciones" lo pone el encabezado del shell y
+    // la pantalla no lleva su propia barra.
+    final enShell = ContextoShell.enShell(context);
     return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF0A1020),
+      backgroundColor: InicioColores.bg,
+      appBar: enShell
+          ? null
+          : AppBar(
+        backgroundColor: InicioColores.bg,
         elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.white),
+        iconTheme: IconThemeData(color: InicioColores.ink),
         title: Text(
           'Notificaciones',
           style: GoogleFonts.inter(
-            color: Colors.white,
+            color: InicioColores.ink,
             fontSize: 16,
             fontWeight: FontWeight.w700,
           ),
         ),
       ),
       body: cargando
-          ? const Center(
-              child: CircularProgressIndicator(color: Color(0xFF7444fd)),
+          ? Center(
+              child: CircularProgressIndicator(color: InicioColores.accent),
             )
           : MaxContentWidth(
               maxWidth: 720,
@@ -336,7 +343,7 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
                   const SizedBox(height: 16),
                   Container(
                     decoration: BoxDecoration(
-                      color: const Color(0xFF1E293B),
+                      color: InicioColores.card,
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Column(
@@ -350,7 +357,7 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
                               thickness: 1,
                               indent: 16,
                               endIndent: 16,
-                              color: Colors.white.withOpacity(0.06),
+                              color: InicioColores.line,
                             ),
                           _PrefRow(
                             prefKey: NotificationSettingsProvider.keys[i],
@@ -405,7 +412,7 @@ class _PermisoBloqueadoCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const ambar = Color(0xFFF59E0B);
+    final ambar = InicioColores.warn;
 
     return Container(
       padding: const EdgeInsets.all(14),
@@ -422,7 +429,7 @@ class _PermisoBloqueadoCard extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Icon(
+              Icon(
                 Icons.notifications_off_rounded,
                 color: ambar,
                 size: 20,
@@ -437,7 +444,7 @@ class _PermisoBloqueadoCard extends StatelessWidget {
                           ? 'Falta activar las notificaciones'
                           : 'Tu teléfono tiene bloqueadas las notificaciones',
                       style: GoogleFonts.inter(
-                        color: Colors.white,
+                        color: InicioColores.ink,
                         fontSize: 14,
                         fontWeight: FontWeight.w600,
                         height: 1.35,
@@ -455,7 +462,7 @@ class _PermisoBloqueadoCard extends StatelessWidget {
                               'Aunque abajo esté todo encendido, no te va a '
                               'llegar nada.',
                       style: GoogleFonts.inter(
-                        color: Colors.white70,
+                        color: InicioColores.muted,
                         fontSize: 13,
                         height: 1.5,
                       ),
@@ -474,9 +481,9 @@ class _PermisoBloqueadoCard extends StatelessWidget {
               onPressed: ocupado ? null : () => onAccion(),
               style: ElevatedButton.styleFrom(
                 backgroundColor: ambar,
-                foregroundColor: const Color(0xFF0F172A),
+                foregroundColor: InicioColores.bg,
                 disabledBackgroundColor: ambar.withOpacity(0.55),
-                disabledForegroundColor: const Color(0xFF0F172A),
+                disabledForegroundColor: InicioColores.bg,
                 elevation: 0,
                 padding:
                     const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
@@ -485,12 +492,12 @@ class _PermisoBloqueadoCard extends StatelessWidget {
                 ),
               ),
               icon: ocupado
-                  ? const SizedBox(
+                  ? SizedBox(
                       width: 16,
                       height: 16,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
-                        color: Color(0xFF0F172A),
+                        color: InicioColores.bg,
                       ),
                     )
                   : Icon(
@@ -534,16 +541,16 @@ class _IntroCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFF7444fd).withOpacity(0.08),
+        color: InicioColores.accent.withOpacity(0.08),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFF7444fd).withOpacity(0.25)),
+        border: Border.all(color: InicioColores.accent.withOpacity(0.25)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(
+          Icon(
             Icons.notifications_active_rounded,
-            color: Color(0xFF7444fd),
+            color: InicioColores.accent,
             size: 20,
           ),
           const SizedBox(width: 12),
@@ -557,7 +564,7 @@ class _IntroCard extends StatelessWidget {
                   'sucursales. Cada tipo se puede apagar por separado; lo que '
                   'apagues aquí deja de llegarte solo a ti.',
                   style: GoogleFonts.inter(
-                    color: Colors.white70,
+                    color: InicioColores.muted,
                     fontSize: 13,
                     height: 1.5,
                   ),
@@ -568,7 +575,7 @@ class _IntroCard extends StatelessWidget {
                     'En este dispositivo no vas a recibirlos, pero lo que '
                     'cambies aquí sí se guarda y aplica a tu teléfono.',
                     style: GoogleFonts.inter(
-                      color: Colors.white54,
+                      color: InicioColores.muted,
                       fontSize: 12,
                       height: 1.5,
                     ),
@@ -621,7 +628,7 @@ class _PrefRow extends StatelessWidget {
           children: [
             Icon(
               copy.icon,
-              color: on ? const Color(0xFF7444fd) : Colors.white38,
+              color: on ? InicioColores.accent : InicioColores.soft,
               size: 20,
             ),
             const SizedBox(width: 12),
@@ -640,7 +647,7 @@ class _PrefRow extends StatelessWidget {
                     maxLines: 3,
                     overflow: TextOverflow.ellipsis,
                     style: GoogleFonts.inter(
-                      color: on ? Colors.white : Colors.white54,
+                      color: on ? InicioColores.ink : InicioColores.muted,
                       fontSize: 14,
                       fontWeight: FontWeight.w600,
                     ),
@@ -651,7 +658,7 @@ class _PrefRow extends StatelessWidget {
                     maxLines: 3,
                     overflow: TextOverflow.ellipsis,
                     style: GoogleFonts.inter(
-                      color: Colors.white38,
+                      color: InicioColores.soft,
                       fontSize: 12,
                       height: 1.35,
                     ),
@@ -663,10 +670,10 @@ class _PrefRow extends StatelessWidget {
             Switch(
               value: on,
               onChanged: toggle,
-              activeColor: const Color(0xFF7444fd),
-              activeTrackColor: const Color(0xFF7444fd).withOpacity(0.3),
-              inactiveThumbColor: Colors.white38,
-              inactiveTrackColor: Colors.white12,
+              activeColor: InicioColores.accent,
+              activeTrackColor: InicioColores.accent.withOpacity(0.3),
+              inactiveThumbColor: InicioColores.soft,
+              inactiveTrackColor: InicioColores.line,
               materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
             ),
           ],

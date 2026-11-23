@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../core/services/store_update_service.dart';
+import 'inicio_ui.dart' show InicioColores;
 
 /// Aviso de actualización obligatoria.
 ///
@@ -111,7 +112,7 @@ class _UpdateModal extends StatelessWidget {
               child: Container(
                 padding: const EdgeInsets.fromLTRB(24, 28, 24, 20),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF1E293B),
+                  color: InicioColores.card,
                   borderRadius: BorderRadius.circular(18),
                 ),
                 child: Column(
@@ -121,18 +122,18 @@ class _UpdateModal extends StatelessWidget {
                       width: 60,
                       height: 60,
                       decoration: BoxDecoration(
-                        color: const Color(0xFF7444fd).withValues(alpha: 0.15),
+                        color: InicioColores.accent.withValues(alpha: 0.15),
                         shape: BoxShape.circle,
                       ),
-                      child: const Icon(Icons.system_update_rounded,
-                          color: Color(0xFF7444fd), size: 30),
+                      child: Icon(Icons.system_update_rounded,
+                          color: InicioColores.accent, size: 30),
                     ),
                     const SizedBox(height: 18),
                     Text(
                       'Actualiza Sabor Suite',
                       textAlign: TextAlign.center,
                       style: GoogleFonts.inter(
-                        color: Colors.white,
+                        color: InicioColores.ink,
                         fontSize: 18,
                         fontWeight: FontWeight.w700,
                       ),
@@ -143,7 +144,7 @@ class _UpdateModal extends StatelessWidget {
                       'seguir usando la app.',
                       textAlign: TextAlign.center,
                       style: GoogleFonts.inter(
-                        color: Colors.white70,
+                        color: InicioColores.muted,
                         fontSize: 13,
                         height: 1.5,
                       ),
@@ -155,8 +156,8 @@ class _UpdateModal extends StatelessWidget {
                       child: ElevatedButton(
                         onPressed: onUpdate,
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF7444fd),
-                          foregroundColor: Colors.white,
+                          backgroundColor: InicioColores.accent,
+                          foregroundColor: InicioColores.onAccent,
                           shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(10)),
                         ),

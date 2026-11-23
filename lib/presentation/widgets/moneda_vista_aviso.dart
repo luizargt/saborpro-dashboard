@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../core/utils/monedas.dart';
 import '../providers/dashboard_provider.dart';
 import '../screens/settings/moneda_settings_screen.dart';
+import 'inicio_ui.dart' show InicioColores;
 
 /// Una línea bajo las pestañas de sucursal que dice en qué moneda se está
 /// viendo, cuando el negocio tiene sucursales en monedas distintas.
@@ -18,7 +19,7 @@ import '../screens/settings/moneda_settings_screen.dart';
 class MonedaVistaAviso extends StatelessWidget {
   const MonedaVistaAviso({super.key});
 
-  static const _ambar = Color(0xFFF59E0B);
+  static Color get _ambar => InicioColores.warn;
 
   void _abrirAjustes(BuildContext context) => Navigator.of(context).push(
         MaterialPageRoute(builder: (_) => const MonedaSettingsScreen()),
@@ -34,7 +35,7 @@ class MonedaVistaAviso extends StatelessWidget {
     final sinTasa = dash.sucursalesSinTasa;
 
     String texto;
-    Color color = Colors.white38;
+    Color color = InicioColores.soft;
     String? accion;
     VoidCallback? alTocar;
 
@@ -90,7 +91,7 @@ class MonedaVistaAviso extends StatelessWidget {
             TextButton(
               onPressed: alTocar,
               style: TextButton.styleFrom(
-                foregroundColor: const Color(0xFF7444fd),
+                foregroundColor: InicioColores.accent,
                 padding: const EdgeInsets.symmetric(horizontal: 8),
                 minimumSize: const Size(0, 32),
                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,

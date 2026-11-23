@@ -9,6 +9,11 @@ class IngredientStock {
   // locationId -> dayKey (yyyy-MM-dd) -> cantidad consumida ese día
   final Map<String, Map<String, double>> consumptionByDayByLocation;
 
+  /// El último precio de compra por unidad en cada sucursal (`lastPurchasePrice`
+  /// del ingrediente). Falta donde nunca se compró o no se anotó el precio: ahí
+  /// no se sabe cuánto vale lo que hay (no se asume cero).
+  final Map<String, double> costByLocation;
+
   const IngredientStock({
     required this.name,
     required this.unit,
@@ -16,6 +21,7 @@ class IngredientStock {
     required this.minStockByLocation,
     this.daysRemainingByLocation = const {},
     this.consumptionByDayByLocation = const {},
+    this.costByLocation = const {},
   });
 
   double get totalStock =>

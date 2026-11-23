@@ -6,20 +6,27 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../core/utils/formato_dinero.dart';
 import '../../data/models/menu_margin_data.dart';
 import '../../data/models/profitability_data.dart';
+import 'inicio_ui.dart' show InicioColores;
+import '../../core/theme/paleta.dart';
 
 // Paleta de Utilidad por platillo. Los textos con cifras van en blanco al 60%
 // o más: por debajo no llegan al contraste mínimo sobre la tarjeta (4.5:1), y
 // el rojo y el violeta de la marca tampoco, así que como TEXTO se usan sus
 // versiones claras. Los oscuros quedan para bordes y rellenos.
-const kFondo = Color(0xFF0F172A);
-const kBarra = Color(0xFF0A1020);
-const kTarjeta = Color(0xFF1E293B);
-const kAcento = Color(0xFF7444fd);
-const kAcentoTexto = Color(0xFFA78BFA);
-const kVerde = Color(0xFF22C55E);
-const kRojo = Color(0xFFEF4444);
-const kRojoTexto = Color(0xFFF87171);
-const kAmbar = Color(0xFFFBBF24);
+Color get kFondo => InicioColores.bg;
+Color get kBarra => InicioColores.bg;
+Color get kTarjeta => InicioColores.card;
+Color get kAcento => InicioColores.accent;
+Color get kAcentoTexto => InicioColores.accent;
+/// El verde como TEXTO de cifras: el del diseño sobre blanco da 4.0:1, por debajo del
+/// 4.5:1 que esta pantalla se exige (ver test/helpers/texto_completo.dart); en claro
+/// se usa uno más hondo.
+Color get kVerde => paletaActual.esOscura ? InicioColores.gift : const Color(0xFF0A7A62);
+Color get kRojo => InicioColores.bad;
+Color get kRojoTexto => InicioColores.bad;
+/// El ámbar como texto de cifras sobre la fila gris de la cebra: el del diseño da 4.2:1
+/// (menos de 4.5:1); en claro se usa uno más hondo.
+Color get kAmbar => paletaActual.esOscura ? InicioColores.warn : const Color(0xFF8F5400);
 
 Color colorDeBanda(Banda b) => switch (b) {
       Banda.cubreTodo => kVerde,
@@ -40,12 +47,12 @@ String etiquetaDeBanda(Desglose d) => switch (d.banda) {
 /// Sin reparto, el mismo semáforo que el costo de comida de Rentabilidad: un
 /// margen de receta de 65% es un costo de comida de 35%, la meta de allá.
 Color colorDeMargenReceta(double? pct) {
-  if (pct == null) return Colors.white60;
+  if (pct == null) return InicioColores.muted;
   return switch (evaluarFoodCost(100 - pct)) {
     Salud.bien => kVerde,
     Salud.atencion => kAmbar,
     Salud.mal => kRojoTexto,
-    Salud.desconocido => Colors.white60,
+    Salud.desconocido => InicioColores.muted,
   };
 }
 
@@ -105,7 +112,7 @@ class ChipFiltro extends StatelessWidget {
       color: activo ? kAcento.withValues(alpha: 0.22) : kTarjeta,
       shape: StadiumBorder(
         side: BorderSide(
-          color: activo ? kAcento : Colors.white.withValues(alpha: 0.08),
+          color: activo ? kAcento : InicioColores.line,
         ),
       ),
       child: InkWell(
@@ -123,8 +130,8 @@ class ChipFiltro extends StatelessWidget {
                   // Deshabilitado puede ir tenue: WCAG exime a los controles
                   // inactivos del contraste mínimo.
                   color: deshabilitado
-                      ? Colors.white38
-                      : (activo ? Colors.white : Colors.white70),
+                      ? InicioColores.soft
+                      : (activo ? InicioColores.ink : InicioColores.muted),
                   fontSize: 12.5,
                   fontWeight: activo ? FontWeight.w700 : FontWeight.w500,
                 ),
@@ -163,7 +170,7 @@ class _Lectura {
           );
         }
         if (p.margenRecetaPct == null) {
-          return const _Lectura('Sin precio de venta', Colors.white60, null);
+          return _Lectura('Sin precio de venta', InicioColores.muted, null);
         }
         // Sin reparto el color es el del costo de comida, no "pierde/cubre":
         // se dice con las palabras de Rentabilidad para no confundirlos.
@@ -182,7 +189,7 @@ class _Lectura {
           '$faltan ${_plural(faltan, 'ingrediente sin costo', 'ingredientes sin costo')}',
         );
       case EstadoCosto.sinReceta:
-        return const _Lectura('Sin receta', Colors.white70, null);
+        return _Lectura('Sin receta', InicioColores.muted, null);
     }
   }
 }
@@ -205,7 +212,7 @@ class _Nombre extends StatelessWidget {
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
           style: GoogleFonts.inter(
-              color: Colors.white,
+              color: InicioColores.ink,
               fontSize: tamano,
               fontWeight: FontWeight.w600,
               height: 1.25),
@@ -214,7 +221,7 @@ class _Nombre extends StatelessWidget {
           Text(
             p.presentacion!,
             style: GoogleFonts.inter(
-                color: Colors.white70, fontSize: tamano - 2, height: 1.3),
+                color: InicioColores.muted, fontSize: tamano - 2, height: 1.3),
           ),
       ],
     );
@@ -242,7 +249,7 @@ class _Cifras extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(bottom: 1.5),
             child: Text(l.secundario!,
-                style: GoogleFonts.inter(color: Colors.white70, fontSize: 12)),
+                style: GoogleFonts.inter(color: InicioColores.muted, fontSize: 12)),
           ),
       ],
     );
@@ -288,7 +295,7 @@ class DesglosePlatillo extends StatelessWidget {
 
     final hijos = <Widget>[
       const SizedBox(height: 10),
-      Divider(color: Colors.white.withValues(alpha: 0.08), height: 1),
+      Divider(color: InicioColores.line, height: 1),
       const SizedBox(height: 8),
       _Renglon('Precio de venta (con IVA)', formatoDinero(p.precio), fuerte: true),
     ];
@@ -321,7 +328,7 @@ class DesglosePlatillo extends StatelessWidget {
             'Gastos fijos (${formatoPct(r.ratioFijos * 100)} de lo cobrado)',
             formatoDinero(-d.fijos)),
         const SizedBox(height: 4),
-        Divider(color: Colors.white.withValues(alpha: 0.08), height: 1),
+        Divider(color: InicioColores.line, height: 1),
         const SizedBox(height: 6),
         _Renglon('Te queda, antes de impuestos', formatoDinero(d.utilidad),
             fuerte: true, colorMonto: colorDeBanda(d.banda)),
@@ -342,7 +349,7 @@ class DesglosePlatillo extends StatelessWidget {
     } else if (p.estado == EstadoCosto.completo && p.margenReceta != null) {
       hijos.addAll([
         const SizedBox(height: 4),
-        Divider(color: Colors.white.withValues(alpha: 0.08), height: 1),
+        Divider(color: InicioColores.line, height: 1),
         const SizedBox(height: 6),
         _Renglon('Queda tras la receta (sin gastos)', formatoDinero(p.margenReceta!),
             fuerte: true,
@@ -380,7 +387,7 @@ class DesglosePlatillo extends StatelessWidget {
         padding: const EdgeInsets.only(top: 10),
         child: Text(texto,
             style: GoogleFonts.inter(
-                color: Colors.white60, fontSize: 11.5, height: 1.45)),
+                color: InicioColores.muted, fontSize: 11.5, height: 1.45)),
       );
 }
 
@@ -488,7 +495,7 @@ class _Renglon extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final estiloEtiqueta = GoogleFonts.inter(
-      color: fuerte ? Colors.white : Colors.white70,
+      color: fuerte ? InicioColores.ink : InicioColores.muted,
       fontSize: 13,
       fontWeight: fuerte ? FontWeight.w700 : FontWeight.w400,
       height: 1.3,
@@ -500,7 +507,7 @@ class _Renglon extends StatelessWidget {
         izquierda: Text(etiqueta, style: estiloEtiqueta),
         monto: monto,
         estiloMonto: GoogleFonts.inter(
-          color: colorMonto ?? (fuerte ? Colors.white : Colors.white70),
+          color: colorMonto ?? (fuerte ? InicioColores.ink : InicioColores.muted),
           fontSize: fuerte ? 13.5 : 13,
           fontWeight: fuerte ? FontWeight.w800 : FontWeight.w600,
         ),
@@ -520,7 +527,7 @@ class _LineaIngrediente extends StatelessWidget {
         '${formatoCantidad(l.cantidad)}${l.unidad.isEmpty ? '' : ' ${l.unidad}'}';
     final String detalle;
     final String monto;
-    Color colorMonto = Colors.white70;
+    Color colorMonto = InicioColores.muted;
     switch (l.estado) {
       case EstadoLinea.ok:
         detalle = '$cantidad × ${_precioUnitario(l.precio!)}';
@@ -541,11 +548,11 @@ class _LineaIngrediente extends StatelessWidget {
     }
 
     final estiloNombre =
-        GoogleFonts.inter(color: Colors.white70, fontSize: 12.5, height: 1.3);
+        GoogleFonts.inter(color: InicioColores.muted, fontSize: 12.5, height: 1.3);
     final textoDetalle =
         l.unidadDistinta ? '$detalle · unidad distinta' : detalle;
     final estiloDetalle = GoogleFonts.inter(
-        color: l.unidadDistinta ? kAmbar : Colors.white60,
+        color: l.unidadDistinta ? kAmbar : InicioColores.muted,
         fontSize: 11,
         height: 1.35);
 
@@ -631,7 +638,7 @@ class ResumenReparto extends StatelessWidget {
             'abajo para reintentar.',
             kAmbar));
       } else if (calculando) {
-        hijos.add(_nota('Calculando los gastos de $periodo…', Colors.white60));
+        hijos.add(_nota('Calculando los gastos de $periodo…', InicioColores.muted));
       }
     } else {
       switch (r.estado) {
@@ -641,7 +648,7 @@ class ResumenReparto extends StatelessWidget {
             Text(
               'De cada ${moneda}100 que cobrás, $moneda${c.total} se van en gastos',
               style: GoogleFonts.inter(
-                  color: Colors.white,
+                  color: InicioColores.ink,
                   fontSize: 15,
                   fontWeight: FontWeight.w700,
                   height: 1.3),
@@ -652,7 +659,7 @@ class ResumenReparto extends StatelessWidget {
               '$moneda${c.variables} en variables (luz, gas…). Gastos de $periodo; '
               'precios y recetas de hoy.',
               style: GoogleFonts.inter(
-                  color: Colors.white70, fontSize: 12.5, height: 1.4),
+                  color: InicioColores.muted, fontSize: 12.5, height: 1.4),
             ),
           ]);
           final avisos = <String>[
@@ -678,7 +685,7 @@ class ResumenReparto extends StatelessWidget {
                 'insumos y pagos a proveedores: se asume que es la comida de '
                 'las recetas. Si incluye desechables o limpieza, ganás un poco '
                 'menos de lo que dice.',
-                Colors.white60));
+                InicioColores.muted));
           }
         case EstadoReparto.periodoCorto:
           hijos.add(_nota(
@@ -689,12 +696,12 @@ class ResumenReparto extends StatelessWidget {
           hijos.add(_nota(
               'Sin ventas en $periodo no hay con qué repartir los gastos. '
               'Elegí un período con ventas. $_soloReceta',
-              Colors.white70));
+              InicioColores.muted));
         case EstadoReparto.sinGastos:
           hijos.addAll([
             Text('No hay gastos cargados en $periodo',
                 style: GoogleFonts.inter(
-                    color: Colors.white,
+                    color: InicioColores.ink,
                     fontSize: 15,
                     fontWeight: FontWeight.w700,
                     height: 1.3)),
@@ -737,7 +744,7 @@ class ResumenReparto extends StatelessWidget {
       hijos.add(_nota(
           'En "Todas" se usa el precio base y el costo de la sucursal donde se '
           'armó cada receta. Elegí una sucursal para verlo con sus precios.',
-          Colors.white60));
+          InicioColores.muted));
     }
     if (notaMoneda != null) hijos.add(_nota(notaMoneda!, kAmbar));
 
@@ -765,7 +772,7 @@ class ResumenReparto extends StatelessWidget {
       return (texto: 'No se pudieron calcular los gastos', color: kAmbar);
     }
     if (calculando) {
-      return (texto: 'Calculando los gastos…', color: Colors.white60);
+      return (texto: 'Calculando los gastos…', color: InicioColores.muted);
     }
     return null;
   }
@@ -782,7 +789,7 @@ class ResumenReparto extends StatelessWidget {
     EstadoReparto.listo => (
         texto: 'De cada ${moneda}100 que cobrás, $moneda${r.cada100.total} se van en gastos'
             '${aviso == null ? '' : ' · $aviso'}',
-        color: aviso == null ? Colors.white : kAmbar,
+        color: aviso == null ? InicioColores.ink : kAmbar,
       ),
     EstadoReparto.periodoCorto =>
       (texto: 'Gasto vacío: elegí Mes o Año en la fecha', color: kAmbar),
@@ -819,16 +826,16 @@ Widget _tituloSeccion(String t) => Padding(
       padding: const EdgeInsets.only(top: 18, bottom: 6),
       child: Text(t,
           style: GoogleFonts.inter(
-              color: Colors.white70,
+              color: InicioColores.muted,
               fontSize: 10.5,
               fontWeight: FontWeight.w700,
               letterSpacing: 0.8)),
     );
 
-Widget _parrafo(String t, {Color color = Colors.white70}) => Padding(
+Widget _parrafo(String t, {Color? color}) => Padding(
       padding: const EdgeInsets.only(bottom: 6),
       child: Text(t,
-          style: GoogleFonts.inter(color: color, fontSize: 12.5, height: 1.45)),
+          style: GoogleFonts.inter(color: color ?? InicioColores.muted, fontSize: 12.5, height: 1.45)),
     );
 
 /// La guía que abre el ícono de idea: todo lo que antes iba en texto encima de
@@ -880,7 +887,7 @@ class GuiaUtilidad extends StatelessWidget {
                     TextSpan(text: texto),
                   ]),
                   style: GoogleFonts.inter(
-                      color: Colors.white70, fontSize: 12.5, height: 1.45),
+                      color: InicioColores.muted, fontSize: 12.5, height: 1.45),
                 ),
               ),
             ],

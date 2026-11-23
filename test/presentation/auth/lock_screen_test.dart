@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:saborpro_reports/core/services/biometric_service.dart';
 import 'package:saborpro_reports/presentation/screens/auth/lock_screen.dart';
+import 'package:saborpro_reports/presentation/widgets/inicio_ui.dart' show InicioColores;
 
 /// La pantalla de bloqueo a 360dp, con el sensor simulado.
 ///
@@ -184,7 +185,7 @@ void main() {
     expect(size.width, 360);
     expect(size.height, 720);
     expect(tester.widget<Scaffold>(lock).backgroundColor,
-        const Color(0xFF0F172A));
+        InicioColores.bg);
   });
 
   testWidgets('mientras verifica no dispara una segunda petición',

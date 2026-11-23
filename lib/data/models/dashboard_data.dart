@@ -2,10 +2,16 @@ class DayHourlyPoints {
   final String dayLabel;
   final List<double> hourlyAmounts;
   final List<int> hourlyOrders;
+
+  /// El día natural de estos puntos. Sirve para saber cuál es HOY: las horas
+  /// que aún no llegan no son ventas en cero y la gráfica no las dibuja así.
+  final DateTime? fecha;
+
   const DayHourlyPoints({
     required this.dayLabel,
     required this.hourlyAmounts,
     required this.hourlyOrders,
+    this.fecha,
   });
 }
 
