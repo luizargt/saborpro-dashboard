@@ -268,8 +268,94 @@ class AvisoResumen {
           tono: TonoAviso.bad,
         );
 
+      // Los avisos nuevos traen lo que la fila necesita en `data` (quién, cuánto,
+      // dónde), así que no se leen con expresiones regulares: si falta algo, la
+      // fila cae al texto del servidor, completo.
+      case ManagerNotificationType.ventasAyer:
+        final monto = _dato(n, 'monto');
+        if (monto == null) return simple(TonoAviso.ok);
+        final cuentas = int.tryParse(n.data['cuentas'] ?? '');
+        return AvisoResumen(
+          titulo: 'Ventas de ayer',
+          pildora: cuentas == null
+              ? null
+              : PildoraAviso('$cuentas ${cuentas == 1 ? 'cuenta' : 'cuentas'}', TonoAviso.ok),
+          descripcion: _unir([_dato(n, 'sucursal') ?? _sucursalDelTitulo(titulo)]),
+          monto: monto,
+          tono: TonoAviso.ok,
+        );
+
+      case ManagerNotificationType.cortesia:
+        final monto = _dato(n, 'monto');
+        final quien = _dato(n, 'quien');
+        if (monto == null || quien == null) return simple(TonoAviso.accent);
+        return AvisoResumen(
+          titulo: n.data['tipo'] == 'DONACION' ? 'Donación' : 'Cortesía',
+          descripcion: _unir([
+            quien,
+            _dato(n, 'detalle'),
+            _dato(n, 'lugar'),
+            _dato(n, 'motivo'),
+            _dato(n, 'sucursal'),
+          ]),
+          monto: monto,
+          tono: TonoAviso.accent,
+        );
+
+      case ManagerNotificationType.anulacion:
+        final monto = _dato(n, 'monto');
+        final quien = _dato(n, 'quien');
+        if (monto == null || quien == null) return simple(TonoAviso.warn);
+        return AvisoResumen(
+          titulo: 'Producto anulado',
+          descripcion: _unir([
+            quien,
+            _dato(n, 'detalle'),
+            _dato(n, 'lugar'),
+            _dato(n, 'motivo'),
+            _dato(n, 'sucursal'),
+          ]),
+          monto: monto,
+          tono: TonoAviso.warn,
+        );
+
+      case ManagerNotificationType.cuentaCancelada:
+        final monto = _dato(n, 'monto');
+        final quien = _dato(n, 'quien');
+        if (monto == null || quien == null) return simple(TonoAviso.warn);
+        final cobrada = n.data['cobrada'] == 'true';
+        return AvisoResumen(
+          titulo: 'Cuenta cancelada',
+          // Una cuenta que ya estaba cobrada es plata que sí había entrado.
+          pildora: cobrada ? const PildoraAviso('Ya cobrada', TonoAviso.bad) : null,
+          descripcion: _unir([
+            quien,
+            _dato(n, 'numero'),
+            _dato(n, 'lugar'),
+            _dato(n, 'motivo'),
+            _dato(n, 'sucursal'),
+          ]),
+          monto: monto,
+          tono: cobrada ? TonoAviso.bad : TonoAviso.warn,
+        );
+
       case ManagerNotificationType.otro:
         return simple(TonoAviso.accent);
     }
   }
+
+  /// Un dato del payload, o null si falta o viene vacío.
+  static String? _dato(ManagerNotification n, String llave) {
+    final v = n.data[llave]?.trim();
+    return v == null || v.isEmpty ? null : v;
+  }
+
+  /// Las partes que existan, separadas por " · ".
+  static String _unir(List<String?> partes) =>
+      partes.where((p) => p != null && p.isNotEmpty).join(' · ');
+
+  /// "Ventas de ayer — Zona 10" → "Zona 10".
+  static final _reSucursalDelTitulo = RegExp(r'— (.+)$');
+  static String? _sucursalDelTitulo(String titulo) =>
+      _reSucursalDelTitulo.firstMatch(titulo)?.group(1);
 }

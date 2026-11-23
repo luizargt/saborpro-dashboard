@@ -2,7 +2,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 // defaultTargetPlatform y no dart:io: este archivo también se compila para web,
 // donde Platform.* lanza UnsupportedError en cuanto se toca.
 import 'package:flutter/foundation.dart'
-    show defaultTargetPlatform, kIsWeb, TargetPlatform;
+    show defaultTargetPlatform, kIsWeb, TargetPlatform, visibleForTesting;
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -12,6 +12,7 @@ import '../../../core/services/notification_service.dart';
 import '../../../presentation/providers/notification_settings_provider.dart';
 import '../../../presentation/widgets/max_content_width.dart';
 import '../../widgets/inicio_ui.dart' show InicioColores;
+import '../../widgets/selector_hora_aviso.dart';
 import '../../navigation/contexto_shell.dart';
 
 /// Pantalla de preferencias de notificaciones push.
@@ -41,16 +42,35 @@ class NotificationSettingsScreen extends StatefulWidget {
 
   // Etiqueta, subtítulo e ícono de cada preferencia, en el orden en que se
   // muestran. Las llaves son las mismas que usa NotificationSettingsProvider.
-  static const Map<String, _PrefCopy> _copy = {
-    'cash_open': _PrefCopy(
+  @visibleForTesting
+  static const Map<String, CopiaPreferencia> copias = {
+    'cash_open': CopiaPreferencia(
       title: 'Apertura de caja',
       subtitle: 'Cuando un usuario abre caja en una sucursal',
       icon: Icons.lock_open_rounded,
     ),
-    'cash_close': _PrefCopy(
+    'cash_close': CopiaPreferencia(
       title: 'Cierre de caja',
       subtitle: 'Incluye si cuadró y el monto de venta',
       icon: Icons.lock_rounded,
+    ),
+    // Los tres de abajo son nuevos y, como todos, llegan ENCENDIDOS (ausente =
+    // activado). Las ventas de ayer y el stock bajo llevan además una hora
+    // elegible: ver NotificationSettingsProvider.horaDe.
+    'yesterday_sales': CopiaPreferencia(
+      title: 'Ventas de ayer',
+      subtitle: 'Una notificación por sucursal con lo que vendió el día anterior',
+      icon: Icons.trending_up_rounded,
+    ),
+    'courtesy': CopiaPreferencia(
+      title: 'Cortesías y donaciones',
+      subtitle: 'Cuando alguien regala un producto, con quién y por qué',
+      icon: Icons.card_giftcard_rounded,
+    ),
+    'cancellation': CopiaPreferencia(
+      title: 'Anulaciones y cuentas canceladas',
+      subtitle: 'Cuando alguien anula un producto o cancela una cuenta completa',
+      icon: Icons.remove_circle_outline_rounded,
     ),
     // La llave sigue siendo 'expense' porque es la que consultan las Cloud
     // Functions y la que ya está guardada en los documentos de usuario en
@@ -60,19 +80,19 @@ class NotificationSettingsScreen extends StatefulWidget {
     // crean documento en `expenses`, van dentro del cierre de caja). El
     // subtítulo nombra las DOS cosas a propósito: quien apague esto buscando
     // callar una se quedaría sin la otra sin entender por qué.
-    'expense': _PrefCopy(
+    'expense': CopiaPreferencia(
       title: 'Gastos y retiros de efectivo',
       subtitle: 'Cuando se registra un gasto o se retira efectivo de la caja',
       icon: Icons.receipt_long_rounded,
     ),
-    'inventory_movement': _PrefCopy(
+    'inventory_movement': CopiaPreferencia(
       title: 'Movimientos de inventario',
       subtitle: 'Entradas, salidas y ajustes',
       icon: Icons.inventory_2_rounded,
     ),
-    'low_stock_summary': _PrefCopy(
+    'low_stock_summary': CopiaPreferencia(
       title: 'Resumen de stock bajo',
-      subtitle: 'Una vez al día, a las 8:00 a.m.',
+      subtitle: 'Una vez al día, con lo que está por acabarse',
       icon: Icons.warning_amber_rounded,
     ),
   };
@@ -359,10 +379,10 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
                               endIndent: 16,
                               color: InicioColores.line,
                             ),
-                          _PrefRow(
+                          FilaPreferencia(
                             prefKey: NotificationSettingsProvider.keys[i],
                             copy: NotificationSettingsScreen
-                                ._copy[NotificationSettingsProvider.keys[i]]!,
+                                .copias[NotificationSettingsProvider.keys[i]]!,
                           ),
                         ],
                       ],
@@ -376,12 +396,12 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
 }
 
 // ── TEXTO DE CADA PREFERENCIA ─────────────────────────────────────────────────
-class _PrefCopy {
+class CopiaPreferencia {
   final String title;
   final String subtitle;
   final IconData icon;
 
-  const _PrefCopy({
+  const CopiaPreferencia({
     required this.title,
     required this.subtitle,
     required this.icon,
@@ -591,11 +611,11 @@ class _IntroCard extends StatelessWidget {
 }
 
 // ── FILA CON SWITCH ───────────────────────────────────────────────────────────
-class _PrefRow extends StatelessWidget {
+class FilaPreferencia extends StatelessWidget {
   final String prefKey;
-  final _PrefCopy copy;
+  final CopiaPreferencia copy;
 
-  const _PrefRow({required this.prefKey, required this.copy});
+  const FilaPreferencia({required this.prefKey, required this.copy});
 
   @override
   Widget build(BuildContext context) {
@@ -608,6 +628,26 @@ class _PrefRow extends StatelessWidget {
     Future<void> toggle(bool v) async {
       final guardado =
           await context.read<NotificationSettingsProvider>().setValue(prefKey, v);
+      if (guardado || !context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No se pudo guardar el cambio. Intenta de nuevo.'),
+        ),
+      );
+    }
+
+    // Los avisos diarios (ventas de ayer, stock bajo) dejan elegir la hora.
+    final llaveHora = NotificationSettingsProvider.horaDe[prefKey];
+
+    Future<void> elegirHora() async {
+      final p = context.read<NotificationSettingsProvider>();
+      final nueva = await mostrarSelectorHoraAviso(
+        context,
+        aviso: copy.title,
+        actual: p.hora(llaveHora!),
+      );
+      if (nueva == null || !context.mounted) return;
+      final guardado = await p.setHora(llaveHora, nueva);
       if (guardado || !context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -663,6 +703,14 @@ class _PrefRow extends StatelessWidget {
                       height: 1.35,
                     ),
                   ),
+                  // Apagado el aviso, la hora no pinta nada: se esconde.
+                  if (llaveHora != null && on) ...[
+                    const SizedBox(height: 8),
+                    BotonHoraAviso(
+                      hora: provider.hora(llaveHora),
+                      onTap: elegirHora,
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -677,6 +725,71 @@ class _PrefRow extends StatelessWidget {
               materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── BOTÓN DE LA HORA ──────────────────────────────────────────────────────────
+/// "A las 7:00 a. m." con una flechita: abre la hoja para elegir otra hora.
+/// Mide al menos 44 de alto (el dedo) y vive dentro de la fila que alterna el
+/// switch al tocarla: su propio GestureDetector se queda con el toque.
+class BotonHoraAviso extends StatelessWidget {
+  final int hora;
+  final VoidCallback onTap;
+
+  const BotonHoraAviso({required this.hora, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final etiqueta = etiquetaDeHora(hora);
+    return Semantics(
+      button: true,
+      label: 'Hora del aviso: $etiqueta. Toca para cambiarla',
+      child: GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 44),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            widthFactor: 1,
+            heightFactor: 1,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: InicioColores.accent.withOpacity(0.10),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: InicioColores.accent.withOpacity(0.30)),
+              ),
+              child: ExcludeSemantics(
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.schedule_rounded, size: 16, color: InicioColores.accent),
+                    const SizedBox(width: 6),
+                    // Flexible: con letra grande en un teléfono angosto el texto
+                    // baja a una segunda línea, no se corta ni desborda (la hora
+                    // es justo lo que hay que poder leer entera).
+                    Flexible(
+                      child: Text(
+                        'A las $etiqueta',
+                        style: GoogleFonts.inter(
+                          color: InicioColores.accent,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          height: 1.3,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 2),
+                    Icon(Icons.expand_more_rounded, size: 18, color: InicioColores.accent),
+                  ],
+                ),
+              ),
+            ),
+          ),
         ),
       ),
     );

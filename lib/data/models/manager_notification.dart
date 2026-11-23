@@ -14,6 +14,10 @@ enum ManagerNotificationType {
   gasto('expense_created'),
   inventario('inventory_movement_created'),
   stockBajo('low_stock_summary'),
+  ventasAyer('sales_yesterday'),
+  cortesia('courtesy_given'),
+  anulacion('item_voided'),
+  cuentaCancelada('order_cancelled'),
   otro('');
 
   final String clave;
@@ -40,6 +44,10 @@ extension ManagerNotificationLook on ManagerNotificationType {
         ManagerNotificationType.gasto => Icons.receipt_long_rounded,
         ManagerNotificationType.inventario => Icons.inventory_2_rounded,
         ManagerNotificationType.stockBajo => Icons.trending_down_rounded,
+        ManagerNotificationType.ventasAyer => Icons.trending_up_rounded,
+        ManagerNotificationType.cortesia => Icons.card_giftcard_rounded,
+        ManagerNotificationType.anulacion => Icons.remove_circle_outline_rounded,
+        ManagerNotificationType.cuentaCancelada => Icons.cancel_rounded,
         ManagerNotificationType.otro => Icons.notifications_rounded,
       };
 
@@ -57,6 +65,13 @@ extension ManagerNotificationLook on ManagerNotificationType {
           const Color(0xFFFBBF24),
         ManagerNotificationType.inventario => const Color(0xFF60A5FA),
         ManagerNotificationType.stockBajo => const Color(0xFFF87171),
+        // Lo que entra, en verde como la caja; lo regalado, en violeta; y lo que
+        // se anula o se cancela, en ámbar como el dinero que no entra.
+        ManagerNotificationType.ventasAyer => const Color(0xFF34D399),
+        ManagerNotificationType.cortesia => const Color(0xFFA78BFA),
+        ManagerNotificationType.anulacion ||
+        ManagerNotificationType.cuentaCancelada =>
+          const Color(0xFFFBBF24),
         ManagerNotificationType.otro => const Color(0xFF7444fd),
       };
 
@@ -71,6 +86,11 @@ extension ManagerNotificationLook on ManagerNotificationType {
         ManagerNotificationType.gasto => 'Gastos',
         ManagerNotificationType.inventario => 'Inventario',
         ManagerNotificationType.stockBajo => 'Stock bajo',
+        ManagerNotificationType.ventasAyer => 'Ventas',
+        ManagerNotificationType.cortesia => 'Cortesías',
+        ManagerNotificationType.anulacion ||
+        ManagerNotificationType.cuentaCancelada =>
+          'Anulaciones',
         ManagerNotificationType.otro => 'Avisos',
       };
 }

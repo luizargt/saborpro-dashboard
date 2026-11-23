@@ -228,6 +228,163 @@ void main() {
     });
   });
 
+  // Los cuatro avisos nuevos traen lo que la fila necesita en `data` (no se leen
+  // con regex). Los datos son los que arma saborpro_app/functions/notifications/
+  // (ventasDeAyer.js y avisosDeOrden.js).
+  group('avisos nuevos (por payload)', () {
+    test('ventas de ayer: la sucursal, las cuentas y el monto ya con miles', () {
+      final r = AvisoResumen.de(aviso(
+        ManagerNotificationType.ventasAyer,
+        '📈 Ventas de ayer — Zona 10',
+        'Ayer vendiste Q4,520.00 en 38 cuentas',
+        data: {'monto': 'Q4,520.00', 'cuentas': '38', 'sucursal': 'Zona 10', 'fecha': '2026-11-22'},
+      ));
+      expect(r.titulo, 'Ventas de ayer');
+      expect(r.pildora!.texto, '38 cuentas');
+      expect(r.descripcion, 'Zona 10');
+      expect(r.monto, 'Q4,520.00');
+      expect(r.tono, TonoAviso.ok);
+      expect(r.crudo, isFalse);
+    });
+
+    test('ventas de ayer: una sola cuenta va en singular', () {
+      final r = AvisoResumen.de(aviso(
+        ManagerNotificationType.ventasAyer,
+        '📈 Ventas de ayer — Centro',
+        'Ayer vendiste Q55.00 en 1 cuenta',
+        data: {'monto': 'Q55.00', 'cuentas': '1', 'sucursal': 'Centro'},
+      ));
+      expect(r.pildora!.texto, '1 cuenta');
+    });
+
+    test('ventas de ayer sin sucursal en el payload la saca del título', () {
+      final r = AvisoResumen.de(aviso(
+        ManagerNotificationType.ventasAyer,
+        '📈 Ventas de ayer — Zona 10',
+        'Ayer vendiste Q10.00 en 2 cuentas',
+        data: {'monto': 'Q10.00'},
+      ));
+      expect(r.descripcion, 'Zona 10');
+      expect(r.pildora, isNull, reason: 'sin cuentas no se inventa la pastilla');
+    });
+
+    test('ventas de ayer sin monto: el texto del servidor, completo', () {
+      final r = AvisoResumen.de(aviso(
+        ManagerNotificationType.ventasAyer,
+        '📈 Ventas de ayer — Zona 10',
+        'Ayer vendiste Q10.00 en 2 cuentas',
+      ));
+      expect(r.crudo, isTrue);
+      expect(r.descripcion, 'Ayer vendiste Q10.00 en 2 cuentas');
+    });
+
+    test('cortesía: quién, qué, dónde, por qué y en qué sucursal', () {
+      final r = AvisoResumen.de(aviso(
+        ManagerNotificationType.cortesia,
+        '🎁 Cortesía — Zona 10',
+        'Ana regaló 1× Hamburguesa (Q55.00) · Mesa 4 · Motivo: Cumpleaños',
+        data: {
+          'quien': 'Ana', 'monto': 'Q55.00', 'detalle': '1× Hamburguesa', 'lugar': 'Mesa 4',
+          'motivo': 'Cumpleaños', 'sucursal': 'Zona 10', 'tipo': 'CORTESIA', 'numero': '#A12',
+        },
+      ));
+      expect(r.titulo, 'Cortesía');
+      expect(r.descripcion, 'Ana · 1× Hamburguesa · Mesa 4 · Cumpleaños · Zona 10');
+      expect(r.monto, 'Q55.00');
+      expect(r.tono, TonoAviso.accent);
+      expect(r.crudo, isFalse);
+    });
+
+    test('una donación se llama donación', () {
+      final r = AvisoResumen.de(aviso(
+        ManagerNotificationType.cortesia,
+        '🎁 Donación — Zona 10',
+        'Ana donó 3× Pan (Q15.00) · Para llevar',
+        data: {'quien': 'Ana', 'monto': 'Q15.00', 'detalle': '3× Pan', 'tipo': 'DONACION'},
+      ));
+      expect(r.titulo, 'Donación');
+    });
+
+    test('lo que viene vacío no deja separadores sueltos', () {
+      final r = AvisoResumen.de(aviso(
+        ManagerNotificationType.cortesia,
+        '🎁 Cortesía — Z',
+        'Ana regaló 1× Pan (Q5.00)',
+        data: {'quien': 'Ana', 'monto': 'Q5.00', 'detalle': '1× Pan', 'lugar': '', 'motivo': '  '},
+      ));
+      expect(r.descripcion, 'Ana · 1× Pan');
+    });
+
+    test('cortesía sin quién o sin monto: el texto del servidor, completo', () {
+      final r = AvisoResumen.de(aviso(
+        ManagerNotificationType.cortesia,
+        '🎁 Cortesía — Z',
+        'Texto del servidor',
+        data: {'detalle': '1× Pan'},
+      ));
+      expect(r.crudo, isTrue);
+      expect(r.descripcion, 'Texto del servidor');
+    });
+
+    test('producto anulado: en ámbar, con quién, qué y el motivo', () {
+      final r = AvisoResumen.de(aviso(
+        ManagerNotificationType.anulacion,
+        '🚫 Producto anulado — Zona 10',
+        'Ana anuló 2× Hamburguesa (Q110.00) · Mesa 4 · Motivo: Se equivocó',
+        data: {
+          'quien': 'Ana', 'monto': 'Q110.00', 'detalle': '2× Hamburguesa', 'lugar': 'Mesa 4',
+          'motivo': 'Se equivocó', 'sucursal': 'Zona 10',
+        },
+      ));
+      expect(r.titulo, 'Producto anulado');
+      expect(r.descripcion, 'Ana · 2× Hamburguesa · Mesa 4 · Se equivocó · Zona 10');
+      expect(r.monto, 'Q110.00');
+      expect(r.tono, TonoAviso.warn);
+    });
+
+    test('cuenta cancelada: número, lugar y motivo', () {
+      final r = AvisoResumen.de(aviso(
+        ManagerNotificationType.cuentaCancelada,
+        '🚫 Cuenta cancelada — Zona 10',
+        'Luis canceló la cuenta #A12 por Q320.00 · Mesa 4 · Motivo: El cliente se fue',
+        data: {
+          'quien': 'Luis', 'monto': 'Q320.00', 'numero': '#A12', 'lugar': 'Mesa 4',
+          'motivo': 'El cliente se fue', 'sucursal': 'Zona 10', 'cobrada': 'false',
+        },
+      ));
+      expect(r.titulo, 'Cuenta cancelada');
+      expect(r.pildora, isNull);
+      expect(r.descripcion, 'Luis · #A12 · Mesa 4 · El cliente se fue · Zona 10');
+      expect(r.monto, 'Q320.00');
+      expect(r.tono, TonoAviso.warn);
+    });
+
+    test('una cuenta que ya estaba cobrada lo dice en rojo', () {
+      final r = AvisoResumen.de(aviso(
+        ManagerNotificationType.cuentaCancelada,
+        '🚫 Cuenta cancelada — Zona 10',
+        'Luis canceló la cuenta #A12 por Q330.00 · Ya estaba cobrada',
+        data: {'quien': 'Luis', 'monto': 'Q330.00', 'cobrada': 'true'},
+      ));
+      expect(r.pildora!.texto, 'Ya cobrada');
+      expect(r.pildora!.tono, TonoAviso.bad);
+      expect(r.tono, TonoAviso.bad);
+    });
+
+    test('los emojis nuevos de los títulos también se quitan', () {
+      expect(AvisoResumen.quitarEmoji('📈 Ventas de ayer — Zona 10'), 'Ventas de ayer — Zona 10');
+      expect(AvisoResumen.quitarEmoji('🎁 Cortesía — Zona 10'), 'Cortesía — Zona 10');
+      expect(AvisoResumen.quitarEmoji('🚫 Cuenta cancelada — Zona 10'), 'Cuenta cancelada — Zona 10');
+    });
+
+    test('el tipo se reconoce por el mismo string que manda el servidor', () {
+      expect(ManagerNotificationType.desde('sales_yesterday'), ManagerNotificationType.ventasAyer);
+      expect(ManagerNotificationType.desde('courtesy_given'), ManagerNotificationType.cortesia);
+      expect(ManagerNotificationType.desde('item_voided'), ManagerNotificationType.anulacion);
+      expect(ManagerNotificationType.desde('order_cancelled'), ManagerNotificationType.cuentaCancelada);
+    });
+  });
+
   group('piezas', () {
     test('el emoji se quita del título, pero un título solo de emoji se conserva', () {
       expect(AvisoResumen.quitarEmoji('💸 Nuevo gasto registrado'), 'Nuevo gasto registrado');

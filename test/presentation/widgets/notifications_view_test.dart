@@ -149,6 +149,49 @@ void main() {
         ),
       );
 
+  // Los avisos nuevos: los datos son los que arma el servidor.
+  ManagerNotification ventasAyer() => aviso(
+        'ventas',
+        ManagerNotificationType.ventasAyer,
+        '📈 Ventas de ayer — Zona 10',
+        'Ayer vendiste Q4,520.00 en 38 cuentas',
+        data: {'monto': 'Q4,520.00', 'cuentas': '38', 'sucursal': 'Zona 10'},
+        cuando: DateTime(2026, 11, 20, 7),
+      );
+
+  ManagerNotification cortesia() => aviso(
+        'cortesia',
+        ManagerNotificationType.cortesia,
+        '🎁 Cortesía — Zona 10',
+        'Ana regaló 1× Hamburguesa (Q55.00) · Mesa 4 · Motivo: Cumpleaños',
+        data: {
+          'quien': 'Ana', 'monto': 'Q55.00', 'detalle': '1× Hamburguesa', 'lugar': 'Mesa 4',
+          'motivo': 'Cumpleaños', 'sucursal': 'Zona 10', 'tipo': 'CORTESIA',
+        },
+        cuando: DateTime(2026, 11, 20, 8, 5),
+      );
+
+  ManagerNotification anulacion() => aviso(
+        'anulacion',
+        ManagerNotificationType.anulacion,
+        '🚫 Producto anulado — Zona 10',
+        'Ana anuló 2× Hamburguesa (Q110.00) · Mesa 4 · Motivo: Se equivocó',
+        data: {
+          'quien': 'Ana', 'monto': 'Q110.00', 'detalle': '2× Hamburguesa', 'lugar': 'Mesa 4',
+          'motivo': 'Se equivocó', 'sucursal': 'Zona 10',
+        },
+        cuando: DateTime(2026, 11, 20, 8, 10),
+      );
+
+  ManagerNotification cuentaCancelada() => aviso(
+        'cuenta',
+        ManagerNotificationType.cuentaCancelada,
+        '🚫 Cuenta cancelada — Zona 10',
+        'Luis canceló la cuenta #A12 por Q320.00 · Mesa 4',
+        data: {'quien': 'Luis', 'monto': 'Q320.00', 'numero': '#A12', 'lugar': 'Mesa 4', 'sucursal': 'Zona 10', 'cobrada': 'false'},
+        cuando: DateTime(2026, 11, 20, 8, 20),
+      );
+
   void tamano(WidgetTester tester, Size s) {
     tester.view.physicalSize = s;
     tester.view.devicePixelRatio = 1.0;
@@ -266,6 +309,28 @@ void main() {
       ]);
     });
 
+    testWidgets('Ventas, Cortesías y Anulaciones aparecen solo si hay de ésos', (tester) async {
+      await montar(tester, [stock()]);
+      expect(textosDeFiltros().contains('Ventas'), isFalse);
+      expect(textosDeFiltros().contains('Cortesías'), isFalse);
+      expect(textosDeFiltros().contains('Anulaciones'), isFalse);
+
+      await montar(tester, [stock(), ventasAyer(), cortesia(), anulacion(), cuentaCancelada()]);
+      expect(textosDeFiltros(), [
+        'Todos', '5', 'Stock bajo', '1', 'Caja', '0', 'Inventario', '0',
+        'Ventas', '1', 'Cortesías', '1', 'Anulaciones', '2',
+      ]);
+    });
+
+    testWidgets('elegir Anulaciones deja las dos clases de anulación y nada más', (tester) async {
+      await montar(tester, [stock(), ventasAyer(), cortesia(), anulacion(), cuentaCancelada()]);
+      await elegir(tester, 'Anulaciones');
+      expect(find.text('Producto anulado'), findsOneWidget);
+      expect(find.text('Cuenta cancelada'), findsOneWidget);
+      expect(find.text('Cortesía'), findsNothing);
+      expect(find.text('Ventas de ayer'), findsNothing);
+    });
+
     testWidgets('un tipo que la app no conoce tiene su filtro "Avisos"',
         (tester) async {
       await montar(tester, [
@@ -333,6 +398,26 @@ void main() {
       await montar(tester, [stock()]);
       expect(find.text('22'), findsOneWidget);
       expect(find.textContaining('Santa Rosalía · Adrenalina 296 ml'), findsOneWidget);
+    });
+
+    testWidgets('ventas de ayer: cuentas, sucursal y el monto con miles', (tester) async {
+      await montar(tester, [ventasAyer()]);
+      expect(find.text('Ventas de ayer'), findsOneWidget);
+      expect(find.text('38 cuentas'), findsOneWidget);
+      expect(find.textContaining('Q4,520.00'), findsOneWidget);
+      expect(find.textContaining('Zona 10'), findsOneWidget);
+      expect(find.textContaining('📈'), findsNothing);
+    });
+
+    testWidgets('cortesía, anulación y cuenta cancelada: quién, qué y cuánto', (tester) async {
+      await montar(tester, [cortesia(), anulacion(), cuentaCancelada()]);
+      expect(find.text('Cortesía'), findsOneWidget);
+      expect(find.textContaining('Ana · 1× Hamburguesa · Mesa 4 · Cumpleaños'), findsOneWidget);
+      expect(find.text('Producto anulado'), findsOneWidget);
+      expect(find.textContaining('Ana · 2× Hamburguesa · Mesa 4 · Se equivocó'), findsOneWidget);
+      expect(find.text('Cuenta cancelada'), findsOneWidget);
+      expect(find.textContaining('Luis · #A12 · Mesa 4'), findsOneWidget);
+      expect(find.textContaining('Q110.00'), findsOneWidget);
     });
 
     testWidgets('retiro: el motivo se ve', (tester) async {

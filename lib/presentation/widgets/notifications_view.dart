@@ -48,7 +48,7 @@ Color _fondoDe(TonoAviso t) => switch (t) {
 
 /// La familia de un aviso en los filtros. Las tres primeras son las del
 /// diseño y siempre se ofrecen; las otras solo si hay alguno.
-enum _Familia { stock, caja, inventario, retiros, gastos, otros }
+enum _Familia { stock, caja, inventario, retiros, gastos, ventas, cortesias, anulaciones, otros }
 
 _Familia _familiaDe(ManagerNotificationType t) => switch (t) {
       ManagerNotificationType.stockBajo => _Familia.stock,
@@ -60,6 +60,11 @@ _Familia _familiaDe(ManagerNotificationType t) => switch (t) {
       ManagerNotificationType.retirosEnLote =>
         _Familia.retiros,
       ManagerNotificationType.gasto => _Familia.gastos,
+      ManagerNotificationType.ventasAyer => _Familia.ventas,
+      ManagerNotificationType.cortesia => _Familia.cortesias,
+      ManagerNotificationType.anulacion ||
+      ManagerNotificationType.cuentaCancelada =>
+        _Familia.anulaciones,
       ManagerNotificationType.otro => _Familia.otros,
     };
 
@@ -69,6 +74,9 @@ String _nombreDe(_Familia f) => switch (f) {
       _Familia.inventario => 'Inventario',
       _Familia.retiros => 'Retiros',
       _Familia.gastos => 'Gastos',
+      _Familia.ventas => 'Ventas',
+      _Familia.cortesias => 'Cortesías',
+      _Familia.anulaciones => 'Anulaciones',
       _Familia.otros => 'Avisos',
     };
 
@@ -77,8 +85,9 @@ Color _puntoDe(_Familia f) => switch (f) {
       _Familia.stock => _C.bad,
       _Familia.caja => _C.gift,
       _Familia.inventario => _C.don,
-      _Familia.retiros || _Familia.gastos => _C.warn,
-      _Familia.otros => _C.accent,
+      _Familia.retiros || _Familia.gastos || _Familia.anulaciones => _C.warn,
+      _Familia.ventas => _C.gift,
+      _Familia.cortesias || _Familia.otros => _C.accent,
     };
 
 String _hora(DateTime d) => DateFormat.Hm('es').format(d);
