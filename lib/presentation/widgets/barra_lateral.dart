@@ -137,33 +137,35 @@ class BarraLateral extends StatelessWidget {
   }
 }
 
-/// El logo de las barras: tres columnas, la última con un toque coral.
+/// El logo de las barras: el de Sabor Manager (`SaborManagerLogo.png`, tres columnas
+/// moradas y la última coral, sobre transparente).
+///
+/// El PNG trae margen alrededor (las columnas ocupan ~60 % del cuadro), así que se
+/// dibuja ampliado dentro de un cuadro de [lado]: lo de afuera es transparente y no
+/// tapa nada.
 class LogoManager extends StatelessWidget {
   final double lado;
   const LogoManager({super.key, this.lado = 38});
 
+  static const _ampliacion = 1.45;
+
   @override
   Widget build(BuildContext context) {
-    Widget barra(double alto, {Color color = const Color(0xFFFFFFFF)}) =>
-        Container(width: 5 * lado / 38, height: alto * lado / 38, decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(2)));
-    return Container(
-      width: lado,
-      height: lado,
-      padding: EdgeInsets.only(bottom: 9 * lado / 38),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(11 * lado / 38),
-        gradient: const LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Color(0xFF7B4DFF), Color(0xFF5B2EE0)]),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          barra(8),
-          SizedBox(width: 2.5 * lado / 38),
-          barra(13),
-          SizedBox(width: 2.5 * lado / 38),
-          barra(18, color: const Color(0xFFFF8A73)),
-        ],
+    return ExcludeSemantics(
+      child: SizedBox(
+        width: lado,
+        height: lado,
+        child: Transform.scale(
+          scale: _ampliacion,
+          child: Image.asset(
+            'assets/images/SaborManagerLogo.png',
+            width: lado,
+            height: lado,
+            fit: BoxFit.contain,
+            filterQuality: FilterQuality.medium,
+            errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+          ),
+        ),
       ),
     );
   }
