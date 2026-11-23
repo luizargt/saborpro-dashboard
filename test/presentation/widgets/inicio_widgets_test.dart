@@ -282,6 +282,29 @@ void main() {
       expect(find.byIcon(Icons.chevron_right_rounded), findsNothing);
     });
 
+    testWidgets('Descuentos se abre desde su tarjeta, y solo con a dónde llevar lleva flecha', (tester) async {
+      var descuentos = 0;
+      // Sin a dónde llevar: ni flecha ni toque.
+      await montar(tester, TarjetasRapidas(metrics: metricas(discounts: 40)), size: const Size(1280, 800));
+      expect(find.byIcon(Icons.chevron_right_rounded), findsNothing);
+      await tester.tap(find.text('Descuentos'));
+      expect(descuentos, 0);
+
+      // Con a dónde llevar: una flecha (la suya) y el toque abre el detalle.
+      await montar(tester, TarjetasRapidas(metrics: metricas(discounts: 40), onDiscountTap: () => descuentos++),
+          size: const Size(1280, 800));
+      expect(find.byIcon(Icons.chevron_right_rounded), findsOneWidget);
+      await tester.tap(find.text('Descuentos'));
+      expect(descuentos, 1);
+
+      // En el teléfono, igual.
+      await montar(tester, TarjetasRapidas(metrics: metricas(discounts: 40), onDiscountTap: () => descuentos++),
+          size: const Size(390, 844));
+      expect(find.byIcon(Icons.chevron_right_rounded), findsOneWidget);
+      await tester.tap(find.text('Descuentos'));
+      expect(descuentos, 2);
+    });
+
     testWidgets('en teléfono, Propinas también se toca y lleva flecha', (tester) async {
       var propinas = 0;
       await montar(tester, TarjetasRapidas(metrics: metricas(), onTipsTap: () => propinas++), size: const Size(390, 844));

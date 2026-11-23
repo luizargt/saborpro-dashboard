@@ -20,6 +20,7 @@ import '../../../presentation/widgets/payment_method_breakdown.dart';
 import '../../../presentation/widgets/year_detail_notice.dart';
 import '../reports/cash_closures_report_screen.dart';
 import 'cortesias_screen.dart';
+import 'descuentos_screen.dart';
 import 'propinas_screen.dart';
 import '../../navigation/contexto_shell.dart';
 
@@ -297,6 +298,7 @@ class _DataContent extends StatelessWidget {
           metrics: metrics,
           onCourtesyTap: () => abrirCortesias(context),
           onTipsTap: () => abrirPropinas(context),
+          onDiscountTap: () => abrirDescuentos(context),
           descuentosCount: resumenPedidos.descuentos,
         ),
         // Método de pago y sucursales: apilados en móvil, lado a lado en

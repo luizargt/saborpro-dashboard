@@ -351,3 +351,18 @@ class _AccPlatillo {
   double monto = 0;
   int pedidos = 0;
 }
+
+// Lo que Cortesías comparte con otros detalles del Inicio (Descuentos): una sola
+// forma de decir "Mesa 4", "#A123" y de leer una fecha, para que no se separen.
+
+/// "#A123", o vacío si el pedido no tiene número.
+String numeroDelPedido(Map<String, dynamic> o) => CortesiasReport._numeroPedido(o);
+
+/// "Mesa 4", "Para llevar", "A domicilio"...
+String lugarDelPedido(Map<String, dynamic> o) => CortesiasReport._lugar(o);
+
+/// La fecha de un pedido (Timestamp, DateTime o texto ISO), en hora local.
+DateTime? fechaDelPedido(Object? v) => CortesiasReport._fecha(v);
+
+/// Un texto sin espacios de más, o null si está vacío.
+String? textoDelPedido(Object? v) => CortesiasReport._texto(v);

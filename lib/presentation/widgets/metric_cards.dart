@@ -30,6 +30,9 @@ class MetricCards extends StatelessWidget {
   /// Abre el detalle de propinas. Sin esto la tarjeta no se puede tocar.
   final VoidCallback? onTipsTap;
 
+  /// Abre el detalle de descuentos. Sin esto la tarjeta no se puede tocar.
+  final VoidCallback? onDiscountTap;
+
   /// Cobros que llevaron descuento (sale de los pedidos del período).
   final int descuentosCount;
 
@@ -38,6 +41,7 @@ class MetricCards extends StatelessWidget {
     required this.metrics,
     this.onCourtesyTap,
     this.onTipsTap,
+    this.onDiscountTap,
     this.descuentosCount = 0,
   });
 
@@ -51,6 +55,7 @@ class MetricCards extends StatelessWidget {
           metrics: metrics,
           onCourtesyTap: onCourtesyTap,
           onTipsTap: onTipsTap,
+          onDiscountTap: onDiscountTap,
           descuentosCount: descuentosCount,
         ),
       ],
@@ -235,12 +240,13 @@ class _Datos {
 /// una fila (la etiqueta a la izquierda y la cifra a la derecha); en pantalla
 /// ancha, una tarjeta por columna.
 ///
-/// Solo llevan flecha las que se pueden abrir (hoy, propinas y cortesías): una
-/// flecha que no lleva a ningún lado engaña.
+/// Solo llevan flecha las que se pueden abrir (hoy, propinas, cortesías y
+/// descuentos): una flecha que no lleva a ningún lado engaña.
 class TarjetasRapidas extends StatelessWidget {
   final PeriodMetrics metrics;
   final VoidCallback? onCourtesyTap;
   final VoidCallback? onTipsTap;
+  final VoidCallback? onDiscountTap;
   final int descuentosCount;
 
   const TarjetasRapidas({
@@ -248,6 +254,7 @@ class TarjetasRapidas extends StatelessWidget {
     required this.metrics,
     this.onCourtesyTap,
     this.onTipsTap,
+    this.onDiscountTap,
     this.descuentosCount = 0,
   });
 
@@ -295,6 +302,7 @@ class TarjetasRapidas extends StatelessWidget {
               ? 'Ningún descuento'
               : (descuentosCount > 0 ? _cobros(descuentosCount) : ''),
           color: _C.don,
+          onTap: onDiscountTap,
         ),
       if (m.deliveryFees > 0)
         _Datos(
