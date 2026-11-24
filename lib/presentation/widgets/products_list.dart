@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../../core/services/export_service.dart';
 import '../../core/utils/formato_dinero.dart';
 import '../../data/models/dashboard_data.dart';
+import '../../data/models/hospedaje_inicio.dart' show kClasificacionHospedaje;
 import 'inicio_ui.dart';
 
 typedef _C = InicioColores;
@@ -81,6 +82,9 @@ class _ProductsListState extends State<ProductsList> {
     'Comida',
     'Bebidas',
     'Postres',
+    // Los cargos del hospedaje: en un hotel sin comida es la primera pestaña, y
+    // en uno con restaurante va después de lo del menú.
+    kClasificacionHospedaje,
     'Servicios',
     'Otros',
   ];
@@ -115,6 +119,7 @@ class _ProductsListState extends State<ProductsList> {
         'Bebidas' => 'bebidas',
         'Postres' => 'postres',
         'Servicios' => 'servicios',
+        kClasificacionHospedaje => 'conceptos',
         'Otros' => 'productos',
         _ => 'platillos',
       };
@@ -124,6 +129,7 @@ class _ProductsListState extends State<ProductsList> {
       'Bebidas' => 'Bebidas vendidas',
       'Postres' => 'Postres vendidos',
       'Servicios' => 'Servicios vendidos',
+      kClasificacionHospedaje => 'Hospedaje vendido',
       'Otros' => 'Otros vendidos',
       _ => 'Platillos vendidos',
     };

@@ -17,6 +17,7 @@ import '../../data/models/config_moneda.dart';
 import '../../data/models/atencion_inicio.dart' show ResumenPedidosInicio;
 import '../../data/models/cortesias_data.dart';
 import '../../data/models/cuentas_abiertas.dart';
+import '../../data/models/hospedaje_inicio.dart';
 import '../../data/models/vista_moneda.dart';
 import '../../data/models/dashboard_data.dart';
 import '../../data/models/cash_register_summary.dart';
@@ -195,6 +196,102 @@ class DashboardProvider extends ChangeNotifier {
       }
     } finally {
       _cuentasEnCurso = false;
+    }
+    if (sesion == _sesion) notifyListeners();
+  }
+
+  // ── HOSPEDAJE ────────────────────────────────────────────────────────────
+  // El estado de AHORA de las habitaciones (no un período). Solo se lee para las
+  // sucursales que venden habitaciones (canal `room_service`): un restaurante no
+  // hace ninguna lectura de más. Nulo = todavía no se sabe, o la lectura falló: la
+  // pantalla no muestra nada (nunca "0 de 11" por no haber podido leer).
+  List<HabitacionHosp>? _habitacionesHosp;
+  List<EstanciaHosp>? _estanciasHosp;
+  DateTime? _hospedajeAl;
+  bool _hospedajeEnCurso = false;
+
+  /// Las sucursales de las que se mira el hospedaje: las que venden habitaciones
+  /// y pasan el filtro de sucursal de la pantalla.
+  Set<String> get _sucursalesConHospedaje => {
+        for (final l in _locations)
+          if (l.vendeHabitaciones && _passesLocationFilter(l.id)) l.id,
+      };
+
+  /// Cómo está el hospedaje ahora, solo de las sucursales que se miran. Nulo =
+  /// no se sabe, o ninguna vende habitaciones.
+  ResumenHospedaje? get hospedaje {
+    final habitaciones = _habitacionesHosp;
+    final estancias = _estanciasHosp;
+    final sucursales = _sucursalesConHospedaje;
+    if (habitaciones == null || estancias == null || sucursales.isEmpty) return null;
+    final r = ResumenHospedaje.armar(
+      habitaciones: habitaciones,
+      estancias: estancias,
+      ahora: DateTime.now(),
+      pasa: sucursales.contains,
+    );
+    return r.vacio ? null : r;
+  }
+
+  /// Lee las habitaciones y las estancias activas y reservadas de las sucursales
+  /// que venden habitaciones: por sucursal, tres consultas de PURAS IGUALDADES
+  /// (negocio + sucursal [+ estado]), que se resuelven con los índices simples de
+  /// siempre, sin índice compuesto nuevo. Lee también las sucursales que no se
+  /// están mirando, para no volver a leer al cambiar de pestaña. No depende del
+  /// período; no repite si se leyó hace menos de un minuto, salvo [forzar].
+  Future<void> cargarHospedaje({bool forzar = false}) async {
+    final tenant = _tenantId;
+    if (tenant == null || _hospedajeEnCurso) return;
+    final sucursales = [for (final l in _locations) if (l.vendeHabitaciones) l.id];
+    if (sucursales.isEmpty) return;
+    final al = _hospedajeAl;
+    if (!forzar && al != null && DateTime.now().difference(al) < const Duration(seconds: 60)) {
+      return;
+    }
+    _hospedajeEnCurso = true;
+    final sesion = _sesion;
+    try {
+      Query<Map<String, dynamic>> deSucursal(CollectionReference<Map<String, dynamic>> c, String id) =>
+          c.where('tenant_id', isEqualTo: tenant).where('location_id', isEqualTo: id);
+      final respuestas = await Future.wait([
+        for (final id in sucursales) ...[
+          deSucursal(_firestore.rooms, id).get(),
+          deSucursal(_firestore.reservations, id).where('status', isEqualTo: 'active').get(),
+          deSucursal(_firestore.reservations, id).where('status', isEqualTo: 'reserved').get(),
+        ],
+      ]).timeout(const Duration(seconds: 25));
+      // Otro usuario entró mientras tanto: lo de este ya no vale.
+      if (sesion != _sesion || tenant != _tenantId) return;
+      final habitaciones = <HabitacionHosp>[];
+      final estancias = <EstanciaHosp>[];
+      for (var i = 0; i < sucursales.length; i++) {
+        for (final d in respuestas[i * 3].docs) {
+          final h = HabitacionHosp.deDoc(d.id, d.data());
+          if (h != null) habitaciones.add(h);
+        }
+        for (final d in respuestas[i * 3 + 1].docs) {
+          final e = EstanciaHosp.deDoc(d.data(), id: d.id, activa: true);
+          if (e != null) estancias.add(e);
+        }
+        for (final d in respuestas[i * 3 + 2].docs) {
+          final e = EstanciaHosp.deDoc(d.data(), id: d.id, activa: false);
+          if (e != null) estancias.add(e);
+        }
+      }
+      _habitacionesHosp = habitaciones;
+      _estanciasHosp = estancias;
+      _hospedajeAl = DateTime.now();
+    } catch (e) {
+      // Sin red o sin permiso: no se sabe. Nunca "0 de 11" por no poder leer.
+      debugPrint('[Inicio] no se pudo leer el hospedaje: $e');
+      if (sesion == _sesion) {
+        _habitacionesHosp = null;
+        _estanciasHosp = null;
+        _hospedajeAl = null;
+      }
+    } finally {
+      // Si entró otro usuario, esta bandera ya es de la lectura nueva.
+      if (sesion == _sesion) _hospedajeEnCurso = false;
     }
     if (sesion == _sesion) notifyListeners();
   }
@@ -519,6 +616,11 @@ class DashboardProvider extends ChangeNotifier {
     _cuentasAbiertas = null;
     _cuentasAl = null;
     _cuentasEnCurso = false;
+    // Y el hospedaje: las habitaciones del negocio anterior no valen para este.
+    _habitacionesHosp = null;
+    _estanciasHosp = null;
+    _hospedajeAl = null;
+    _hospedajeEnCurso = false;
     _cortesiasAnio.clear();
     _cortesiasAnioEnCurso.clear();
     _cortesiasAnioDescargas.clear();
@@ -557,6 +659,9 @@ class DashboardProvider extends ChangeNotifier {
       _alCambiarMoneda();
       // Ya se sabe en qué sucursales mirar las cuentas por cobrar.
       cargarCuentasAbiertas();
+      // Forzado: la lectura del arranque de la pantalla pudo hacerse con las
+      // sucursales del negocio anterior y no debe dejar la tarjeta callada 60 s.
+      cargarHospedaje(forzar: true);
 
       // _fetchCustomMethodNames depende de _locations, que carga en paralelo con
       // load(): si llegó tarde, los nombres quedaron vacíos. Como ya no se
@@ -615,6 +720,7 @@ class DashboardProvider extends ChangeNotifier {
     _actualizarMoneda();
     // Las cuentas por cobrar cambian en minutos: junto con lo demás.
     cargarCuentasAbiertas(forzar: true);
+    cargarHospedaje(forzar: true);
     await load();
   }
 
@@ -2583,6 +2689,8 @@ class DashboardProvider extends ChangeNotifier {
           final label = (productId.isNotEmpty ? productClassificationMap[productId] : null)
               ?? (categoryId.isNotEmpty ? classificationMap[categoryId] : null)
               ?? (categoryName.isNotEmpty ? classificationByName[categoryName] : null)
+              // El cargo del hospedaje no es del menú: su propia pestaña, no "Otros".
+              ?? (productId == kProductoHospedaje ? kClasificacionHospedaje : null)
               ?? '';
           if (label.isNotEmpty) {
             classifications.putIfAbsent(name, () => label);

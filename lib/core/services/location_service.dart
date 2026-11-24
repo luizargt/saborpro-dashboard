@@ -19,6 +19,11 @@ class LocationModel {
   /// Bodega central (`is_central_warehouse`). No vende.
   final bool centralWarehouse;
 
+  /// Canales de venta (`settings.sales_channels`): `dine_in`, `takeout`,
+  /// `delivery`, `quick_sale` y `room_service`. Nulo = la sucursal no los guardó
+  /// (el POS entonces toma mesa, llevar, domicilio y mostrador, sin habitaciones).
+  final List<String>? salesChannels;
+
   LocationModel({
     required this.id,
     required this.name,
@@ -26,7 +31,19 @@ class LocationModel {
     this.country = 'Guatemala',
     this.active = true,
     this.centralWarehouse = false,
+    this.salesChannels,
   });
+
+  /// ¿Vende habitaciones? Lo dice el canal `room_service`, que el POS enciende
+  /// en los hoteles y en los negocios que activan Hospedaje.
+  bool get vendeHabitaciones => salesChannels?.contains('room_service') ?? false;
+
+  /// Los canales guardados en `settings.sales_channels`; nulo si no hay una lista.
+  static List<String>? canalesDe(Object? settings) {
+    final lista = settings is Map ? settings['sales_channels'] : null;
+    if (lista is! List) return null;
+    return [for (final c in lista) if (c is String) c];
+  }
 
   /// Bodega: no vende, solo guarda inventario. Por bandera o por nombre, que
   /// es como la reconocen las pestañas desde siempre.
@@ -59,6 +76,7 @@ class LocationModel {
       country: pais is String && pais.trim().isNotEmpty ? pais.trim() : 'Guatemala',
       active: data['active'] == true,
       centralWarehouse: data['is_central_warehouse'] == true,
+      salesChannels: canalesDe(settings),
     );
   }
 }

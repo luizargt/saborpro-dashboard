@@ -31,4 +31,6 @@ class FirestoreService {
   CollectionReference<Map<String, dynamic>> get orders => _db.collection('orders');
   CollectionReference<Map<String, dynamic>> get locations => _db.collection('locations');
   CollectionReference<Map<String, dynamic>> get users => _db.collection('users');
+  CollectionReference<Map<String, dynamic>> get rooms => _db.collection('rooms');
+  CollectionReference<Map<String, dynamic>> get reservations => _db.collection('reservations');
 }

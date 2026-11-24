@@ -5,6 +5,7 @@ import '../../../core/utils/formato_dinero.dart' show moneda;
 import '../../../data/models/atencion_inicio.dart';
 import '../../../presentation/providers/dashboard_provider.dart';
 import '../../../presentation/widgets/inicio_atencion.dart';
+import '../../../presentation/widgets/inicio_hospedaje.dart';
 import '../../../presentation/widgets/inicio_ui.dart';
 import '../../../presentation/widgets/location_selector.dart';
 import '../../../presentation/widgets/metric_cards.dart';
@@ -52,7 +53,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
     // Las cuentas por cobrar son lo de AHORA: al volver al Inicio se vuelven a
     // mirar (sin repetir si se leyeron hace menos de un minuto).
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) context.read<DashboardProvider>().cargarCuentasAbiertas();
+      if (!mounted) return;
+      final provider = context.read<DashboardProvider>();
+      provider.cargarCuentasAbiertas();
+      provider.cargarHospedaje();
     });
   }
 
@@ -251,6 +255,7 @@ class _DataContent extends StatelessWidget {
     // faltantes que no se pudieron ver. Callar es mejor que afirmar algo falso.
     final cajas = provider.cajasLeidas && provider.resumenCajasOk;
     final cuentas = provider.cuentasPorCobrar;
+    final hospedaje = provider.hospedaje;
     final atencion = AtencionInicio.armar(
       cerradas: cajas ? provider.closedRegisters : const [],
       abiertas: cajas ? provider.openRegisters : const [],
@@ -281,6 +286,12 @@ class _DataContent extends StatelessWidget {
               }
             },
           ),
+        ],
+        // Hospedaje: cómo están las habitaciones AHORA. Solo si alguna de las
+        // sucursales que se miran vende habitaciones, y se calla si no se pudo leer.
+        if (hospedaje != null) ...[
+          _gap,
+          HospedajeCard(resumen: hospedaje),
         ],
         // Lo que pasa AHORA: las cuentas pendientes de cobro y las cajas
         // abiertas. Cada una se calla sola si no se pudo leer.
