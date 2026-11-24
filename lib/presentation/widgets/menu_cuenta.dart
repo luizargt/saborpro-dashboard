@@ -200,6 +200,10 @@ class HojaMas extends StatelessWidget {
   final VoidCallback onDescargas;
   final VoidCallback onNotificaciones;
   final VoidCallback onCerrarSesion;
+
+  /// Abre la búsqueda ("ir a cualquier pantalla"). En el teléfono ya no hay barra
+  /// de arriba con la lupa: vive aquí. Sin esto no se muestra la fila.
+  final VoidCallback? onBuscar;
   final List<Widget> extras;
 
   const HojaMas({
@@ -212,6 +216,7 @@ class HojaMas extends StatelessWidget {
     required this.onDescargas,
     required this.onNotificaciones,
     required this.onCerrarSesion,
+    this.onBuscar,
     this.extras = const [],
   });
 
@@ -239,6 +244,8 @@ class HojaMas extends StatelessWidget {
             ],
           ),
         ),
+        if (onBuscar != null)
+          FilaMenu(grande: true, icono: Icons.search_rounded, texto: 'Buscar', sub: 'Ir a cualquier pantalla', onTap: onBuscar!),
         FilaMenu(grande: true, icono: Destinos.icono(Destino.descargas), texto: Destinos.nombre(Destino.descargas), sub: 'Reportes en Excel', onTap: onDescargas),
         FilaMenu(
           grande: true,

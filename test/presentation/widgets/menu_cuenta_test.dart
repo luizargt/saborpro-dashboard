@@ -51,6 +51,7 @@ void main() {
     VoidCallback? onDescargas,
     VoidCallback? onNotificaciones,
     VoidCallback? onCerrarSesion,
+    VoidCallback? onBuscar,
     List<Widget> extras = const [],
   }) =>
       HojaMas(
@@ -62,6 +63,7 @@ void main() {
         onDescargas: onDescargas ?? () {},
         onNotificaciones: onNotificaciones ?? () {},
         onCerrarSesion: onCerrarSesion ?? () {},
+        onBuscar: onBuscar,
         extras: extras,
       );
 
@@ -103,6 +105,31 @@ void main() {
       await montar(t, SizedBox(width: 256, child: panel(nombre: 'Maria de los Angeles Fernandez de la Cruz y Soto', sucursales: 12)), escala: 1.4);
       expect(t.takeException(), isNull);
     });
+  });
+
+  group('hoja "Más": buscar', () {
+    testWidgets('con búsqueda, la primera fila es "Buscar" y la abre', (t) async {
+      var busco = 0;
+      await montar(t, hoja(onBuscar: () => busco++), ancho: 360);
+      expect(find.text('Buscar'), findsOneWidget);
+      expect(find.text('Ir a cualquier pantalla'), findsOneWidget);
+      // Va antes que "Descargar reportes".
+      expect(t.getTopLeft(find.text('Buscar')).dy, lessThan(t.getTopLeft(find.text('Descargar reportes')).dy));
+      await t.tap(find.text('Buscar'));
+      expect(busco, 1);
+    });
+
+    testWidgets('sin búsqueda no aparece la fila', (t) async {
+      await montar(t, hoja(), ancho: 360);
+      expect(find.text('Buscar'), findsNothing);
+    });
+
+    for (final ancho in [320.0, 360.0]) {
+      testWidgets('cabe a $ancho con letra grande', (t) async {
+        await montar(t, hoja(onBuscar: () {}), ancho: ancho, escala: 1.4);
+        expect(t.takeException(), isNull);
+      });
+    }
   });
 
   group('hoja "Más"', () {

@@ -1,6 +1,7 @@
-/// La navegación del teléfono (diseño `sidebar-manager.html`, móvil): la barra de
-/// arriba con el negocio, el buscador y la cuenta; la barra inferior flotante con
-/// cinco pestañas; y la hoja "Reportes" que lista los reportes con su dato de hoy.
+/// La navegación del teléfono (diseño `sidebar-manager.html`, móvil): la barra
+/// inferior flotante con cinco pestañas y la hoja "Reportes" que lista los reportes con
+/// su dato de hoy. (La línea de arriba, con el logo y el nombre de la vista, es
+/// `EncabezadoMovil`; la cuenta y la búsqueda están en "Más".)
 ///
 /// Sin providers ni Firebase: se prueba en test/presentation/widgets/
 /// barra_inferior_test.dart.
@@ -9,14 +10,15 @@ library;
 import 'package:flutter/material.dart';
 
 import '../navigation/destinos.dart';
-import 'barra_lateral.dart' show AvatarManager, LogoManager, inicialDe, kRojoContador, textoSucursales;
+import 'barra_lateral.dart' show kRojoContador;
 import 'inicio_ui.dart';
 
 typedef _C = InicioColores;
 const _t = inicioTexto;
 
-/// Las cinco pestañas.
-enum PestanaMovil { inicio, reportes, despensa, avisos, mas }
+/// Las cinco pestañas, en el orden en que se ven: lo de todos los días primero
+/// (Inicio y Despensa), después los reportes y los avisos, y al final la cuenta.
+enum PestanaMovil { inicio, despensa, reportes, avisos, mas }
 
 /// Qué pestaña se enciende según dónde se está: los reportes encienden "Reportes", y las
 /// notificaciones y las descargas (cosas de la cuenta), "Más".
@@ -28,53 +30,6 @@ PestanaMovil pestanaDe(Destino d) {
     Destino.avisos => PestanaMovil.avisos,
     _ => PestanaMovil.mas,
   };
-}
-
-/// La barra de arriba: el negocio, buscar y la cuenta.
-class BarraSuperiorMovil extends StatelessWidget {
-  final int sucursales;
-  final String nombre;
-  final VoidCallback onBuscar;
-  final VoidCallback onCuenta;
-
-  const BarraSuperiorMovil({super.key, required this.sucursales, required this.nombre, required this.onBuscar, required this.onCuenta});
-
-  @override
-  Widget build(BuildContext context) {
-    Widget boton({required String ayuda, required VoidCallback onTap, required Widget hijo}) => Tooltip(
-          message: ayuda,
-          child: Semantics(
-            button: true,
-            label: ayuda,
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: onTap,
-              child: SizedBox(width: 44, height: 44, child: Center(child: hijo)),
-            ),
-          ),
-        );
-    return Container(
-      padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
-      decoration: BoxDecoration(color: _C.barra, border: Border(bottom: BorderSide(color: _C.barraLinea))),
-      child: Row(
-        children: [
-          const LogoManager(lado: 34),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Sabor Manager', maxLines: 1, overflow: TextOverflow.ellipsis, style: _t(14, FontWeight.w700, _C.barraTexto, height: 1.3)),
-                Text(textoSucursales(sucursales), maxLines: 1, overflow: TextOverflow.ellipsis, style: _t(11.5, FontWeight.w400, _C.barraApagado, height: 1.3)),
-              ],
-            ),
-          ),
-          boton(ayuda: 'Buscar', onTap: onBuscar, hijo: Icon(Icons.search_rounded, size: 22, color: _C.barraTexto)),
-          boton(ayuda: 'Cuenta', onTap: onCuenta, hijo: AvatarManager(inicial: inicialDe(nombre), lado: 32)),
-        ],
-      ),
-    );
-  }
 }
 
 /// La barra inferior flotante.
@@ -91,8 +46,8 @@ class BarraInferiorMovil extends StatelessWidget {
 
   static const _pestanas = [
     (PestanaMovil.inicio, 'Inicio', Icons.home_outlined),
-    (PestanaMovil.reportes, 'Reportes', Icons.bar_chart_rounded),
     (PestanaMovil.despensa, 'Despensa', Icons.inventory_2_outlined),
+    (PestanaMovil.reportes, 'Reportes', Icons.bar_chart_rounded),
     (PestanaMovil.avisos, 'Avisos', Icons.notifications_none_rounded),
     (PestanaMovil.mas, 'Más', Icons.more_horiz_rounded),
   ];

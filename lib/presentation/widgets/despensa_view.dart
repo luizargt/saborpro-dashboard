@@ -142,9 +142,16 @@ class _DespensaBodyState extends State<DespensaBody> {
           ? Despensa.porUrgencia(filas, consulta: _consulta, estado: _estado)
           : Despensa.porConsumo(filas, widget.dias, consulta: _consulta);
 
+      // En el teléfono TODA la pantalla se desplaza junta (las tarjetas, el buscador y
+      // los filtros se van hacia arriba y la tabla ocupa el alto que necesita): antes
+      // quedaban fijos arriba y de la tabla se veían dos renglones. En pantalla ancha
+      // sobra lugar y la tabla sigue con su propio desplazamiento.
+      final desplazaTodo = telefono;
+
       final Widget cuerpo;
       if (widget.cargando) {
-        cuerpo = Center(child: CircularProgressIndicator(color: _C.accent));
+        final spinner = Center(child: CircularProgressIndicator(color: _C.accent));
+        cuerpo = desplazaTodo ? SizedBox(height: 240, child: spinner) : spinner;
       } else if (widget.error != null) {
         cuerpo = _Error(mensaje: widget.error!, onReintentar: widget.onReintentar);
       } else if (lista.isEmpty) {
@@ -168,6 +175,7 @@ class _DespensaBodyState extends State<DespensaBody> {
           hCabecera: _hCabecera,
           agrupar: enDias,
           resumen: resumen,
+          alturaCompleta: desplazaTodo,
         );
       }
 
@@ -187,44 +195,63 @@ class _DespensaBodyState extends State<DespensaBody> {
             )
           : null;
 
+      // Lo de arriba de la tabla: el encabezado, el dinero, el buscador y los filtros.
+      final arriba = <Widget>[
+        Padding(
+          padding: EdgeInsets.fromLTRB(pad, 14, pad, 12),
+          child: _Encabezado(
+            actualizado: widget.actualizado,
+            ahora: widget.ahora,
+            telefono: telefono,
+            onActualizar: widget.onActualizar,
+            onDescargar: widget.onDescargar,
+          ),
+        ),
+        if (mostrarDinero)
+          Padding(
+            padding: EdgeInsets.fromLTRB(pad, 0, pad, 12),
+            child: _Dinero(
+              sucursales: widget.sucursales,
+              resumen: resumen,
+              ancho: ancho - 2 * pad,
+              elegida: widget.sucursalElegida,
+              onElegir: widget.onElegirSucursal,
+            ),
+          ),
+        Padding(
+          padding: EdgeInsets.symmetric(horizontal: pad),
+          child: _Buscador(controlador: _busqueda, onBuscar: (q) => setState(() => _consulta = q), telefono: telefono),
+        ),
+        Padding(
+          padding: EdgeInsets.fromLTRB(pad, 10, pad, 0),
+          child: telefono
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [modo, if (filtros != null) ...[const SizedBox(height: 8), filtros]],
+                )
+              : Wrap(spacing: 10, runSpacing: 10, crossAxisAlignment: WrapCrossAlignment.center, children: [modo, if (filtros != null) filtros]),
+        ),
+        const SizedBox(height: 12),
+      ];
+
+      if (desplazaTodo) {
+        return SingleChildScrollView(
+          // Siempre desplazable: aunque haya pocos ingredientes, todo se mueve igual.
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              ...arriba,
+              Padding(padding: EdgeInsets.fromLTRB(pad, 0, pad, 16), child: cuerpo),
+            ],
+          ),
+        );
+      }
+
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Padding(
-            padding: EdgeInsets.fromLTRB(pad, 14, pad, 12),
-            child: _Encabezado(
-              actualizado: widget.actualizado,
-              ahora: widget.ahora,
-              telefono: telefono,
-              onActualizar: widget.onActualizar,
-              onDescargar: widget.onDescargar,
-            ),
-          ),
-          if (mostrarDinero)
-            Padding(
-              padding: EdgeInsets.fromLTRB(pad, 0, pad, 12),
-              child: _Dinero(
-                sucursales: widget.sucursales,
-                resumen: resumen,
-                ancho: ancho - 2 * pad,
-                elegida: widget.sucursalElegida,
-                onElegir: widget.onElegirSucursal,
-              ),
-            ),
-          Padding(
-            padding: EdgeInsets.symmetric(horizontal: pad),
-            child: _Buscador(controlador: _busqueda, onBuscar: (q) => setState(() => _consulta = q), telefono: telefono),
-          ),
-          Padding(
-            padding: EdgeInsets.fromLTRB(pad, 10, pad, 0),
-            child: telefono
-                ? Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [modo, if (filtros != null) ...[const SizedBox(height: 8), filtros]],
-                  )
-                : Wrap(spacing: 10, runSpacing: 10, crossAxisAlignment: WrapCrossAlignment.center, children: [modo, if (filtros != null) filtros]),
-          ),
-          const SizedBox(height: 12),
+          ...arriba,
           Expanded(
             child: Padding(
               padding: EdgeInsets.fromLTRB(pad, 0, pad, 16),
@@ -674,6 +701,11 @@ class _Tabla extends StatelessWidget {
   final bool agrupar;
   final ResumenDespensa resumen;
 
+  /// La tabla mide lo que miden todos sus renglones y NO se desplaza por dentro: la
+  /// pantalla entera se desplaza (teléfono). Sin esto, ocupa el alto que le sobre y
+  /// se desplaza ella sola.
+  final bool alturaCompleta;
+
   const _Tabla({
     required this.filas,
     required this.sucursales,
@@ -688,6 +720,7 @@ class _Tabla extends StatelessWidget {
     required this.hCabecera,
     required this.agrupar,
     required this.resumen,
+    this.alturaCompleta = false,
   });
 
   static const _altoFila = 40.0;
@@ -837,6 +870,8 @@ class _Tabla extends StatelessWidget {
                 width: anchoDatos,
                 child: ListView.builder(
                   controller: vDatos,
+                  // Con la pantalla desplazándose entera, aquí no se desplaza nada.
+                  physics: alturaCompleta ? const NeverScrollableScrollPhysics() : null,
                   itemCount: renglones.length,
                   itemExtentBuilder: alto,
                   itemBuilder: (_, i) => datos(renglones[i]),
@@ -848,6 +883,9 @@ class _Tabla extends StatelessWidget {
       ],
     );
 
+    // El alto de todos los renglones, para la tabla que no se desplaza por dentro.
+    final altoTodo = renglones.fold<double>(0, (a, r) => a + (r is _Grupo ? _altoGrupo : _altoFila));
+
     return Container(
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
@@ -856,10 +894,11 @@ class _Tabla extends StatelessWidget {
         border: Border.all(color: _C.lineStrong),
       ),
       child: Column(
+        mainAxisSize: alturaCompleta ? MainAxisSize.min : MainAxisSize.max,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           cabecera,
-          Expanded(child: cuerpoTabla),
+          if (alturaCompleta) SizedBox(height: altoTodo, child: cuerpoTabla) else Expanded(child: cuerpoTabla),
           _Leyenda(enDias: enDias, sucursalUnica: ids.length == 1, telefono: telefono),
         ],
       ),

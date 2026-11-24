@@ -41,6 +41,7 @@ import '../navigation/destinos.dart';
 import '../widgets/barra_inferior.dart';
 import '../widgets/barra_lateral.dart';
 import '../widgets/dialogo_descargas.dart';
+import '../widgets/encabezado_movil.dart';
 import '../widgets/encabezado_pagina.dart';
 import '../widgets/menu_cuenta.dart';
 import '../widgets/paleta_de_comandos.dart';
@@ -658,6 +659,10 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
           sucursales: sucursales,
           version: versionLabel,
           actual: _destino,
+          onBuscar: () {
+            Navigator.of(ctx).pop();
+            _abrirBuscador();
+          },
           onDescargas: () {
             Navigator.of(ctx).pop();
             _abrirDescargas();
@@ -869,17 +874,23 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     return ContextoShell(child: KeyedSubtree(key: ValueKey(_destino), child: p));
   }
 
-  Widget _encabezado(String nombre, {required bool telefono}) {
-    return EncabezadoPagina(
-      miga: Destinos.miga(_destino, hora: DateTime.now().hour, nombre: nombre),
-      titulo: Destinos.nombre(_destino),
-      acciones: [
+  /// Los botones de la derecha del encabezado, para el de pantalla ancha y para el
+  /// del teléfono: configurar avisos (solo en Avisos), descargar y la fecha (solo donde
+  /// tiene efecto).
+  List<Widget> _acciones({required bool telefono}) => [
         if (Destinos.muestraConfigurarAvisos(_destino))
           BotonEncabezado(icono: Icons.tune_rounded, ayuda: 'Configurar avisos', texto: 'Configurar avisos', onTap: () => _ir(Destino.notificaciones)),
         BotonEncabezado(icono: Icons.file_download_outlined, ayuda: 'Descargar reportes', onTap: _abrirDescargas),
         if (Destinos.muestraFecha(_destino))
           ConstrainedBox(constraints: BoxConstraints(maxWidth: telefono ? 140 : 260), child: const DateSelectorChip()),
-      ],
+      ];
+
+  /// Pantalla ancha: la miga, el título grande y los botones.
+  Widget _encabezado(String nombre) {
+    return EncabezadoPagina(
+      miga: Destinos.miga(_destino, hora: DateTime.now().hour, nombre: nombre),
+      titulo: Destinos.nombre(_destino),
+      acciones: _acciones(telefono: false),
     );
   }
 
@@ -939,7 +950,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     );
   }
 
-  /// Teléfono: la barra de arriba, el encabezado, la pantalla y la barra de abajo.
+  /// Teléfono: una sola línea arriba (logo, nombre de la vista y botones), la pantalla y
+  /// la barra de abajo. La cuenta y la búsqueda están en "Más".
   Widget _telefono(BuildContext context, {required String nombre, required int sucursales, required int sinLeer, required String versionLabel}) {
     return Column(
       children: [
@@ -947,10 +959,9 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
           color: InicioColores.barra,
           child: SafeArea(
             bottom: false,
-            child: BarraSuperiorMovil(sucursales: sucursales, nombre: nombre, onBuscar: _abrirBuscador, onCuenta: () => _abrirMas(nombre, sucursales, versionLabel)),
+            child: EncabezadoMovil(titulo: Destinos.nombre(_destino), acciones: _acciones(telefono: true)),
           ),
         ),
-        _encabezado(nombre, telefono: true),
         Expanded(
           // Las barras ya apartaron lo suyo del borde: la pantalla no lo aparta otra vez.
           child: MediaQuery.removePadding(context: context, removeTop: true, removeBottom: true, child: _pagina()),
@@ -1015,7 +1026,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
               removeLeft: true,
               child: Column(
                 children: [
-                  _encabezado(nombre, telefono: false),
+                  _encabezado(nombre),
                   Expanded(child: MediaQuery.removePadding(context: context, removeTop: true, removeBottom: true, child: _pagina())),
                 ],
               ),

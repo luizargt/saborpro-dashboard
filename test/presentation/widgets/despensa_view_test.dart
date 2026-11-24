@@ -396,6 +396,94 @@ void main() {
     });
   });
 
+  // En el teléfono las tarjetas, el buscador y los filtros NO quedan fijos arriba: se van
+  // con el resto y la tabla ocupa todo el alto que necesita. Antes de la tabla solo se
+  // veían dos renglones.
+  group('en el teléfono todo se desplaza junto', () {
+    List<IngredientStock> muchos() => [for (var i = 0; i < 40; i++) ing('Ingrediente ${i.toString().padLeft(2, '0')}', [null, null, [10 + i, 20 + i]], 5)];
+    const solo = [DespensaSucursal('sr', 'San Rafael')];
+
+    testWidgets('al bajar, las tarjetas y los filtros se van de la pantalla', (tester) async {
+      await montar(tester, cuerpo(items: muchos(), suc: solo, elegida: true), size: const Size(360, 700));
+      expect(tester.getTopLeft(find.textContaining('Dinero en inventario')).dy, greaterThan(0));
+      expect(find.text('Días que alcanza'), findsOneWidget);
+
+      await tester.drag(find.byType(SingleChildScrollView).first, const Offset(0, -700));
+      await tester.pumpAndSettle();
+
+      // Siguen en el árbol (es una sola lista) pero ya arriba, fuera de la vista.
+      expect(tester.getTopLeft(find.textContaining('Dinero en inventario')).dy, lessThan(0));
+      expect(tester.getTopLeft(find.text('Días que alcanza')).dy, lessThan(0));
+    });
+
+    testWidgets('se llega hasta el último ingrediente desplazando la pantalla', (tester) async {
+      await montar(tester, cuerpo(items: muchos(), suc: solo, elegida: true), size: const Size(360, 700));
+      await tester.scrollUntilVisible(find.text('Ingrediente 39'), 300, scrollable: find.byType(Scrollable).first);
+      await tester.pumpAndSettle();
+      expect(find.text('Ingrediente 39'), findsOneWidget);
+      // Y la leyenda de abajo, después de la tabla.
+      expect(find.text('Según el consumo de 30 días'), findsOneWidget);
+    });
+
+    testWidgets('la tabla no se desplaza por dentro: sus renglones los mueve la pantalla', (tester) async {
+      await montar(tester, cuerpo(items: muchos(), suc: solo, elegida: true), size: const Size(360, 700));
+      // Los dos paneles de la tabla (nombres y datos) no aceptan arrastre vertical.
+      for (final lista in tester.widgetList<ListView>(find.byType(ListView))) {
+        expect(lista.physics, isA<NeverScrollableScrollPhysics>());
+      }
+    });
+
+    testWidgets('los nombres siguen alineados con los datos al bajar', (tester) async {
+      await montar(tester, cuerpo(items: muchos(), suc: solo, elegida: true), size: const Size(360, 700));
+      await tester.scrollUntilVisible(find.text('Ingrediente 30'), 300, scrollable: find.byType(Scrollable).first);
+      await tester.pumpAndSettle();
+      final nombre = tester.getTopLeft(find.text('Ingrediente 30')).dy;
+      // El stock de ese renglón (10 + 30 = 40) está en la misma línea: la celda '40'
+      // más cercana al nombre está a su altura (puede haber otros '40' en la tabla).
+      final cercana = tester.widgetList(find.text('40')).isEmpty
+          ? double.infinity
+          : [for (final e in find.text('40').evaluate()) (tester.getTopLeft(find.byElementPredicate((x) => x == e)).dy - nombre).abs()].reduce((a, b) => a < b ? a : b);
+      expect(cercana, lessThan(24));
+    });
+
+    testWidgets('con pocos ingredientes tampoco queda un hueco ni se rompe', (tester) async {
+      await montar(tester, cuerpo(items: catorce(), suc: const [DespensaSucursal('sr', 'San Rafael')], elegida: true), size: const Size(360, 900));
+      expect(find.textContaining('Dinero en inventario'), findsOneWidget);
+      expect(find.text('Según el consumo de 30 días'), findsOneWidget);
+    });
+
+    testWidgets('cargando, con error o sin resultados también se ve (la pantalla se desplaza)', (tester) async {
+      await montar(tester, DespensaBody(items: const [], sucursales: sucursales, dias: dias, ahora: ahora, cargando: true), size: const Size(360, 700), asentar: false);
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      await montar(tester, cuerpo(error: 'No se pudo leer', onReintentar: () {}), size: const Size(360, 700));
+      expect(find.text('No se pudo leer'), findsOneWidget);
+      await montar(tester, cuerpo(items: const []), size: const Size(360, 700));
+      expect(find.text('Sin resultados'), findsOneWidget);
+    });
+
+    testWidgets('el modo consumo también se desplaza entero', (tester) async {
+      final consumo = [for (var i = 0; i < 30; i++) ing('Insumo ${i.toString().padLeft(2, '0')}', [null, null, [10, 30]], 5, porDia: [1, 2, 0, 0, 1, 1, 3])];
+      await montar(tester, cuerpo(items: consumo, suc: solo, elegida: true), size: const Size(360, 700));
+      await tester.tap(find.text('Consumo 7 días'));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(find.text('Insumo 29'), 300, scrollable: find.byType(Scrollable).first);
+      await tester.pumpAndSettle();
+      expect(find.text('Insumo 29'), findsOneWidget);
+    });
+  });
+
+  // En pantalla ancha sobra lugar: el encabezado se queda fijo y la tabla se desplaza sola.
+  group('en pantalla ancha la tabla se desplaza sola', () {
+    testWidgets('al bajar por la tabla, el dinero y los filtros se quedan donde están', (tester) async {
+      final muchos = [for (var i = 0; i < 80; i++) ing('Ingrediente ${i.toString().padLeft(2, '0')}', [null, null, [10, 30 + i]], 2)];
+      await montar(tester, cuerpo(items: muchos, suc: const [DespensaSucursal('sr', 'San Rafael')], elegida: true), size: const Size(1280, 700));
+      final antes = tester.getTopLeft(find.textContaining('Dinero en inventario')).dy;
+      await tester.drag(find.byType(ListView).last, const Offset(0, -1500));
+      await tester.pumpAndSettle();
+      expect(tester.getTopLeft(find.textContaining('Dinero en inventario')).dy, antes);
+    });
+  });
+
   group('cabe sin desbordar', () {
     for (final s in tamanos) {
       testWidgets('a ${s.width.toInt()} con letra grande y datos normales, en los dos modos', (tester) async {

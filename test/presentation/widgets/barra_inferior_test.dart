@@ -5,7 +5,7 @@ import 'package:saborpro_reports/core/theme/tema_manager.dart';
 import 'package:saborpro_reports/presentation/navigation/destinos.dart';
 import 'package:saborpro_reports/presentation/widgets/barra_inferior.dart';
 
-/// La navegación del teléfono: barra de arriba, barra de abajo y la hoja de Reportes.
+/// La navegación del teléfono: la barra de abajo y la hoja de Reportes.
 void main() {
   setUpAll(() => GoogleFonts.config.allowRuntimeFetching = false);
   setUp(() => TemaManager.instancia.ponerSinGuardar(ThemeMode.light));
@@ -44,12 +44,23 @@ void main() {
   group('barra de abajo', () {
     testWidgets('cinco pestañas y la actual marcada', (t) async {
       await montar(t, BarraInferiorMovil(actual: PestanaMovil.reportes, avisosSinLeer: 0, onElegir: (_) {}));
-      for (final n in ['Inicio', 'Reportes', 'Despensa', 'Avisos', 'Más']) {
+      for (final n in ['Inicio', 'Despensa', 'Reportes', 'Avisos', 'Más']) {
         expect(find.text(n), findsOneWidget, reason: n);
       }
       bool marcada(String n) => t.widget<Semantics>(find.ancestor(of: find.text(n), matching: find.byType(Semantics)).first).properties.selected ?? false;
       expect(marcada('Reportes'), isTrue);
       expect(marcada('Inicio'), isFalse);
+    });
+
+    testWidgets('el orden es Inicio, Despensa, Reportes, Avisos y Más (de izquierda a derecha)', (t) async {
+      await montar(t, BarraInferiorMovil(actual: PestanaMovil.inicio, avisosSinLeer: 0, onElegir: (_) {}));
+      final nombres = ['Inicio', 'Despensa', 'Reportes', 'Avisos', 'Más'];
+      final x = [for (final n in nombres) t.getTopLeft(find.text(n)).dx];
+      for (var i = 1; i < x.length; i++) {
+        expect(x[i], greaterThan(x[i - 1]), reason: '${nombres[i]} va después de ${nombres[i - 1]}');
+      }
+      // Y el orden del enum es el mismo (de él sale el dibujo).
+      expect(PestanaMovil.values, [PestanaMovil.inicio, PestanaMovil.despensa, PestanaMovil.reportes, PestanaMovil.avisos, PestanaMovil.mas]);
     });
 
     testWidgets('tocar una pestaña avisa cuál', (t) async {
@@ -72,33 +83,6 @@ void main() {
     for (final ancho in [320.0, 360.0, 390.0]) {
       testWidgets('cabe a $ancho con letra grande', (t) async {
         await montar(t, BarraInferiorMovil(actual: PestanaMovil.avisos, avisosSinLeer: 120, onElegir: (_) {}), ancho: ancho, escala: 1.4);
-        expect(t.takeException(), isNull);
-      });
-    }
-  });
-
-  group('barra de arriba', () {
-    testWidgets('el negocio, buscar y la cuenta', (t) async {
-      var busco = 0, cuenta = 0;
-      await montar(t, BarraSuperiorMovil(sucursales: 3, nombre: 'Luis', onBuscar: () => busco++, onCuenta: () => cuenta++));
-      expect(find.text('Sabor Manager'), findsOneWidget);
-      expect(find.text('3 sucursales'), findsOneWidget);
-      expect(find.text('L'), findsOneWidget);
-      await t.tap(find.byTooltip('Buscar'));
-      await t.tap(find.byTooltip('Cuenta'));
-      expect(busco, 1);
-      expect(cuenta, 1);
-    });
-
-    testWidgets('los botones miden al menos 44', (t) async {
-      await montar(t, BarraSuperiorMovil(sucursales: 1, nombre: 'Ana', onBuscar: () {}, onCuenta: () {}));
-      expect(t.getSize(find.byTooltip('Buscar')).height, greaterThanOrEqualTo(44));
-      expect(t.getSize(find.byTooltip('Cuenta')).width, greaterThanOrEqualTo(44));
-    });
-
-    for (final ancho in [320.0, 360.0]) {
-      testWidgets('cabe a $ancho con letra grande y nombres largos', (t) async {
-        await montar(t, BarraSuperiorMovil(sucursales: 12, nombre: 'Un nombre larguísimo de cuenta', onBuscar: () {}, onCuenta: () {}), ancho: ancho, escala: 1.4);
         expect(t.takeException(), isNull);
       });
     }
