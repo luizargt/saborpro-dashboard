@@ -6,7 +6,7 @@ import 'package:saborpro_reports/main.dart' show temaDeManager;
 import 'package:saborpro_reports/presentation/widgets/inicio_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Claro por defecto; oscuro si se elige. Los colores de las pantallas salen de la
+/// Oscuro por defecto; claro si se elige. Los colores de las pantallas salen de la
 /// paleta puesta, y lo elegido se guarda.
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -17,26 +17,33 @@ void main() {
   });
   tearDownAll(() => TemaManager.instancia.ponerSinGuardar(ThemeMode.light));
 
-  group('por defecto es claro', () {
-    test('sin nada guardado, claro', () async {
+  group('por defecto es oscuro', () {
+    test('sin nada guardado, oscuro', () async {
+      await TemaManager.instancia.cargar();
+      expect(TemaManager.instancia.modo, ThemeMode.dark);
+      expect(TemaManager.instancia.oscuro, isTrue);
+      expect(paletaActual.esOscura, isTrue);
+    });
+
+    test('aunque el teléfono esté en claro: no se mira el sistema', () async {
+      TestWidgetsFlutterBinding.instance.platformDispatcher.platformBrightnessTestValue = Brightness.light;
+      addTearDown(TestWidgetsFlutterBinding.instance.platformDispatcher.clearPlatformBrightnessTestValue);
+      await TemaManager.instancia.cargar();
+      expect(TemaManager.instancia.modo, ThemeMode.dark);
+    });
+
+    test('un valor guardado que no entiende, oscuro', () async {
+      SharedPreferences.setMockInitialValues({'manager_tema': 'quien-sabe'});
+      await TemaManager.instancia.cargar();
+      expect(TemaManager.instancia.modo, ThemeMode.dark);
+    });
+
+    test('quien ya había elegido claro sigue en claro', () async {
+      SharedPreferences.setMockInitialValues({'manager_tema': 'claro'});
       TemaManager.instancia.ponerSinGuardar(ThemeMode.dark);
       await TemaManager.instancia.cargar();
       expect(TemaManager.instancia.modo, ThemeMode.light);
-      expect(TemaManager.instancia.oscuro, isFalse);
       expect(paletaActual.esOscura, isFalse);
-    });
-
-    test('aunque el teléfono esté en oscuro: no se mira el sistema', () async {
-      TestWidgetsFlutterBinding.instance.platformDispatcher.platformBrightnessTestValue = Brightness.dark;
-      addTearDown(TestWidgetsFlutterBinding.instance.platformDispatcher.clearPlatformBrightnessTestValue);
-      await TemaManager.instancia.cargar();
-      expect(TemaManager.instancia.modo, ThemeMode.light);
-    });
-
-    test('un valor guardado que no entiende, claro', () async {
-      SharedPreferences.setMockInitialValues({'manager_tema': 'quien-sabe'});
-      await TemaManager.instancia.cargar();
-      expect(TemaManager.instancia.modo, ThemeMode.light);
     });
   });
 
@@ -72,9 +79,9 @@ void main() {
       expect(avisos, 1);
     });
 
-    test('"automático" no existe: cualquier otra cosa queda en claro', () async {
+    test('"automático" no existe: cualquier otra cosa queda en oscuro', () async {
       await TemaManager.instancia.poner(ThemeMode.system);
-      expect(TemaManager.instancia.modo, ThemeMode.light);
+      expect(TemaManager.instancia.modo, ThemeMode.dark);
     });
   });
 

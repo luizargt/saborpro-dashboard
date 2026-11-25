@@ -203,4 +203,4 @@ class Paleta {
 
 /// La paleta que se está usando. La cambia [TemaManager]; las pantallas la leen a
 /// través de `CortesiasColores`.
-Paleta paletaActual = Paleta.clara;
+Paleta paletaActual = Paleta.oscura;

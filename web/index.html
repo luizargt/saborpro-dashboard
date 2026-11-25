@@ -38,10 +38,10 @@
   <link rel="manifest" href="manifest.json">
 </head>
 <style>
-  /* Claro por defecto (como la app). Si el usuario eligió oscuro, el script de abajo
-     lo pone antes de pintar para que no haya un destello claro. */
+  /* Oscuro por defecto (como la app). Si el usuario eligió claro, el script de abajo
+     lo pone antes de pintar para que no haya un destello oscuro. */
   html, body {
-    background-color: #EEF1F5;
+    background-color: #0E1220;
     margin: 0;
     padding: 0;
     height: 100%;
@@ -51,9 +51,9 @@
   try {
     // shared_preferences en web guarda en localStorage con el prefijo "flutter." y el
     // valor como JSON.
-    if (JSON.parse(localStorage.getItem('flutter.manager_tema')) === 'oscuro') {
-      document.documentElement.style.backgroundColor = '#0E1220';
-      document.addEventListener('DOMContentLoaded', function () { document.body.style.backgroundColor = '#0E1220'; });
+    if (JSON.parse(localStorage.getItem('flutter.manager_tema')) === 'claro') {
+      document.documentElement.style.backgroundColor = '#EEF1F5';
+      document.addEventListener('DOMContentLoaded', function () { document.body.style.backgroundColor = '#EEF1F5'; });
     }
   } catch (e) {}
 </script>

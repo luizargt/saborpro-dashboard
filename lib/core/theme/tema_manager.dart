@@ -1,8 +1,9 @@
 /// Claro u oscuro en Sabor Manager.
 ///
-/// POR DEFECTO ES CLARO, aunque el teléfono esté en oscuro: así lo pidió el dueño,
-/// siempre con la opción de pasar a oscuro (en el menú de la cuenta). Lo que elige se
-/// guarda en el aparato y vuelve igual al abrir la app.
+/// POR DEFECTO ES OSCURO, aunque el teléfono esté en claro: así lo pidió el dueño
+/// (2026-11-24; del 11-22 al 11-24 fue claro), siempre con la opción de pasar a claro
+/// (en el menú de la cuenta). Lo que elige se guarda en el aparato y vuelve igual al
+/// abrir la app: quien ya eligió claro sigue en claro.
 ///
 /// CÓMO CAMBIA TODO A LA VEZ: los colores de las pantallas se leen de [paletaActual]
 /// (no de `Theme.of(context)`), así que al cambiar de modo se pone la otra paleta y se
@@ -25,30 +26,30 @@ class TemaManager extends ChangeNotifier {
 
   static const _llave = 'manager_tema';
 
-  /// Lo que se puede elegir. Sin "automático": la decisión del dueño es claro por
-  /// defecto, y oscuro si se pide.
-  ThemeMode _modo = ThemeMode.light;
+  /// Lo que se puede elegir. Sin "automático": la decisión del dueño es oscuro por
+  /// defecto, y claro si se pide.
+  ThemeMode _modo = ThemeMode.dark;
 
   ThemeMode get modo => _modo;
   bool get oscuro => _modo == ThemeMode.dark;
   Paleta get paleta => oscuro ? Paleta.oscura : Paleta.clara;
 
   /// Lee la elección guardada. Se llama una vez, ANTES de pintar: si se leyera
-  /// después, la app se vería un instante en claro y saltaría a oscuro.
-  /// Nunca lanza: sin acceso al almacenamiento queda en claro.
+  /// después, la app se vería un instante en oscuro y saltaría a claro.
+  /// Nunca lanza: sin acceso al almacenamiento queda en oscuro.
   Future<void> cargar() async {
     try {
       final p = await SharedPreferences.getInstance();
-      _modo = p.getString(_llave) == 'oscuro' ? ThemeMode.dark : ThemeMode.light;
+      _modo = p.getString(_llave) == 'claro' ? ThemeMode.light : ThemeMode.dark;
     } catch (_) {
-      _modo = ThemeMode.light;
+      _modo = ThemeMode.dark;
     }
     paletaActual = paleta;
   }
 
   /// Cambia de modo, lo guarda y repinta todo.
   Future<void> poner(ThemeMode modo) async {
-    final nuevo = modo == ThemeMode.dark ? ThemeMode.dark : ThemeMode.light;
+    final nuevo = modo == ThemeMode.light ? ThemeMode.light : ThemeMode.dark;
     if (nuevo == _modo) return;
     _modo = nuevo;
     paletaActual = paleta;
@@ -65,7 +66,7 @@ class TemaManager extends ChangeNotifier {
   /// Para las pruebas: pone el modo sin tocar el almacenamiento ni reconstruir.
   @visibleForTesting
   void ponerSinGuardar(ThemeMode modo) {
-    _modo = modo == ThemeMode.dark ? ThemeMode.dark : ThemeMode.light;
+    _modo = modo == ThemeMode.light ? ThemeMode.light : ThemeMode.dark;
     paletaActual = paleta;
   }
 

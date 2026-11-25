@@ -25,8 +25,8 @@ import 'presentation/widgets/forced_update_gate.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // El modo claro/oscuro se lee ANTES de pintar: si no, se vería un instante en claro
-  // y saltaría a oscuro. Por defecto es claro.
+  // El modo claro/oscuro se lee ANTES de pintar: si no, se vería un instante en oscuro
+  // y saltaría a claro. Por defecto es oscuro.
   await TemaManager.instancia.cargar();
   await initializeDateFormatting('es', null);
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
