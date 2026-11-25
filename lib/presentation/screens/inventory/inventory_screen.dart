@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../../../core/services/export_service.dart';
 import '../../providers/dashboard_provider.dart';
 import '../../providers/inventory_provider.dart';
 import '../../widgets/despensa_view.dart';
@@ -33,6 +32,7 @@ class InventoryScreen extends StatelessWidget {
       child: DespensaBody(
         items: prov.items,
         sucursales: [for (final l in visibles) DespensaSucursal(l.id, l.name, simbolo: l.currencySymbol)],
+        todas: [for (final l in prov.locations) DespensaSucursal(l.id, l.name, simbolo: l.currencySymbol)],
         dias: prov.last7DayKeys,
         actualizado: prov.lastUpdated,
         ahora: DateTime.now(),
@@ -40,7 +40,6 @@ class InventoryScreen extends StatelessWidget {
         error: prov.error,
         onReintentar: prov.load,
         onActualizar: prov.load,
-        onDescargar: () => ExportService.exportInventory(prov.items, prov.locations),
         sucursalElegida: elegida != null,
         onElegirSucursal: dash.selectLocation,
       ),

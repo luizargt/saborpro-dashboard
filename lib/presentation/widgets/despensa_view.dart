@@ -22,6 +22,7 @@ import 'package:intl/intl.dart';
 import '../../core/utils/formato_dinero.dart' show signoParaMostrar;
 import '../../data/models/despensa_data.dart';
 import '../../data/models/inventory_data.dart';
+import 'barra_inferior.dart' show mostrarHojaManager;
 import 'inicio_ui.dart';
 import '../navigation/contexto_shell.dart';
 
@@ -59,13 +60,16 @@ class DespensaBody extends StatefulWidget {
   final String? error;
   final VoidCallback? onReintentar;
   final VoidCallback? onActualizar;
-  final VoidCallback? onDescargar;
 
-  /// Se llama al tocar el dinero de una sucursal (para ver solo esa).
-  final ValueChanged<String>? onElegirSucursal;
+  /// Elige una sucursal (nulo = todas): desde el filtro o al tocar su dinero.
+  final ValueChanged<String?>? onElegirSucursal;
 
-  /// Hay una sola sucursal elegida arriba (y no "todas").
+  /// Hay una sola sucursal elegida (y no "todas").
   final bool sucursalElegida;
+
+  /// Todas las sucursales del negocio, para elegir en el filtro. Sin esto, las que
+  /// se ven.
+  final List<DespensaSucursal>? todas;
 
   const DespensaBody({
     super.key,
@@ -78,9 +82,9 @@ class DespensaBody extends StatefulWidget {
     this.error,
     this.onReintentar,
     this.onActualizar,
-    this.onDescargar,
     this.onElegirSucursal,
     this.sucursalElegida = false,
+    this.todas,
   });
 
   @override
@@ -93,14 +97,22 @@ class _DespensaBodyState extends State<DespensaBody> {
   final _hDatos = ScrollController();
   final _hCabecera = ScrollController();
   final _busqueda = TextEditingController();
+  final _focoBusqueda = FocusNode();
 
   String _consulta = '';
   ModoDespensa _modo = ModoDespensa.dias;
   EstadoDespensa? _estado;
 
+  /// La lupa del encabezado está abierta (es el buscador).
+  bool _buscando = false;
+
   @override
   void initState() {
     super.initState();
+    // Si se sale del buscador sin haber escrito nada, vuelve a ser la lupa.
+    _focoBusqueda.addListener(() {
+      if (!_focoBusqueda.hasFocus && _busqueda.text.isEmpty && _buscando && mounted) setState(() => _buscando = false);
+    });
     // Los nombres siguen a los datos hacia arriba y abajo; la cabecera, hacia los lados.
     _vDatos.addListener(() {
       if (_vNombres.hasClients && _vNombres.offset != _vDatos.offset) _vNombres.jumpTo(_vDatos.offset);
@@ -117,10 +129,41 @@ class _DespensaBodyState extends State<DespensaBody> {
     _hDatos.dispose();
     _hCabecera.dispose();
     _busqueda.dispose();
+    _focoBusqueda.dispose();
     super.dispose();
   }
 
   List<String> get _ids => [for (final s in widget.sucursales) s.id];
+
+  /// La sucursal elegida (nula = todas).
+  String? get _sucursalId => widget.sucursalElegida && widget.sucursales.length == 1 ? widget.sucursales.single.id : null;
+
+  void _cerrarBusqueda() {
+    _busqueda.clear();
+    _focoBusqueda.unfocus();
+    setState(() {
+      _consulta = '';
+      _buscando = false;
+    });
+  }
+
+  void _abrirFiltros() {
+    mostrarHojaManager<void>(
+      context,
+      builder: (_) => _HojaFiltros(
+        items: widget.items,
+        todas: widget.todas ?? widget.sucursales,
+        dias: widget.dias,
+        enDias: _modo == ModoDespensa.dias,
+        sucursal: _sucursalId,
+        estado: _estado,
+        onSucursal: widget.onElegirSucursal,
+        onEstado: (e) {
+          if (mounted) setState(() => _estado = e);
+        },
+      ),
+    );
+  }
 
   /// El mismo signo en todas las sucursales que se ven (o nulo si hay varios).
   String? get _signoUnico {
@@ -140,7 +183,7 @@ class _DespensaBodyState extends State<DespensaBody> {
 
       final lista = enDias
           ? Despensa.porUrgencia(filas, consulta: _consulta, estado: _estado)
-          : Despensa.porConsumo(filas, widget.dias, consulta: _consulta);
+          : Despensa.porConsumo(filas, widget.dias, consulta: _consulta, estado: _estado);
 
       // En el teléfono TODA la pantalla se desplaza junta (las tarjetas, el buscador y
       // los filtros se van hacia arriba y la tabla ocupa el alto que necesita): antes
@@ -179,23 +222,36 @@ class _DespensaBodyState extends State<DespensaBody> {
         );
       }
 
-      final mostrarDinero = enDias && !widget.cargando && widget.error == null;
+      // El dinero se queda en los dos modos: cambiar de modo no lo esconde.
+      final mostrarDinero = !widget.cargando && widget.error == null;
       final modo = _Pastillas<ModoDespensa>(
         opciones: const [(ModoDespensa.dias, 'Días que alcanza'), (ModoDespensa.consumo, 'Consumo 7 días')],
         elegida: _modo,
         onElegir: (m) => setState(() => _modo = m),
         completo: telefono,
       );
-      final filtros = mostrarDinero
-          ? _Filtros(
-              estado: _estado,
-              resumen: resumen,
-              telefono: telefono,
-              onEstado: (e) => setState(() => _estado = e),
-            )
-          : null;
+      final sucursalId = _sucursalId;
+      final botonFiltro = _BotonFiltro(
+        activos: (sucursalId != null ? 1 : 0) + (_estado != null ? 1 : 0),
+        onTap: _abrirFiltros,
+      );
+      // Lo que está filtrado, a la vista y con su ✕ para quitarlo.
+      final activos = [
+        if (sucursalId != null)
+          _FiltroActivo(
+            texto: widget.sucursales.single.nombre,
+            icono: Icons.storefront_outlined,
+            onQuitar: widget.onElegirSucursal == null ? null : () => widget.onElegirSucursal!(null),
+          ),
+        if (_estado != null)
+          _FiltroActivo(
+            texto: _nombreEstado(_estado!),
+            punto: _colorEstado(_estado!),
+            onQuitar: () => setState(() => _estado = null),
+          ),
+      ];
 
-      // Lo de arriba de la tabla: el encabezado, el dinero, el buscador y los filtros.
+      // Lo de arriba de la tabla: el encabezado (con la lupa), el dinero, el modo y el filtro.
       final arriba = <Widget>[
         Padding(
           padding: EdgeInsets.fromLTRB(pad, 14, pad, 12),
@@ -204,7 +260,12 @@ class _DespensaBodyState extends State<DespensaBody> {
             ahora: widget.ahora,
             telefono: telefono,
             onActualizar: widget.onActualizar,
-            onDescargar: widget.onDescargar,
+            buscando: _buscando,
+            controlador: _busqueda,
+            foco: _focoBusqueda,
+            onBuscar: (q) => setState(() => _consulta = q),
+            onAbrir: () => setState(() => _buscando = true),
+            onCerrar: _cerrarBusqueda,
           ),
         ),
         if (mostrarDinero)
@@ -220,17 +281,19 @@ class _DespensaBodyState extends State<DespensaBody> {
           ),
         Padding(
           padding: EdgeInsets.symmetric(horizontal: pad),
-          child: _Buscador(controlador: _busqueda, onBuscar: (q) => setState(() => _consulta = q), telefono: telefono),
+          child: Row(
+            children: [
+              if (telefono) Expanded(child: modo) else modo,
+              const SizedBox(width: 8),
+              botonFiltro,
+            ],
+          ),
         ),
-        Padding(
-          padding: EdgeInsets.fromLTRB(pad, 10, pad, 0),
-          child: telefono
-              ? Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [modo, if (filtros != null) ...[const SizedBox(height: 8), filtros]],
-                )
-              : Wrap(spacing: 10, runSpacing: 10, crossAxisAlignment: WrapCrossAlignment.center, children: [modo, if (filtros != null) filtros]),
-        ),
+        if (activos.isNotEmpty)
+          Padding(
+            padding: EdgeInsets.fromLTRB(pad, 10, pad, 0),
+            child: Wrap(spacing: 8, runSpacing: 8, children: activos),
+          ),
         const SizedBox(height: 12),
       ];
 
@@ -266,20 +329,36 @@ class _DespensaBodyState extends State<DespensaBody> {
 
 // ── ENCABEZADO, BÚSQUEDA Y FILTROS ───────────────────────────────────────────
 
+/// "Actualizado hace…", la lupa y actualizar. La lupa, al tocarla, se extiende hacia
+/// la izquierda y se vuelve el buscador (tapa el "Actualizado hace…"); la ✕ la cierra
+/// y borra lo escrito.
 class _Encabezado extends StatelessWidget {
   final DateTime? actualizado;
   final DateTime ahora;
   final bool telefono;
   final VoidCallback? onActualizar;
-  final VoidCallback? onDescargar;
+  final bool buscando;
+  final TextEditingController controlador;
+  final FocusNode foco;
+  final ValueChanged<String> onBuscar;
+  final VoidCallback onAbrir;
+  final VoidCallback onCerrar;
 
   const _Encabezado({
     required this.actualizado,
     required this.ahora,
     required this.telefono,
     this.onActualizar,
-    this.onDescargar,
+    required this.buscando,
+    required this.controlador,
+    required this.foco,
+    required this.onBuscar,
+    required this.onAbrir,
+    required this.onCerrar,
   });
+
+  static const _alto = 46.0;
+  static const _borde = 1.5;
 
   String get _subtitulo {
     final a = actualizado;
@@ -293,8 +372,8 @@ class _Encabezado extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     Widget boton(IconData icono, String ayuda, VoidCallback? onTap) => SizedBox(
-          width: 46,
-          height: 46,
+          width: _alto,
+          height: _alto,
           child: Material(
             color: _C.card,
             borderRadius: BorderRadius.circular(14),
@@ -305,66 +384,114 @@ class _Encabezado extends StatelessWidget {
             ),
           ),
         );
+
+    // El hueco del ícono, dentro del borde: la lupa queda centrada cuando está cerrada.
+    const hueco = _alto - 2 * _borde;
+
     return Row(
       children: [
         Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Dentro del shell el título "Despensa" ya lo pone el encabezado del shell.
-              if (!ContextoShell.enShell(context)) Text('Despensa', maxLines: 1, overflow: TextOverflow.ellipsis, style: _t(telefono ? 22 : 24, FontWeight.w700, _C.ink)),
-              Text(_subtitulo, maxLines: 1, overflow: TextOverflow.ellipsis, style: _t(13, FontWeight.w500, _C.muted)),
-            ],
-          ),
+          child: LayoutBuilder(builder: (context, c) {
+            final ancho = c.maxWidth;
+            final campo = Row(
+              children: [
+                SizedBox(width: hueco, child: Icon(Icons.search_rounded, size: 20, color: _C.soft)),
+                Expanded(
+                  child: TextField(
+                    key: const Key('despensa-buscar'),
+                    controller: controlador,
+                    focusNode: foco,
+                    autofocus: true,
+                    onChanged: onBuscar,
+                    textInputAction: TextInputAction.search,
+                    onSubmitted: (_) => foco.unfocus(),
+                    cursorColor: _C.accent,
+                    style: _t(15.5, FontWeight.w400, _C.ink),
+                    decoration: InputDecoration(
+                      isCollapsed: true,
+                      border: InputBorder.none,
+                      hintText: 'Buscar ingrediente',
+                      hintStyle: _t(15.5, FontWeight.w400, _C.soft),
+                    ),
+                  ),
+                ),
+                SizedBox(
+                  width: hueco,
+                  height: hueco,
+                  child: InkWell(
+                    customBorder: const CircleBorder(),
+                    onTap: onCerrar,
+                    child: Tooltip(message: 'Cerrar búsqueda', child: Icon(Icons.close_rounded, size: 20, color: _C.muted)),
+                  ),
+                ),
+              ],
+            );
+            return Stack(
+              alignment: Alignment.centerLeft,
+              children: [
+                ConstrainedBox(
+                  constraints: const BoxConstraints(minHeight: _alto),
+                  child: Padding(
+                    padding: const EdgeInsets.only(right: _alto + 10),
+                    child: AnimatedOpacity(
+                      opacity: buscando ? 0 : 1,
+                      duration: const Duration(milliseconds: 150),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          // Dentro del shell el título "Despensa" ya lo pone el encabezado del shell.
+                          if (!ContextoShell.enShell(context)) Text('Despensa', maxLines: 1, overflow: TextOverflow.ellipsis, style: _t(telefono ? 22 : 24, FontWeight.w700, _C.ink)),
+                          Text(_subtitulo, maxLines: 1, overflow: TextOverflow.ellipsis, style: _t(13, FontWeight.w500, _C.muted)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  top: 0,
+                  bottom: 0,
+                  right: 0,
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    widthFactor: 1,
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 240),
+                      curve: Curves.easeOutCubic,
+                      width: buscando ? ancho : _alto,
+                      height: _alto,
+                      clipBehavior: Clip.antiAlias,
+                      decoration: BoxDecoration(
+                        color: _C.card,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: buscando ? _C.line : Colors.transparent, width: _borde),
+                      ),
+                      child: Material(
+                        type: MaterialType.transparency,
+                        child: buscando
+                            // Mientras se extiende, el contenido ya mide lo que medirá
+                            // abierto (no se apretuja): el recuadro solo lo va destapando.
+                            ? OverflowBox(
+                                alignment: Alignment.centerLeft,
+                                minWidth: ancho - 2 * _borde,
+                                maxWidth: ancho - 2 * _borde,
+                                child: campo,
+                              )
+                            : InkWell(
+                                onTap: onAbrir,
+                                child: Tooltip(message: 'Buscar ingrediente', child: Center(child: Icon(Icons.search_rounded, size: 20, color: _C.ink))),
+                              ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            );
+          }),
         ),
-        const SizedBox(width: 12),
-        boton(Icons.download_rounded, 'Descargar Excel', onDescargar),
         const SizedBox(width: 6),
         boton(Icons.refresh_rounded, 'Actualizar', onActualizar),
       ],
-    );
-  }
-}
-
-class _Buscador extends StatelessWidget {
-  final TextEditingController controlador;
-  final ValueChanged<String> onBuscar;
-  final bool telefono;
-
-  const _Buscador({required this.controlador, required this.onBuscar, required this.telefono});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: telefono ? 46 : 50,
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      decoration: BoxDecoration(
-        color: _C.card,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: _C.line, width: 1.5),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.search_rounded, size: 20, color: _C.soft),
-          const SizedBox(width: 10),
-          Expanded(
-            child: TextField(
-              key: const Key('despensa-buscar'),
-              controller: controlador,
-              onChanged: onBuscar,
-              cursorColor: _C.accent,
-              style: _t(15.5, FontWeight.w400, _C.ink),
-              decoration: InputDecoration(
-                isCollapsed: true,
-                border: InputBorder.none,
-                hintText: 'Buscar ingrediente',
-                hintStyle: _t(15.5, FontWeight.w400, _C.soft),
-              ),
-            ),
-          ),
-        ],
-      ),
     );
   }
 }
@@ -376,17 +503,11 @@ class _Pastillas<T> extends StatelessWidget {
   final ValueChanged<T> onElegir;
   final bool completo;
 
-  /// Un punto de color antes del texto de cada opción, si lo tiene.
-  final Map<T, Color> puntos;
-  final Map<T, int> cuantos;
-
   const _Pastillas({
     required this.opciones,
     required this.elegida,
     required this.onElegir,
     this.completo = false,
-    this.puntos = const {},
-    this.cuantos = const {},
   });
 
   @override
@@ -397,15 +518,7 @@ class _Pastillas<T> extends StatelessWidget {
       final contenido = Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (puntos[o.$1] != null) ...[
-            Container(width: 9, height: 9, decoration: BoxDecoration(color: puntos[o.$1], shape: BoxShape.circle)),
-            const SizedBox(width: 6),
-          ],
           completo ? Text(o.$2, maxLines: 1, style: _t(14, FontWeight.w600, color)) : Flexible(child: Text(o.$2, maxLines: 1, overflow: TextOverflow.ellipsis, style: _t(14, FontWeight.w600, color))),
-          if (cuantos[o.$1] != null) ...[
-            const SizedBox(width: 4),
-            Text('${cuantos[o.$1]}', style: _t(12, FontWeight.w400, color.withValues(alpha: 0.7))),
-          ],
         ],
       );
       final b = GestureDetector(
@@ -436,43 +549,258 @@ class _Pastillas<T> extends StatelessWidget {
   }
 }
 
-class _Filtros extends StatelessWidget {
-  final EstadoDespensa? estado;
-  final ResumenDespensa resumen;
-  final bool telefono;
-  final ValueChanged<EstadoDespensa?> onEstado;
+String _nombreEstado(EstadoDespensa e) => switch (e) {
+      EstadoDespensa.agotado => 'Agotado',
+      EstadoDespensa.pronto => 'Pronto',
+      EstadoDespensa.bien => 'Bien',
+    };
 
-  const _Filtros({required this.estado, required this.resumen, required this.telefono, required this.onEstado});
+/// El botón redondo del filtro, al lado de los modos. Con algo filtrado se tiñe y
+/// lleva cuántos filtros hay puestos.
+class _BotonFiltro extends StatelessWidget {
+  final int activos;
+  final VoidCallback onTap;
+  const _BotonFiltro({required this.activos, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    // `null` es "Todos". Se usa un envoltorio porque la pastilla pide un valor no nulo.
-    final opciones = <(EstadoDespensa?, String)>[
-      (null, 'Todos'),
-      (EstadoDespensa.agotado, 'Agotado'),
-      (EstadoDespensa.pronto, 'Pronto'),
-      (EstadoDespensa.bien, 'Bien'),
-    ];
-    return Align(
-      alignment: Alignment.centerLeft,
-      widthFactor: telefono ? null : 1,
-      child: _Pastillas<EstadoDespensa?>(
-        opciones: opciones,
-        elegida: estado,
-        onElegir: onEstado,
-        completo: telefono,
-        puntos: {
-          EstadoDespensa.agotado: _C.bad,
-          EstadoDespensa.pronto: _C.warn,
-          EstadoDespensa.bien: _C.gift,
-        },
-        cuantos: {
-          null: resumen.total,
-          EstadoDespensa.agotado: resumen.agotados,
-          EstadoDespensa.pronto: resumen.pronto,
-          EstadoDespensa.bien: resumen.bien,
-        },
+    final hay = activos > 0;
+    return SizedBox(
+      width: 50,
+      height: 50,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Positioned.fill(
+            child: Material(
+              color: hay ? _C.tint : _C.card,
+              shape: const CircleBorder(),
+              child: InkWell(
+                customBorder: const CircleBorder(),
+                onTap: onTap,
+                child: Tooltip(message: 'Filtrar', child: Icon(Icons.filter_list_rounded, size: 22, color: hay ? _C.accent : _C.ink)),
+              ),
+            ),
+          ),
+          if (hay)
+            Positioned(
+              top: -3,
+              right: -3,
+              child: IgnorePointer(
+                child: Container(
+                  constraints: const BoxConstraints(minWidth: 20, minHeight: 20),
+                  padding: const EdgeInsets.symmetric(horizontal: 5),
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: _C.accent,
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(color: kInicioBg, width: 2),
+                  ),
+                  child: Text('$activos', style: _t(11, FontWeight.w700, _C.onAccent, height: 1)),
+                ),
+              ),
+            ),
+        ],
       ),
+    );
+  }
+}
+
+/// Un filtro puesto ("Santa Rosalía ✕"), debajo de los modos.
+class _FiltroActivo extends StatelessWidget {
+  final String texto;
+  final IconData? icono;
+  final Color? punto;
+  final VoidCallback? onQuitar;
+  const _FiltroActivo({required this.texto, this.icono, this.punto, this.onQuitar});
+
+  @override
+  Widget build(BuildContext context) {
+    final contenido = Container(
+      constraints: const BoxConstraints(minHeight: 34),
+      padding: EdgeInsets.only(left: 12, right: onQuitar == null ? 12 : 6),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icono != null) ...[Icon(icono, size: 16, color: _C.muted), const SizedBox(width: 6)],
+          if (punto != null) ...[
+            Container(width: 9, height: 9, decoration: BoxDecoration(color: punto, shape: BoxShape.circle)),
+            const SizedBox(width: 6),
+          ],
+          Flexible(child: Text(texto, maxLines: 1, overflow: TextOverflow.ellipsis, style: _t(13, FontWeight.w600, _C.ink))),
+          if (onQuitar != null) ...[const SizedBox(width: 4), Icon(Icons.close_rounded, size: 16, color: _C.muted)],
+        ],
+      ),
+    );
+    return Material(
+      color: _C.card,
+      shape: StadiumBorder(side: BorderSide(color: _C.line)),
+      clipBehavior: Clip.antiAlias,
+      child: onQuitar == null ? contenido : InkWell(onTap: onQuitar, child: Tooltip(message: 'Quitar filtro', child: contenido)),
+    );
+  }
+}
+
+/// Una opción de la hoja de filtros: la elegida va con el fondo claro (como los modos).
+class _ChipOpcion extends StatelessWidget {
+  final String texto;
+  final bool activa;
+  final VoidCallback onTap;
+  final Color? punto;
+  final int? cuantos;
+  const _ChipOpcion({required this.texto, required this.activa, required this.onTap, this.punto, this.cuantos});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = activa ? _C.card : _C.ink;
+    return Material(
+      color: activa ? _C.ink : _C.subtle,
+      shape: StadiumBorder(side: BorderSide(color: activa ? _C.ink : _C.line)),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 42),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (punto != null) ...[
+                Container(width: 9, height: 9, decoration: BoxDecoration(color: punto, shape: BoxShape.circle)),
+                const SizedBox(width: 7),
+              ],
+              Flexible(child: Text(texto, maxLines: 1, overflow: TextOverflow.ellipsis, style: _t(14, FontWeight.w600, color))),
+              if (cuantos != null) ...[
+                const SizedBox(width: 6),
+                Text('$cuantos', style: _t(12.5, FontWeight.w500, color.withValues(alpha: 0.7))),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// La hoja del filtro: la sucursal y el estado (Todos, Agotado, Pronto, Bien). Lo que
+/// se toca se aplica al momento; "Listo" solo cierra la hoja.
+class _HojaFiltros extends StatefulWidget {
+  final List<IngredientStock> items;
+  final List<DespensaSucursal> todas;
+  final List<String> dias;
+
+  /// En "Días que alcanza" (si no, en "Consumo 7 días": los números cuentan solo lo
+  /// que se consumió, que es lo que esa tabla muestra).
+  final bool enDias;
+  final String? sucursal;
+  final EstadoDespensa? estado;
+
+  /// Sin esto no se puede elegir sucursal y esa parte no sale.
+  final ValueChanged<String?>? onSucursal;
+  final ValueChanged<EstadoDespensa?> onEstado;
+
+  const _HojaFiltros({
+    required this.items,
+    required this.todas,
+    required this.dias,
+    required this.enDias,
+    required this.sucursal,
+    required this.estado,
+    required this.onSucursal,
+    required this.onEstado,
+  });
+
+  @override
+  State<_HojaFiltros> createState() => _HojaFiltrosState();
+}
+
+class _HojaFiltrosState extends State<_HojaFiltros> {
+  late String? _sucursal = widget.sucursal;
+  late EstadoDespensa? _estado = widget.estado;
+
+  void _elegirSucursal(String? id) {
+    if (id == _sucursal) return;
+    setState(() => _sucursal = id);
+    widget.onSucursal?.call(id);
+  }
+
+  void _elegirEstado(EstadoDespensa? e) {
+    if (e == _estado) return;
+    setState(() => _estado = e);
+    widget.onEstado(e);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ids = _sucursal == null ? [for (final s in widget.todas) s.id] : [_sucursal!];
+    final filas = Despensa.filas(widget.items, ids);
+    final r = ResumenDespensa.de(widget.enDias ? filas : Despensa.porConsumo(filas, widget.dias), ids);
+    final eligeSucursal = widget.onSucursal != null && widget.todas.length > 1;
+    final hayFiltro = (eligeSucursal && _sucursal != null) || _estado != null;
+
+    Widget titulo(String t) => Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: Text(t, style: _t(12, FontWeight.w700, _C.muted).copyWith(letterSpacing: 0.6)),
+        );
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Expanded(child: Text('Filtrar', style: _t(19, FontWeight.w700, _C.ink))),
+            if (hayFiltro)
+              TextButton(
+                onPressed: () {
+                  if (eligeSucursal) _elegirSucursal(null);
+                  _elegirEstado(null);
+                },
+                child: Text('Quitar filtros', style: _t(14, FontWeight.w600, _C.accent)),
+              ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        if (eligeSucursal) ...[
+          titulo('SUCURSAL'),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _ChipOpcion(texto: 'Todas', activa: _sucursal == null, onTap: () => _elegirSucursal(null)),
+              for (final s in widget.todas) _ChipOpcion(texto: s.nombre, activa: _sucursal == s.id, onTap: () => _elegirSucursal(s.id)),
+            ],
+          ),
+          const SizedBox(height: 22),
+        ],
+        titulo('ESTADO'),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            _ChipOpcion(texto: 'Todos', activa: _estado == null, cuantos: r.total, onTap: () => _elegirEstado(null)),
+            for (final e in EstadoDespensa.values) _ChipOpcion(texto: _nombreEstado(e), activa: _estado == e, punto: _colorEstado(e), cuantos: r.cuantos(e), onTap: () => _elegirEstado(e)),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Text(
+          widget.enDias ? 'Pronto = alcanza menos de $diasPronto días' : 'Cuenta lo que se consumió en los últimos 7 días',
+          style: _t(12.5, FontWeight.w400, _C.muted),
+        ),
+        const SizedBox(height: 22),
+        SizedBox(
+          height: 50,
+          child: Material(
+            color: _C.accent,
+            borderRadius: BorderRadius.circular(16),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: () => Navigator.of(context).maybePop(),
+              child: Center(child: Text('Listo', style: _t(15.5, FontWeight.w700, _C.onAccent))),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

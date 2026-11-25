@@ -228,9 +228,10 @@ class Despensa {
       });
   }
 
-  /// "Consumo 7 días": solo lo que se consumió, de más a menos.
-  static List<FilaDespensa> porConsumo(List<FilaDespensa> filas, List<String> dias, {String consulta = ''}) {
-    return filas.where((f) => _coincide(f, consulta) && f.consumo7(dias) > 0).toList()
+  /// "Consumo 7 días": solo lo que se consumió, de más a menos (y, si se pide, solo
+  /// lo de ese estado: el filtro es el mismo en los dos modos).
+  static List<FilaDespensa> porConsumo(List<FilaDespensa> filas, List<String> dias, {String consulta = '', EstadoDespensa? estado}) {
+    return filas.where((f) => _coincide(f, consulta) && (estado == null || f.peor == estado) && f.consumo7(dias) > 0).toList()
       ..sort((a, b) => b.consumo7(dias).compareTo(a.consumo7(dias)));
   }
 

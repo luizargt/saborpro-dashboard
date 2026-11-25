@@ -70,9 +70,9 @@ void main() {
     bool elegida = false,
     VoidCallback? onReintentar,
     VoidCallback? onActualizar,
-    VoidCallback? onDescargar,
-    ValueChanged<String>? onElegir,
+    ValueChanged<String?>? onElegir,
     DateTime? actualizadoEn,
+    List<DespensaSucursal>? todas,
   }) =>
       DespensaBody(
         items: items ?? catorce(),
@@ -84,9 +84,9 @@ void main() {
         error: error,
         onReintentar: onReintentar,
         onActualizar: onActualizar,
-        onDescargar: onDescargar,
         onElegirSucursal: onElegir,
         sucursalElegida: elegida,
+        todas: todas,
       );
 
   Future<void> montar(WidgetTester tester, Widget c, {Size size = const Size(1280, 900), double escala = 1.0, bool asentar = true}) async {
@@ -105,6 +105,29 @@ void main() {
 
   const tamanos = [Size(360, 800), Size(390, 844), Size(700, 900), Size(1280, 900)];
 
+  /// La hoja del filtro (lo que se busca ahí dentro, no en la tabla ni la leyenda).
+  Finder enHoja(Finder f) => find.descendant(of: find.byType(BottomSheet), matching: f);
+
+  Future<void> abrirFiltro(WidgetTester tester) async {
+    await tester.tap(find.byTooltip('Filtrar'));
+    await tester.pumpAndSettle();
+  }
+
+  Future<void> cerrarFiltro(WidgetTester tester) async {
+    // Con muchas sucursales y letra grande la hoja se desplaza: "Listo" va al final.
+    await tester.ensureVisible(enHoja(find.text('Listo')));
+    await tester.pumpAndSettle();
+    await tester.tap(enHoja(find.text('Listo')));
+    await tester.pumpAndSettle();
+  }
+
+  Future<void> buscar(WidgetTester tester, String texto) async {
+    await tester.tap(find.byTooltip('Buscar ingrediente'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('despensa-buscar')), texto);
+    await tester.pumpAndSettle();
+  }
+
   group('el encabezado', () {
     testWidgets('el título y hace cuánto se actualizó', (tester) async {
       await montar(tester, cuerpo());
@@ -121,12 +144,13 @@ void main() {
       expect(find.text('Cargando...'), findsOneWidget);
     });
 
-    testWidgets('descargar y actualizar llaman a lo suyo', (tester) async {
-      var bajados = 0, refrescos = 0;
-      await montar(tester, cuerpo(onDescargar: () => bajados++, onActualizar: () => refrescos++));
-      await tester.tap(find.byTooltip('Descargar Excel'));
+    testWidgets('actualizar llama a lo suyo; ya no hay botón de descargar (está en el de arriba del shell)', (tester) async {
+      var refrescos = 0;
+      await montar(tester, cuerpo(onActualizar: () => refrescos++));
       await tester.tap(find.byTooltip('Actualizar'));
-      expect((bajados, refrescos), (1, 1));
+      expect(refrescos, 1);
+      expect(find.byTooltip('Descargar Excel'), findsNothing);
+      expect(find.byIcon(Icons.download_rounded), findsNothing);
     });
   });
 
@@ -143,7 +167,7 @@ void main() {
     });
 
     testWidgets('tocar una sucursal la elige', (tester) async {
-      final elegidas = <String>[];
+      final elegidas = <String?>[];
       await montar(tester, cuerpo(onElegir: elegidas.add));
       await tester.tap(find.text('Q5,200.00'));
       expect(elegidas, ['lr']);
@@ -179,53 +203,154 @@ void main() {
       expect(find.text('VALOR'), findsNothing);
     });
 
-    testWidgets('en el modo consumo no sale el dinero', (tester) async {
+    testWidgets('al pasar a "Consumo 7 días" el dinero se queda', (tester) async {
       await montar(tester, cuerpo());
       await tester.tap(find.text('Consumo 7 días'));
       await tester.pumpAndSettle();
-      expect(find.text('Dinero en inventario'), findsNothing);
+      expect(find.text('Dinero en inventario'), findsOneWidget);
+      expect(find.text('Q8,521.90'), findsOneWidget);
     });
   });
 
-  group('los filtros de estado', () {
-    testWidgets('con cuántos hay de cada uno', (tester) async {
+  group('el filtro', () {
+    testWidgets('los estados ya no van sueltos: salen en la hoja del filtro, con cuántos hay de cada uno', (tester) async {
       await montar(tester, cuerpo());
+      expect(find.text('Todos'), findsNothing);
+      await abrirFiltro(tester);
       for (final n in ['Todos', 'Agotado', 'Pronto', 'Bien']) {
-        expect(find.text(n), findsWidgets, reason: n);
+        expect(enHoja(find.text(n)), findsOneWidget, reason: n);
       }
-      expect(find.text('14'), findsWidgets, reason: 'Todos 14 (y lo que hay de Coca Cola Desechable)');
-      expect(find.text('3'), findsWidgets);
-      expect(find.text('10'), findsWidgets);
+      expect(enHoja(find.text('14')), findsOneWidget, reason: 'Todos');
+      expect(enHoja(find.text('1')), findsOneWidget, reason: 'Agotado');
+      expect(enHoja(find.text('3')), findsOneWidget, reason: 'Pronto');
+      expect(enHoja(find.text('10')), findsOneWidget, reason: 'Bien');
     });
 
-    testWidgets('elegir "Agotado" deja solo los agotados; "Todos" los devuelve', (tester) async {
+    testWidgets('elegir "Agotado" deja solo los agotados; se ve arriba y su ✕ lo quita', (tester) async {
       await montar(tester, cuerpo());
-      await tester.tap(find.widgetWithText(GestureDetector, 'Agotado').first);
+      await abrirFiltro(tester);
+      await tester.tap(enHoja(find.text('Agotado')));
       await tester.pumpAndSettle();
+      await cerrarFiltro(tester);
       expect(find.text('Adrenalina 296 ml'), findsOneWidget);
       expect(find.text('Big Mix'), findsNothing);
       expect(find.text('Caguama'), findsNothing);
-      await tester.tap(find.widgetWithText(GestureDetector, 'Todos').first);
+      // El botón dice que hay un filtro puesto y el filtro se ve debajo de los modos.
+      expect(find.descendant(of: find.byTooltip('Filtrar').hitTestable(), matching: find.byType(Icon)), findsOneWidget);
+      expect(find.text('1'), findsWidgets);
+      await tester.tap(find.byTooltip('Quitar filtro'));
       await tester.pumpAndSettle();
       expect(find.text('Big Mix'), findsOneWidget);
+      expect(find.byTooltip('Quitar filtro'), findsNothing);
     });
 
-    testWidgets('"Pronto" deja los que se acaban en menos de 10 días', (tester) async {
+    testWidgets('"Pronto" deja los que se acaban en menos de 10 días; "Todos" los devuelve', (tester) async {
       await montar(tester, cuerpo());
-      await tester.tap(find.widgetWithText(GestureDetector, 'Pronto').first);
+      await abrirFiltro(tester);
+      await tester.tap(enHoja(find.text('Pronto')));
       await tester.pumpAndSettle();
+      await cerrarFiltro(tester);
       expect(find.text('Big Mix'), findsOneWidget);
       expect(find.text('Coca Cola Lata 354 ml'), findsOneWidget);
       expect(find.text('Bush Light 16 onz.'), findsOneWidget);
+      expect(find.text('Caguama'), findsNothing);
+      await abrirFiltro(tester);
+      await tester.tap(enHoja(find.text('Todos')));
+      await tester.pumpAndSettle();
+      await cerrarFiltro(tester);
+      expect(find.text('Caguama'), findsOneWidget);
+    });
+
+    testWidgets('la sucursal se elige en el filtro, también en "Consumo 7 días"', (tester) async {
+      final elegidas = <String?>[];
+      await montar(tester, cuerpo(onElegir: elegidas.add));
+      await tester.tap(find.text('Consumo 7 días'));
+      await tester.pumpAndSettle();
+      await abrirFiltro(tester);
+      expect(enHoja(find.text('Todas')), findsOneWidget);
+      await tester.tap(enHoja(find.text('Las Rosas')));
+      await tester.pumpAndSettle();
+      expect(elegidas, ['lr']);
+      // Los números de los estados ya son los de esa sucursal: en Las Rosas solo hay
+      // Coca Cola Vidrio y no se consumió.
+      expect(enHoja(find.text('0')), findsWidgets);
+      await tester.tap(enHoja(find.text('Todas')));
+      await tester.pumpAndSettle();
+      expect(elegidas, ['lr', null]);
+    });
+
+    testWidgets('con una sucursal elegida, se dice cuál y su ✕ vuelve a todas', (tester) async {
+      final elegidas = <String?>[];
+      await montar(tester, cuerpo(suc: const [DespensaSucursal('sr', 'San Rafael')], elegida: true, todas: sucursales, onElegir: elegidas.add));
+      expect(find.byTooltip('Quitar filtro'), findsOneWidget);
+      await tester.tap(find.byTooltip('Quitar filtro'));
+      expect(elegidas, [null]);
+    });
+
+    testWidgets('con una sola sucursal en el negocio no se ofrece elegir sucursal', (tester) async {
+      await montar(tester, cuerpo(suc: const [DespensaSucursal('sr', 'San Rafael')], todas: const [DespensaSucursal('sr', 'San Rafael')], onElegir: (_) {}));
+      await abrirFiltro(tester);
+      expect(enHoja(find.text('SUCURSAL')), findsNothing);
+      expect(enHoja(find.text('ESTADO')), findsOneWidget);
+    });
+
+    testWidgets('"Quitar filtros" quita la sucursal y el estado', (tester) async {
+      final elegidas = <String?>[];
+      await montar(tester, cuerpo(suc: const [DespensaSucursal('sr', 'San Rafael')], elegida: true, todas: sucursales, onElegir: elegidas.add));
+      await abrirFiltro(tester);
+      await tester.tap(enHoja(find.text('Agotado')));
+      await tester.pumpAndSettle();
+      await tester.tap(enHoja(find.text('Quitar filtros')));
+      await tester.pumpAndSettle();
+      expect(elegidas, [null]);
+      await cerrarFiltro(tester);
+      expect(find.text('Caguama'), findsOneWidget);
+    });
+
+    testWidgets('el estado también filtra el consumo de 7 días', (tester) async {
+      await montar(tester, cuerpo());
+      await tester.tap(find.text('Consumo 7 días'));
+      await tester.pumpAndSettle();
+      await abrirFiltro(tester);
+      await tester.tap(enHoja(find.text('Pronto')));
+      await tester.pumpAndSettle();
+      await cerrarFiltro(tester);
+      // De lo consumido, "pronto" son Big Mix y Coca Cola Lata; Caguama alcanza bien.
+      expect(find.text('Big Mix'), findsOneWidget);
+      expect(find.text('Coca Cola Lata 354 ml'), findsOneWidget);
       expect(find.text('Caguama'), findsNothing);
     });
   });
 
   group('la búsqueda', () {
+    testWidgets('es una lupa junto a "Actualizado hace…": al tocarla se abre el buscador', (tester) async {
+      await montar(tester, cuerpo(), size: const Size(360, 800));
+      expect(find.byKey(const Key('despensa-buscar')), findsNothing);
+      final lupa = tester.getCenter(find.byTooltip('Buscar ingrediente'));
+      final subtitulo = tester.getCenter(find.text('Actualizado hace 21 min'));
+      expect((lupa.dy - subtitulo.dy).abs(), lessThan(24), reason: 'en la misma línea');
+      await tester.tap(find.byTooltip('Buscar ingrediente'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('despensa-buscar')), findsOneWidget);
+      // Se extendió: a 360, el recuadro va del margen hasta el botón de actualizar
+      // (328 − 52 = 276) y el campo es eso menos la lupa y la ✕.
+      expect(tester.getSize(find.byKey(const Key('despensa-buscar'))).width, greaterThan(180));
+      expect(tester.getTopLeft(find.byKey(const Key('despensa-buscar'))).dx, lessThan(70));
+    });
+
+    testWidgets('la ✕ cierra el buscador y borra lo escrito', (tester) async {
+      await montar(tester, cuerpo());
+      await buscar(tester, 'COCA');
+      expect(find.text('Caguama'), findsNothing);
+      await tester.tap(find.byTooltip('Cerrar búsqueda'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('despensa-buscar')), findsNothing);
+      expect(find.text('Caguama'), findsOneWidget);
+    });
+
     testWidgets('sin importar mayúsculas, deja los que coinciden', (tester) async {
       await montar(tester, cuerpo());
-      await tester.enterText(find.byKey(const Key('despensa-buscar')), 'COCA');
-      await tester.pumpAndSettle();
+      await buscar(tester, 'COCA');
       expect(find.text('Coca Cola Lata 354 ml'), findsOneWidget);
       expect(find.text('Coca Cola Desechable 600 ml'), findsOneWidget);
       expect(find.text('Coca Cola - Vidrio 500ml'), findsOneWidget);
@@ -234,8 +359,7 @@ void main() {
 
     testWidgets('sin coincidencias lo dice', (tester) async {
       await montar(tester, cuerpo());
-      await tester.enterText(find.byKey(const Key('despensa-buscar')), 'zzz');
-      await tester.pumpAndSettle();
+      await buscar(tester, 'zzz');
       expect(find.text('Sin resultados'), findsOneWidget);
     });
   });
@@ -322,13 +446,12 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    testWidgets('un día por columna y el total; sin los filtros de estado', (tester) async {
+    testWidgets('un día por columna y el total; el filtro sigue a la mano', (tester) async {
       await alConsumo(tester);
       for (final h in ['SÁB 14', 'DOM 15', 'LUN 16', 'MAR 17', 'MIÉ 18', 'JUE 19', 'VIE 20', 'TOTAL']) {
         expect(find.text(h), findsOneWidget, reason: h);
       }
-      expect(find.text('Todos'), findsNothing);
-      expect(find.text('Agotado'), findsNothing);
+      expect(find.byTooltip('Filtrar'), findsOneWidget);
     });
 
     testWidgets('solo lo que se consumió, de más a menos', (tester) async {
@@ -353,12 +476,12 @@ void main() {
       expect(find.text('Ningún ingrediente tuvo consumo en los últimos 7 días'), findsOneWidget);
     });
 
-    testWidgets('volver a "Días que alcanza" trae de vuelta el dinero y los filtros', (tester) async {
+    testWidgets('volver a "Días que alcanza" sigue con el dinero y el filtro', (tester) async {
       await alConsumo(tester);
       await tester.tap(find.text('Días que alcanza'));
       await tester.pumpAndSettle();
       expect(find.text('Dinero en inventario'), findsOneWidget);
-      expect(find.text('Todos'), findsWidgets);
+      expect(find.byTooltip('Filtrar'), findsOneWidget);
     });
   });
 
@@ -491,6 +614,27 @@ void main() {
         expect(tester.takeException(), isNull);
         await tester.tap(find.text('Consumo 7 días'));
         await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+      });
+
+      testWidgets('a ${s.width.toInt()} con letra grande, el buscador abierto, filtros puestos y la hoja del filtro', (tester) async {
+        final muchas = <DespensaSucursal>[
+          for (var i = 0; i < 5; i++) DespensaSucursal('s$i', 'Una sucursal con un nombre larguísimo de verdad número $i'),
+        ];
+        await montar(tester, cuerpo(suc: [muchas.first], elegida: true, todas: muchas, onElegir: (_) {}), size: s, escala: 1.35);
+        await tester.tap(find.byTooltip('Buscar ingrediente'));
+        // A media animación (el recuadro todavía angosto) tampoco se desborda.
+        await tester.pump(const Duration(milliseconds: 60));
+        expect(tester.takeException(), isNull);
+        await tester.pumpAndSettle();
+        await tester.enterText(find.byKey(const Key('despensa-buscar')), 'un texto bastante largo para buscar algo');
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        await abrirFiltro(tester);
+        expect(tester.takeException(), isNull);
+        await tester.tap(enHoja(find.text('Agotado')));
+        await tester.pumpAndSettle();
+        await cerrarFiltro(tester);
         expect(tester.takeException(), isNull);
       });
 
