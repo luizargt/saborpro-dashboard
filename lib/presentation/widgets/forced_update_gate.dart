@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show TargetPlatform, defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -79,6 +80,7 @@ class _ForcedUpdateGateState extends State<ForcedUpdateGate>
         if (bloqueado)
           _UpdateModal(
             storeVersion: _estado?.storeVersion,
+            currentVersion: _estado?.currentVersion,
             onUpdate: _abrirTienda,
           ),
       ],
@@ -87,14 +89,24 @@ class _ForcedUpdateGateState extends State<ForcedUpdateGate>
 }
 
 /// El letrero. Chico y con una sola salida: actualizar.
+///
+/// "Actualiza tu App", "Nueva versión 1.1.8" (si se sabe el número) y el botón
+/// que abre la ficha de la app en la tienda del teléfono.
 class _UpdateModal extends StatelessWidget {
   final String? storeVersion;
+  final String? currentVersion;
   final VoidCallback onUpdate;
 
-  const _UpdateModal({required this.onUpdate, this.storeVersion});
+  const _UpdateModal({required this.onUpdate, this.storeVersion, this.currentVersion});
 
   @override
   Widget build(BuildContext context) {
+    final tienda = switch (defaultTargetPlatform) {
+      TargetPlatform.iOS => 'la App Store',
+      TargetPlatform.android => 'Google Play',
+      _ => 'la tienda',
+    };
+    final instalada = (currentVersion ?? '').trim();
     // PopScope corta el botón atrás de Android: sin esto el aviso se esquiva
     // con un gesto y deja de ser obligatorio.
     return PopScope(
@@ -130,18 +142,31 @@ class _UpdateModal extends StatelessWidget {
                     ),
                     const SizedBox(height: 18),
                     Text(
-                      'Actualiza Sabor Suite',
+                      'Actualiza tu App',
                       textAlign: TextAlign.center,
                       style: GoogleFonts.inter(
                         color: InicioColores.ink,
-                        fontSize: 18,
+                        fontSize: 19,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
+                    if (storeVersion != null) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        'Nueva versión $storeVersion',
+                        textAlign: TextAlign.center,
+                        style: GoogleFonts.inter(
+                          color: InicioColores.accent,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 10),
                     Text(
-                      'Hay una versión nueva disponible. Actualiza para '
-                      'seguir usando la app.',
+                      storeVersion == null
+                          ? 'Hay una versión nueva disponible. Actualiza desde $tienda para seguir usando la app.'
+                          : 'Actualiza desde $tienda para seguir usando la app.',
                       textAlign: TextAlign.center,
                       style: GoogleFonts.inter(
                         color: InicioColores.muted,
@@ -149,6 +174,14 @@ class _UpdateModal extends StatelessWidget {
                         height: 1.5,
                       ),
                     ),
+                    if (instalada.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        'Tienes la $instalada',
+                        textAlign: TextAlign.center,
+                        style: GoogleFonts.inter(color: InicioColores.soft, fontSize: 12),
+                      ),
+                    ],
                     const SizedBox(height: 22),
                     SizedBox(
                       width: double.infinity,

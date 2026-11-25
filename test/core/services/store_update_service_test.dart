@@ -61,6 +61,22 @@ void main() {
     });
   });
 
+  group('el número que se dice en Android (anotado en Firestore)', () {
+    test('se dice si es más nuevo que el instalado', () {
+      expect(StoreUpdateService.versionParaMostrar('1.1.6', '1.1.8'), '1.1.8');
+    });
+
+    test('uno viejo u olvidado (igual o anterior al instalado) no se dice', () {
+      expect(StoreUpdateService.versionParaMostrar('1.1.8', '1.1.8'), isNull);
+      expect(StoreUpdateService.versionParaMostrar('1.1.8', '1.1.6'), isNull);
+    });
+
+    test('sin anotar, o ilegible, no se dice', () {
+      expect(StoreUpdateService.versionParaMostrar('1.1.6', null), isNull);
+      expect(StoreUpdateService.versionParaMostrar('1.1.6', 'nueva'), isNull);
+    });
+  });
+
   group('StoreUpdateStatus', () {
     test('upToDate no manda a ninguna tienda', () {
       final s = StoreUpdateStatus.upToDate('1.1.0');

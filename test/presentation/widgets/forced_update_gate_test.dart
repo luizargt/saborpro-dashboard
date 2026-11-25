@@ -46,7 +46,7 @@ void main() {
   testWidgets('al día no muestra nada y deja usar la app', (tester) async {
     await _pump(tester, estado: alDia);
 
-    expect(find.text('Actualiza Sabor Suite'), findsNothing);
+    expect(find.text('Actualiza tu App'), findsNothing);
     expect(find.text('VENTAS DEL DIA Q12,450'), findsOneWidget);
   });
 
@@ -54,9 +54,31 @@ void main() {
       (tester) async {
     await _pump(tester, estado: atrasada);
 
-    expect(find.text('Actualiza Sabor Suite'), findsOneWidget);
+    expect(find.text('Actualiza tu App'), findsOneWidget);
     expect(find.widgetWithText(ElevatedButton, 'Actualizar'), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('dice la versión nueva y la que tiene', (tester) async {
+    await _pump(tester, estado: atrasada);
+    expect(find.text('Nueva versión 1.2.0'), findsOneWidget);
+    expect(find.text('Tienes la 1.1.0'), findsOneWidget);
+  });
+
+  testWidgets('sin el número de la tienda (Android sin anotar) igual avisa, sin inventar un número',
+      (tester) async {
+    await _pump(
+      tester,
+      estado: const StoreUpdateStatus(
+        updateAvailable: true,
+        currentVersion: '1.1.0',
+        storeUrl: 'https://play.google.com/store/apps/details?id=com.escalya.sabormanager',
+      ),
+    );
+    expect(find.text('Actualiza tu App'), findsOneWidget);
+    expect(find.textContaining('Nueva versión'), findsNothing);
+    expect(find.textContaining('Hay una versión nueva disponible'), findsOneWidget);
+    expect(find.widgetWithText(ElevatedButton, 'Actualizar'), findsOneWidget);
   });
 
   testWidgets('el botón manda a la tienda', (tester) async {
@@ -119,7 +141,7 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.text('Actualiza Sabor Suite'), findsNothing);
+    expect(find.text('Actualiza tu App'), findsNothing);
     expect(find.text('reportes'), findsOneWidget);
 
     await tester.pumpAndSettle(const Duration(seconds: 31));
@@ -185,7 +207,7 @@ void main() {
         reason: 'el botón se mete bajo la barra de navegación');
 
     // Y el título tampoco puede quedar debajo del reloj.
-    final titulo = tester.getRect(find.text('Actualiza Sabor Suite'));
+    final titulo = tester.getRect(find.text('Actualiza tu App'));
     expect(titulo.top, greaterThanOrEqualTo(barraEstado));
   });
 }

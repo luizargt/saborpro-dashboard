@@ -22,8 +22,10 @@ class StoreUpdateStatus {
   /// A dónde mandar al usuario para actualizar.
   final String? storeUrl;
 
-  /// Versión publicada en la tienda, cuando se pudo averiguar. En Android
-  /// Play Core no la entrega como texto, así que suele venir null.
+  /// Versión publicada en la tienda ("1.1.8"), para decirla en el aviso. En iOS
+  /// la da la App Store. En Android Play Core no la entrega como texto: sale de
+  /// `ultima_version_android` en `app_config/manager_update` (si está anotada y
+  /// es más nueva que la instalada; si no, null y el aviso no dice número).
   final String? storeVersion;
 
   final String currentVersion;
@@ -75,10 +77,11 @@ class StoreUpdateService {
 
     final current = await currentVersion();
     try {
-      if (!await _bloqueoHabilitado()) {
+      final config = await _config();
+      if (!config.habilitado) {
         return StoreUpdateStatus.upToDate(current);
       }
-      if (Platform.isAndroid) return await _checkPlay(current);
+      if (Platform.isAndroid) return await _checkPlay(current, versionAnotada: config.versionAndroid);
       if (Platform.isIOS) return await _checkAppStore(current);
     } catch (_) {
       // Cualquier fallo cae acá y se traduce en "no molestar".
@@ -98,17 +101,25 @@ class StoreUpdateService {
   /// Si el documento no existe, o Firestore no responde, el aviso queda
   /// encendido: es el comportamiento pedido, y apagarlo ante cualquier fallo
   /// de red volvería inútil la función.
-  Future<bool> _bloqueoHabilitado() async {
+  ///
+  /// El mismo documento trae `ultima_version_android` ("1.1.8"): el número que
+  /// el aviso dice en Android, porque Play no lo da. Se anota al publicar en Play.
+  Future<({bool habilitado, String? versionAndroid})> _config() async {
     try {
       final doc = await FirebaseFirestore.instance
           .collection('app_config')
           .doc('manager_update')
           .get()
           .timeout(_timeout);
-      if (!doc.exists) return true;
-      return doc.data()?['force_update_enabled'] as bool? ?? true;
+      if (!doc.exists) return (habilitado: true, versionAndroid: null);
+      final data = doc.data();
+      final v = data?['ultima_version_android'];
+      return (
+        habilitado: data?['force_update_enabled'] as bool? ?? true,
+        versionAndroid: v is String && v.trim().isNotEmpty ? v.trim() : null,
+      );
     } catch (_) {
-      return true;
+      return (habilitado: true, versionAndroid: null);
     }
   }
 
@@ -117,7 +128,11 @@ class StoreUpdateService {
   /// Solo responde si la app se instaló desde Play. En un APK cargado a mano
   /// (o en una tablet sin servicios de Google) lanza, y eso está bien: nadie
   /// que instaló por fuera de la tienda debería quedar bloqueado por ella.
-  Future<StoreUpdateStatus> _checkPlay(String current) async {
+  ///
+  /// QUIÉN decide si hay versión nueva es Play (no el número anotado en
+  /// Firestore): así nunca se bloquea a nadie con una versión que Play todavía no
+  /// le ofrece (revisión, lanzamiento por etapas).
+  Future<StoreUpdateStatus> _checkPlay(String current, {String? versionAnotada}) async {
     final info = await InAppUpdate.checkForUpdate().timeout(_timeout);
     final hay =
         info.updateAvailability == UpdateAvailability.updateAvailable;
@@ -125,8 +140,15 @@ class StoreUpdateService {
       updateAvailable: hay,
       currentVersion: current,
       storeUrl: hay ? _playUrl : null,
+      storeVersion: hay ? versionParaMostrar(current, versionAnotada) : null,
     );
   }
+
+  /// El número anotado solo se dice si es más nuevo que el instalado: uno viejo
+  /// (se olvidó cambiarlo al publicar) diría "Nueva versión" de algo que ya se tiene.
+  @visibleForTesting
+  static String? versionParaMostrar(String instalada, String? anotada) =>
+      anotada != null && VersionComparator.isOlder(instalada, anotada) ? anotada : null;
 
   /// iOS: el lookup público de iTunes, que es la vía oficial y estable.
   Future<StoreUpdateStatus> _checkAppStore(String current) async {
@@ -161,12 +183,10 @@ class StoreUpdateService {
       updateAvailable: hay,
       currentVersion: current,
       storeVersion: storeVersion,
-      // trackViewUrl viene con parámetros de seguimiento; la ficha por id es
-      // más corta y abre igual la app de App Store.
-      storeUrl: hay
-          ? ((ficha is Map ? ficha['trackViewUrl'] as String? : null) ??
-              _appStoreUrl)
-          : null,
+      // La ficha por id y SIN país: `trackViewUrl` trae la tienda de EE. UU.
+      // ("/us/app/…") y el lookup sin país responde con la de EE. UU.; sin país,
+      // la App Store abre la ficha en la tienda del teléfono (Guatemala, etc.).
+      storeUrl: hay ? _appStoreUrl : null,
     );
   }
 }
