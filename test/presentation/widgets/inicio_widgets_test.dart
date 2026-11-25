@@ -98,16 +98,18 @@ void main() {
   const tamanos = [Size(360, 800), Size(390, 844), Size(700, 900), Size(1280, 800)];
 
   group('KpiCards', () {
-    testWidgets('los tres en fila, en el teléfono también (como en la PC)', (tester) async {
+    testWidgets('en el teléfono, la venta bruta a todo el ancho y debajo tickets y promedio juntos', (tester) async {
       for (final ancho in [360.0, 390.0]) {
         await montar(tester, KpiCards(metrics: metricas()), size: Size(ancho, 844));
         final t = [for (final n in ['Venta bruta', 'Tickets', 'Promedio']) tester.getTopLeft(find.text(n))];
-        expect(t[0].dy, t[1].dy);
-        expect(t[1].dy, t[2].dy);
-        expect(t[0].dx < t[1].dx && t[1].dx < t[2].dx, isTrue);
-        // Compacto: lo anterior sin el rótulo largo, que no cabe.
-        expect(find.text('vs Q29,728.77'), findsOneWidget);
-        expect(find.text('vs 106'), findsOneWidget);
+        expect(t[1].dy, greaterThan(t[0].dy), reason: 'tickets debajo de la venta bruta');
+        expect(t[1].dy, t[2].dy, reason: 'tickets y promedio en la misma fila');
+        expect(t[1].dx, lessThan(t[2].dx));
+        // La venta bruta ocupa todo el ancho (menos los 16 de margen a cada lado).
+        final venta = tester.getRect(find.ancestor(of: find.text('Venta bruta'), matching: find.byType(Container)).first);
+        expect(venta.width, ancho - 32);
+        expect(find.text('vs anterior: Q29,728.77'), findsOneWidget);
+        expect(find.text('vs anterior: 106'), findsOneWidget);
       }
 
       await montar(tester, KpiCards(metrics: metricas()), size: const Size(1280, 800));
@@ -320,25 +322,28 @@ void main() {
       expect(propinas, 1);
     });
 
-    testWidgets('en teléfono también en fila (tres; con cuatro, dos y dos); en ancho, todas en una', (tester) async {
+    testWidgets('en teléfono propinas a todo el ancho y debajo las demás de dos en dos; en ancho, todas en una',
+        (tester) async {
       await montar(tester, TarjetasRapidas(metrics: metricas(discounts: 10), onCourtesyTap: () {}),
           size: const Size(360, 800));
       final y = [for (final t in ['Propinas', 'Cortesías / Donaciones', 'Descuentos']) tester.getTopLeft(find.text(t)).dy];
-      expect(y[0], y[1]);
-      expect(y[1], y[2]);
-      // Las cifras quedan a la misma altura aunque "Cortesías / Donaciones" vaya en dos líneas.
-      // (Cada cifra se achica a su manera para caber: puede variar un pelo.)
-      final cifras = [for (final v in ['Q293.00', 'Q35.00', 'Q10.00']) tester.getCenter(find.text(v)).dy];
-      expect(cifras[0], closeTo(cifras[1], 2));
-      expect(cifras[1], closeTo(cifras[2], 2));
+      expect(y[1], greaterThan(y[0]), reason: 'cortesías debajo de propinas');
+      expect(y[1], y[2], reason: 'cortesías y descuentos en la misma fila');
+      expect(tester.getSize(find.ancestor(of: find.text('Propinas'), matching: find.byType(InicioToque))).width, 360 - 32);
+      // Las cifras de la fila quedan a la misma altura aunque "Cortesías / Donaciones"
+      // vaya en dos líneas (cada una se achica a su manera: puede variar un pelo).
+      expect(tester.getCenter(find.text('Q35.00')).dy, closeTo(tester.getCenter(find.text('Q10.00')).dy, 2));
 
+      // Con el envío: propinas sola, cortesías y descuentos, y el envío solo a todo el ancho.
       await montar(tester, TarjetasRapidas(metrics: metricas(discounts: 10, delivery: 25)), size: const Size(360, 800));
       final y4 = [
         for (final t in ['Propinas', 'Cortesías / Donaciones', 'Descuentos', 'Cobro Envío Domicilio']) tester.getTopLeft(find.text(t)).dy
       ];
-      expect(y4[0], y4[1]);
-      expect(y4[2], greaterThan(y4[1]));
-      expect(y4[2], y4[3]);
+      expect(y4[1], greaterThan(y4[0]));
+      expect(y4[1], y4[2]);
+      expect(y4[3], greaterThan(y4[2]));
+      expect(tester.getSize(find.ancestor(of: find.text('Cobro Envío Domicilio'), matching: find.byType(InicioToque))).width,
+          360 - 32);
 
       await montar(tester, TarjetasRapidas(metrics: metricas(discounts: 10)), size: const Size(1280, 800));
       final yy = [for (final t in ['Propinas', 'Cortesías / Donaciones', 'Descuentos']) tester.getTopLeft(find.text(t)).dy];
@@ -499,6 +504,48 @@ void main() {
     }
   });
 
+  group('Requiere tu atención en el teléfono: no más de 3 avisos de alto', () {
+    final muchos = [
+      for (var i = 0; i < 8; i++)
+        ItemAtencion(
+          gravedad: GravedadAtencion.alta,
+          partes: [ParteTexto('Faltante de '), ParteTexto('Q${100 + i}', negrita: true), ParteTexto(' en el cierre número $i')],
+          seccion: 'Cierres de caja',
+          destino: DestinoAtencion.cierresDeCaja,
+        ),
+    ];
+
+    testWidgets('con muchos, mide lo que tres y los demás se desplazan por dentro', (tester) async {
+      await montar(tester, AtencionCard(items: muchos.take(3).toList(), onTap: (_) {}, maxFilas: 3), size: const Size(390, 844));
+      final conTres = tester.getSize(find.byType(AtencionCard)).height;
+
+      final tocados = <ItemAtencion>[];
+      await montar(tester, AtencionCard(items: muchos, onTap: tocados.add, maxFilas: 3), size: const Size(390, 844));
+      expect(tester.takeException(), isNull);
+      // Casi lo mismo que con tres (solo cambia un poco el margen de abajo).
+      expect(tester.getSize(find.byType(AtencionCard)).height, closeTo(conTres, 6));
+      expect(find.textContaining('cierre número 7').hitTestable(), findsNothing);
+      await tester.drag(find.textContaining('cierre número 1').hitTestable(), const Offset(0, -500));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('cierre número 7').hitTestable(), findsOneWidget);
+      await tester.tap(find.textContaining('cierre número 7').hitTestable());
+      expect(tocados, [muchos[7]]);
+    });
+
+    testWidgets('con tres o menos, crece normal (sin desplazamiento)', (tester) async {
+      await montar(tester, AtencionCard(items: muchos.take(2).toList(), onTap: (_) {}, maxFilas: 3), size: const Size(390, 844));
+      expect(find.byType(Scrollbar), findsNothing);
+      expect(find.textContaining('cierre número 1'), findsOneWidget);
+    });
+
+    for (final s in const [Size(360, 800), Size(390, 844)]) {
+      testWidgets('cabe a ${s.width.toInt()} con letra grande y muchos avisos', (tester) async {
+        await montar(tester, AtencionCard(items: muchos, onTap: (_) {}, maxFilas: 3), size: s, escala: 1.35);
+        expect(tester.takeException(), isNull);
+      });
+    }
+  });
+
   group('Cajas abiertas', () {
     final hoy = DateTime(2026, 11, 20, 14, 30);
 
@@ -642,9 +689,11 @@ void main() {
         expect(tester.getTopLeft(find.text('Cuentas abiertas')).dx,
             lessThan(tester.getTopLeft(find.text('Cajas abiertas')).dx));
         expect(tester.getSize(find.byType(CuentasAbiertasCard)).height, tester.getSize(find.byType(CajasAbiertasCard)).height);
-        // Compactas: el número en su propia línea y el detalle debajo.
+        // Compactas: qué es, al lado del ícono; el número y el detalle en UNA línea.
+        expect((tester.getCenter(find.text('Cuentas abiertas')).dy - tester.getCenter(find.byIcon(Icons.table_restaurant_rounded)).dy).abs(),
+            lessThan(4));
         expect(find.text('6'), findsOneWidget);
-        expect(find.textContaining('Marta desde'), findsOneWidget);
+        expect(tester.widget<Text>(find.textContaining('Marta desde')).maxLines, 1);
       }
 
       // Una sola ocupa todo el ancho disponible (1280 − 32 de margen).

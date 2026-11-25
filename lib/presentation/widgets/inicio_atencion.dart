@@ -22,7 +22,8 @@ const _t = inicioTexto;
 /// ignorar y deja de servir el día que sí trae algo.
 ///
 /// En pantalla ancha va junto a "Ventas por método de pago" y del mismo alto
-/// ([llenarAlto]): los avisos que no caben se desplazan por dentro de la tarjeta.
+/// ([llenarAlto]); en el teléfono no crece más de [maxFilas] avisos. En los dos
+/// casos, lo que no cabe se desplaza por dentro de la tarjeta.
 class AtencionCard extends StatefulWidget {
   final List<ItemAtencion> items;
   final ValueChanged<ItemAtencion> onTap;
@@ -30,7 +31,11 @@ class AtencionCard extends StatefulWidget {
   /// Toma el alto que le dan (no el de sus filas) y desplaza las filas por dentro.
   final bool llenarAlto;
 
-  const AtencionCard({super.key, required this.items, required this.onTap, this.llenarAlto = false});
+  /// Con más avisos que estos, la tarjeta mide lo que miden los primeros
+  /// [maxFilas] y el resto se desplaza por dentro. Nulo = crece con todos.
+  final int? maxFilas;
+
+  const AtencionCard({super.key, required this.items, required this.onTap, this.llenarAlto = false, this.maxFilas});
 
   @override
   State<AtencionCard> createState() => _AtencionCardState();
@@ -52,12 +57,16 @@ class _AtencionCardState extends State<AtencionCard> {
     final telefono = MediaQuery.sizeOf(context).width <= kInicioQuiebreTelefono;
     final lado = telefono ? 16.0 : 20.0;
     final llenar = widget.llenarAlto;
+    final tope = widget.maxFilas;
+    final limitada = !llenar && tope != null && items.length > tope;
+    // Con desplazamiento por dentro (por llenar un alto o por el tope de filas).
+    final desplaza = llenar || limitada;
     // Con desplazamiento, la barra va en un canal propio a la derecha (no encima de
     // las flechas): la tarjeta deja menos margen y la lista lo recupera por dentro.
     const canal = 12.0;
 
     final encabezado = Padding(
-      padding: EdgeInsets.only(bottom: 8, right: llenar ? canal : 0),
+      padding: EdgeInsets.only(bottom: 8, right: desplaza ? canal : 0),
       child: Row(
         children: [
           Flexible(
@@ -85,37 +94,56 @@ class _AtencionCardState extends State<AtencionCard> {
       ),
     );
 
-    final filas = Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        for (var i = 0; i < items.length; i++)
-          _FilaAtencion(item: items[i], primera: i == 0, onTap: () => widget.onTap(items[i])),
-      ],
+    Widget columna(int hasta) => Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (var i = 0; i < hasta; i++)
+              _FilaAtencion(item: items[i], primera: i == 0, onTap: () => widget.onTap(items[i])),
+          ],
+        );
+    final filas = columna(items.length);
+
+    final desplazable = Scrollbar(
+      controller: _scroll,
+      // Se ve siempre que haya más de lo que cabe: así se nota que sigue.
+      thumbVisibility: true,
+      child: SingleChildScrollView(
+        controller: _scroll,
+        padding: const EdgeInsets.only(right: canal),
+        child: filas,
+      ),
     );
 
+    final Widget lista;
+    if (llenar) {
+      lista = Expanded(child: desplazable);
+    } else if (limitada) {
+      // El alto lo dan las primeras [tope] filas de verdad (cada aviso mide lo que
+      // ocupe su texto), dibujadas invisibles debajo; la lista que se desplaza va
+      // encima, del mismo alto.
+      lista = Stack(
+        children: [
+          IgnorePointer(
+            child: ExcludeSemantics(
+              child: Opacity(
+                opacity: 0,
+                child: Padding(padding: const EdgeInsets.only(right: canal), child: columna(tope)),
+              ),
+            ),
+          ),
+          Positioned.fill(child: desplazable),
+        ],
+      );
+    } else {
+      lista = filas;
+    }
+
     return Container(
-      padding: EdgeInsets.fromLTRB(lado, 18, llenar ? lado - canal : lado, llenar ? 14 : 10),
+      padding: EdgeInsets.fromLTRB(lado, 18, desplaza ? lado - canal : lado, desplaza ? 14 : 10),
       decoration: BoxDecoration(color: _C.card, borderRadius: BorderRadius.circular(22)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          encabezado,
-          if (llenar)
-            Expanded(
-              child: Scrollbar(
-                controller: _scroll,
-                // Se ve siempre que haya más de lo que cabe: así se nota que sigue.
-                thumbVisibility: true,
-                child: SingleChildScrollView(
-                  controller: _scroll,
-                  padding: const EdgeInsets.only(right: canal),
-                  child: filas,
-                ),
-              ),
-            )
-          else
-            filas,
-        ],
+        children: [encabezado, lista],
       ),
     );
   }
@@ -250,8 +278,8 @@ class CuentasAbiertasCard extends StatelessWidget {
 }
 
 /// La tarjeta de "lo que pasa ahora". En pantalla ancha: el ícono a la izquierda y
-/// el texto al lado. En el teléfono van dos en una fila (como en la PC), así que se
-/// apila: el ícono (y la flecha) arriba, debajo qué es, el número y el detalle.
+/// el texto al lado. En el teléfono van dos en una fila (como en la PC): el ícono
+/// chico con qué es al lado, y debajo el número y el detalle en una línea.
 class _TarjetaAhora extends StatelessWidget {
   final IconData icono;
   final Color colorIcono;
@@ -277,35 +305,40 @@ class _TarjetaAhora extends StatelessWidget {
     final flecha = Icon(Icons.chevron_right_rounded, size: compacta ? 18 : 20, color: _C.soft);
 
     if (compacta) {
+      // Dos en fila en el teléfono, lo más bajas posible: el ícono chico con qué es
+      // al lado (hasta dos líneas, caben en el alto del ícono), el número y el
+      // detalle en UNA línea.
       return InicioToque(
         onTap: onTap,
         radio: 20,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(14, 14, 10, 14),
+          padding: const EdgeInsets.fromLTRB(12, 12, 8, 12),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
               Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Container(
-                    width: 36,
-                    height: 36,
-                    decoration: BoxDecoration(color: fondoIcono, borderRadius: BorderRadius.circular(11)),
-                    child: Icon(icono, size: 18, color: colorIcono),
+                    width: 30,
+                    height: 30,
+                    decoration: BoxDecoration(color: fondoIcono, borderRadius: BorderRadius.circular(9)),
+                    child: Icon(icono, size: 16, color: colorIcono),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(etiqueta, maxLines: 2, overflow: TextOverflow.ellipsis, style: _t(12.5, FontWeight.w400, _C.muted, height: 1.2)),
                   ),
                   if (onTap != null) flecha,
                 ],
               ),
-              const SizedBox(height: 10),
-              Text(etiqueta, maxLines: 1, overflow: TextOverflow.ellipsis, style: _t(12.5, FontWeight.w400, _C.muted)),
+              const SizedBox(height: 6),
               FittedBox(
                 fit: BoxFit.scaleDown,
                 alignment: Alignment.centerLeft,
-                child: Text(numero, maxLines: 1, style: _t(22, FontWeight.w800, _C.ink, height: 1.3)),
+                child: Text(numero, maxLines: 1, style: _t(22, FontWeight.w800, _C.ink, height: 1.2)),
               ),
-              Text(detalle, maxLines: 2, overflow: TextOverflow.ellipsis, style: _t(12, FontWeight.w400, _C.muted)),
+              Text(detalle, maxLines: 1, overflow: TextOverflow.ellipsis, style: _t(12, FontWeight.w400, _C.muted)),
             ],
           ),
         ),

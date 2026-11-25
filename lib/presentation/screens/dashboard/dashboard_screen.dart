@@ -274,6 +274,9 @@ class _DataContent extends StatelessWidget {
     Widget tarjetaAtencion({bool llenarAlto = false}) => AtencionCard(
           items: atencion,
           llenarAlto: llenarAlto,
+          // Apilada (teléfono y tablet vertical): no más de 3 avisos de alto; los
+          // demás se desplazan dentro de la tarjeta, como en la PC.
+          maxFilas: wide ? null : 3,
           onTap: (item) {
             switch (item.destino) {
               case DestinoAtencion.cierresDeCaja:
