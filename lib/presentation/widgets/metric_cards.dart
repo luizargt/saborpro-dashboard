@@ -65,9 +65,8 @@ class MetricCards extends StatelessWidget {
 
 // ── LOS TRES NÚMEROS ─────────────────────────────────────────────────────────
 
-/// Venta bruta, tickets y promedio, cada uno contra el período anterior. En
-/// teléfono van uno debajo del otro (el diseño los apila); en pantalla ancha,
-/// los tres en fila.
+/// Venta bruta, tickets y promedio, cada uno contra el período anterior. Los
+/// tres en fila, también en el teléfono (como en la PC): ahí van compactos.
 class KpiCards extends StatelessWidget {
   final PeriodMetrics metrics;
 
@@ -83,7 +82,7 @@ class KpiCards extends StatelessWidget {
           etiqueta: 'Venta bruta',
           valor: _q(m.ventaBruta),
           cambio: m.salesChangePercent,
-          anterior: 'vs anterior: ${_q(m.prevTotalSales)}',
+          anterior: _q(m.prevTotalSales),
           telefono: telefono,
           principal: true,
         ),
@@ -91,35 +90,24 @@ class KpiCards extends StatelessWidget {
           etiqueta: 'Tickets',
           valor: _fmtInt.format(m.totalOrders),
           cambio: m.ordersChangePercent,
-          anterior: 'vs anterior: ${_fmtInt.format(m.prevTotalOrders)}',
+          anterior: _fmtInt.format(m.prevTotalOrders),
           telefono: telefono,
         ),
         _Kpi(
           etiqueta: 'Promedio',
           valor: _q(m.avgTicket),
           cambio: m.avgTicketChangePercent,
-          anterior: 'vs anterior: ${_q(m.prevAvgTicket)}',
+          anterior: _q(m.prevAvgTicket),
           telefono: telefono,
         ),
       ];
 
-      if (telefono) {
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            for (var i = 0; i < tarjetas.length; i++) ...[
-              if (i > 0) const SizedBox(height: 12),
-              tarjetas[i],
-            ],
-          ],
-        );
-      }
       return IntrinsicHeight(
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             for (var i = 0; i < tarjetas.length; i++) ...[
-              if (i > 0) const SizedBox(width: 12),
+              if (i > 0) SizedBox(width: telefono ? 8 : 12),
               Expanded(child: tarjetas[i]),
             ],
           ],
@@ -133,10 +121,14 @@ class _Kpi extends StatelessWidget {
   final String etiqueta;
   final String valor;
   final double cambio;
+
+  /// Lo del período anterior, sin rótulo ("Q9,343.50").
   final String anterior;
+
+  /// Compacta: tres en fila en el teléfono.
   final bool telefono;
 
-  /// La primera tarjeta: en teléfono su cifra es más grande que las otras.
+  /// La primera tarjeta (hoy no cambia nada: las tres van del mismo tamaño).
   final bool principal;
 
   const _Kpi({
@@ -150,9 +142,40 @@ class _Kpi extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tamano = telefono && !principal ? 24.0 : 32.0;
+    if (telefono) {
+      // Tres en fila en 360: cada cosa en su línea y, si no cabe, se achica en vez
+      // de cortarse. "vs Q9,343.50" (no "vs anterior: …"): al lado del cambio se
+      // entiende, y el rótulo entero no cabe.
+      return Container(
+        padding: const EdgeInsets.fromLTRB(12, 14, 10, 14),
+        decoration: BoxDecoration(color: _C.card, borderRadius: BorderRadius.circular(20)),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(etiqueta, maxLines: 1, overflow: TextOverflow.ellipsis, style: _t(12.5, FontWeight.w600, _C.muted)),
+            const SizedBox(height: 2),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(valor, maxLines: 1, style: _t(20, FontWeight.w800, _C.ink, height: 1.25).copyWith(letterSpacing: -0.2)),
+            ),
+            const SizedBox(height: 6),
+            FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerLeft, child: _Cambio(cambio, compacto: true)),
+            const SizedBox(height: 4),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text('vs $anterior', maxLines: 1, style: _t(11.5, FontWeight.w400, _C.muted)),
+            ),
+          ],
+        ),
+      );
+    }
+
+    const tamano = 32.0;
     return Container(
-      padding: EdgeInsets.symmetric(horizontal: telefono ? 16 : 22, vertical: telefono ? 16 : 20),
+      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 20),
       decoration: BoxDecoration(color: _C.card, borderRadius: BorderRadius.circular(22)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -178,7 +201,7 @@ class _Kpi extends StatelessWidget {
             runSpacing: 4,
             children: [
               _Cambio(cambio),
-              Text(anterior, style: _t(13, FontWeight.w400, _C.muted)),
+              Text('vs anterior: $anterior', style: _t(13, FontWeight.w400, _C.muted)),
             ],
           ),
         ],
@@ -191,7 +214,8 @@ class _Kpi extends StatelessWidget {
 /// bajó y apagada si quedó igual.
 class _Cambio extends StatelessWidget {
   final double cambio;
-  const _Cambio(this.cambio);
+  final bool compacto;
+  const _Cambio(this.cambio, {this.compacto = false});
 
   @override
   Widget build(BuildContext context) {
@@ -200,18 +224,18 @@ class _Cambio extends StatelessWidget {
     final color = igual ? _C.soft : (sube ? _C.gift : _C.bad);
     final fondo = igual ? _C.subtle : (sube ? _C.giftTint : _C.badTint);
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 2),
+      padding: EdgeInsets.symmetric(horizontal: compacto ? 7 : 9, vertical: 2),
       decoration: BoxDecoration(color: fondo, borderRadius: BorderRadius.circular(999)),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
             igual ? Icons.remove_rounded : (sube ? Icons.arrow_upward_rounded : Icons.arrow_downward_rounded),
-            size: 14,
+            size: compacto ? 12 : 14,
             color: color,
           ),
-          const SizedBox(width: 3),
-          Text('${cambio.abs().toStringAsFixed(1)}%', style: _t(13, FontWeight.w700, color)),
+          SizedBox(width: compacto ? 2 : 3),
+          Text('${cambio.abs().toStringAsFixed(1)}%', style: _t(compacto ? 11.5 : 13, FontWeight.w700, color)),
         ],
       ),
     );
@@ -236,9 +260,9 @@ class _Datos {
   });
 }
 
-/// Propinas, cortesías, descuentos y cobro de envío. En el teléfono cada una es
-/// una fila (la etiqueta a la izquierda y la cifra a la derecha); en pantalla
-/// ancha, una tarjeta por columna.
+/// Propinas, cortesías, descuentos y cobro de envío: una tarjeta por columna. En el
+/// teléfono también van en fila, como en la PC (tres en una fila; con cuatro, dos y
+/// dos), en su versión compacta.
 ///
 /// Solo llevan flecha las que se pueden abrir (hoy, propinas, cortesías y
 /// descuentos): una flecha que no lleva a ningún lado engaña.
@@ -321,21 +345,14 @@ class TarjetasRapidas extends StatelessWidget {
 
     return LayoutBuilder(builder: (context, c) {
       final ancho = c.maxWidth;
-      if (ancho <= kInicioQuiebreTelefono) {
-        final reservar = tarjetas.any((t) => t.onTap != null);
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            for (var i = 0; i < tarjetas.length; i++) ...[
-              if (i > 0) const SizedBox(height: 12),
-              _TarjetaFila(tarjetas[i], reservarFlecha: reservar),
-            ],
-          ],
-        );
-      }
+      final telefono = ancho <= kInicioQuiebreTelefono;
+      final hueco = telefono ? 8.0 : 12.0;
 
-      // 2 columnas hasta 1100 de ancho; después, una por tarjeta (hasta 4).
-      final columnas = ancho >= 1100 ? tarjetas.length.clamp(1, 4) : 2;
+      // Teléfono: hasta tres en una fila (con cuatro, dos y dos). Pantalla ancha: 2
+      // columnas hasta 1100 de ancho; después, una por tarjeta (hasta 4).
+      final int columnas = telefono
+          ? (tarjetas.length <= 3 ? tarjetas.length : 2)
+          : (ancho >= 1100 ? tarjetas.length.clamp(1, 4) : 2);
       final filas = <List<_Datos>>[];
       for (var i = 0; i < tarjetas.length; i += columnas) {
         filas.add(tarjetas.sublist(i, (i + columnas).clamp(0, tarjetas.length)));
@@ -344,15 +361,15 @@ class TarjetasRapidas extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           for (var f = 0; f < filas.length; f++) ...[
-            if (f > 0) const SizedBox(height: 12),
+            if (f > 0) SizedBox(height: hueco),
             IntrinsicHeight(
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   for (var i = 0; i < columnas; i++) ...[
-                    if (i > 0) const SizedBox(width: 12),
+                    if (i > 0) SizedBox(width: hueco),
                     Expanded(
-                      child: i < filas[f].length ? _TarjetaColumna(filas[f][i]) : const SizedBox.shrink(),
+                      child: i < filas[f].length ? _TarjetaColumna(filas[f][i], compacta: telefono) : const SizedBox.shrink(),
                     ),
                   ],
                 ],
@@ -367,22 +384,76 @@ class TarjetasRapidas extends StatelessWidget {
 
 class _Punto extends StatelessWidget {
   final Color color;
-  const _Punto(this.color);
+  final double tamano;
+  const _Punto(this.color, {this.tamano = 10});
 
   @override
   Widget build(BuildContext context) =>
-      Container(width: 10, height: 10, decoration: BoxDecoration(color: color, shape: BoxShape.circle));
+      Container(width: tamano, height: tamano, decoration: BoxDecoration(color: color, shape: BoxShape.circle));
 }
 
 Widget get _flecha => Icon(Icons.chevron_right_rounded, color: _C.soft, size: 20);
 
-/// Pantalla ancha: la etiqueta arriba, la cifra grande y el detalle debajo.
+/// La etiqueta arriba, la cifra grande y el detalle debajo.
+///
+/// Compacta (teléfono, tres en fila): la etiqueta puede ir en dos líneas
+/// ("Cortesías / Donaciones") y la flecha baja junto a la cifra, para dejarle a la
+/// etiqueta todo el ancho; la cifra y el detalle van abajo, así quedan alineados
+/// entre las tarjetas de la fila aunque una etiqueta ocupe dos líneas.
 class _TarjetaColumna extends StatelessWidget {
   final _Datos d;
-  const _TarjetaColumna(this.d);
+  final bool compacta;
+  const _TarjetaColumna(this.d, {this.compacta = false});
 
   @override
   Widget build(BuildContext context) {
+    if (compacta) {
+      return InicioToque(
+        onTap: d.onTap,
+        radio: 18,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 13, 6, 13),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(padding: const EdgeInsets.only(top: 4), child: _Punto(d.color, tamano: 8)),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      d.etiqueta,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: _t(12.5, FontWeight.w400, _C.muted, height: 1.25),
+                    ),
+                  ),
+                ],
+              ),
+              const Spacer(),
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  Expanded(
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Text(d.valor, maxLines: 1, style: _t(18, FontWeight.w800, d.color, height: 1.25)),
+                    ),
+                  ),
+                  if (d.onTap != null) Icon(Icons.chevron_right_rounded, color: _C.soft, size: 18),
+                ],
+              ),
+              // La línea del detalle siempre ocupa su lugar (aunque vaya vacía): si no,
+              // la cifra de esa tarjeta quedaría más abajo que las de al lado.
+              Text(d.detalle.isEmpty ? ' ' : d.detalle, style: _t(11.5, FontWeight.w500, _C.muted), maxLines: 1, overflow: TextOverflow.ellipsis),
+            ],
+          ),
+        ),
+      );
+    }
+
     return InicioToque(
       onTap: d.onTap,
       radio: 20,
@@ -417,78 +488,6 @@ class _TarjetaColumna extends StatelessWidget {
               Text(d.detalle, style: _t(12.5, FontWeight.w500, _C.muted), maxLines: 1, overflow: TextOverflow.ellipsis),
           ],
         ),
-      ),
-    );
-  }
-}
-
-/// Teléfono: una fila baja, con la etiqueta a la izquierda y la cifra y su
-/// detalle a la derecha.
-class _TarjetaFila extends StatelessWidget {
-  final _Datos d;
-
-  /// Deja el lugar de la flecha en todas las filas, para que las cifras queden
-  /// alineadas aunque no todas se puedan abrir.
-  final bool reservarFlecha;
-
-  const _TarjetaFila(this.d, {required this.reservarFlecha});
-
-  @override
-  Widget build(BuildContext context) {
-    return InicioToque(
-      onTap: d.onTap,
-      radio: 20,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(18, 14, 12, 14),
-        // La cifra tiene prioridad sobre la etiqueta, pero nunca pasa del 60%
-        // de la fila: con una cantidad enorme se achica en vez de salirse.
-        child: LayoutBuilder(builder: (context, c) {
-          return Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Expanded(
-                child: Row(
-                  children: [
-                    _Punto(d.color),
-                    const SizedBox(width: 9),
-                    Flexible(
-                      child: Text(
-                        d.etiqueta,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: _t(14.5, FontWeight.w400, _C.muted),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 12),
-              ConstrainedBox(
-                constraints: BoxConstraints(maxWidth: c.maxWidth * 0.6),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    FittedBox(
-                      fit: BoxFit.scaleDown,
-                      alignment: Alignment.centerRight,
-                      child: Text(d.valor, maxLines: 1, style: _t(19, FontWeight.w800, d.color, height: 1.25)),
-                    ),
-                    if (d.detalle.isNotEmpty)
-                      Text(
-                        d.detalle,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.right,
-                        style: _t(12.5, FontWeight.w500, _C.muted),
-                      ),
-                  ],
-                ),
-              ),
-              if (reservarFlecha) SizedBox(width: 28, child: d.onTap != null ? _flecha : null),
-            ],
-          );
-        }),
       ),
     );
   }

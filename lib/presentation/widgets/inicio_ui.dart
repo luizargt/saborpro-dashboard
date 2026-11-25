@@ -86,6 +86,56 @@ class InicioTituloTarjeta extends StatelessWidget {
   }
 }
 
+/// Dos tarjetas lado a lado y del MISMO alto, donde manda la de la izquierda: la
+/// de la derecha toma ese alto (y lo que no le quepa lo desplaza por dentro).
+///
+/// Sin `IntrinsicHeight` a propósito: la de la derecha puede llevar una lista que se
+/// desplaza, y eso dentro de un `IntrinsicHeight` revienta.
+class InicioLadoALado extends StatelessWidget {
+  final Widget izquierda;
+  final Widget derecha;
+  final double separacion;
+
+  /// Para que la de la derecha nunca quede tan baja que no se lea nada.
+  final double altoMinimo;
+
+  const InicioLadoALado({
+    super.key,
+    required this.izquierda,
+    required this.derecha,
+    this.separacion = 16,
+    this.altoMinimo = 0,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        // Esta fila decide el alto: la izquierda, y un hueco del ancho de la derecha.
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: ConstrainedBox(constraints: BoxConstraints(minHeight: altoMinimo), child: izquierda)),
+            SizedBox(width: separacion),
+            const Expanded(child: SizedBox.shrink()),
+          ],
+        ),
+        // Y la derecha llena ese mismo alto.
+        Positioned.fill(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Expanded(child: SizedBox.shrink()),
+              SizedBox(width: separacion),
+              Expanded(child: derecha),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 /// Una fila de tarjeta tocable con el aspecto del diseño: fondo `card`,
 /// onda del toque y esquinas redondeadas. Sin `onTap` no se puede tocar (y no
 /// lleva onda).

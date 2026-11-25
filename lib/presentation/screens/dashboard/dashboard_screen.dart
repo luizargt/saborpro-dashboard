@@ -237,8 +237,10 @@ class _DataContent extends StatelessWidget {
 
     // En la vista de año no hay órdenes en memoria, así que la venta por
     // sucursal viene ya sumada por Firestore. Sin eso este bloque saldría con
-    // todas las sucursales en cero.
-    final locationsCard = provider.selectedLocationId != null
+    // todas las sucursales en cero. Con una sola sucursal no se dibuja (no hay
+    // nada que repartir): se trata como que no está, para no dejarle su lugar
+    // vacío al lado de "Ventas por método de pago".
+    final locationsCard = provider.selectedLocationId != null || provider.locations.length <= 1
         ? null
         : LocationSalesBreakdown(
             locations: provider.locations,
@@ -269,24 +271,29 @@ class _DataContent extends StatelessWidget {
       mostrarSucursal: provider.locations.length > 1,
     );
 
+    Widget tarjetaAtencion({bool llenarAlto = false}) => AtencionCard(
+          items: atencion,
+          llenarAlto: llenarAlto,
+          onTap: (item) {
+            switch (item.destino) {
+              case DestinoAtencion.cierresDeCaja:
+                _abrirCierres(context);
+              case DestinoAtencion.cortesias:
+                abrirCortesias(context);
+            }
+          },
+        );
+
+    // "Requiere tu atención" va después de las tarjetas rápidas, en el teléfono y en
+    // la PC (el mismo orden en los dos). En pantalla ancha, al lado de "Ventas por
+    // método de pago" y de su mismo alto: los avisos que no caben se desplazan
+    // dentro de la tarjeta. Así no queda medio renglón vacío.
+    final atencionAlLado = wide && paymentCard != null && atencion.isNotEmpty;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         KpiCards(metrics: metrics),
-        if (atencion.isNotEmpty) ...[
-          _gap,
-          AtencionCard(
-            items: atencion,
-            onTap: (item) {
-              switch (item.destino) {
-                case DestinoAtencion.cierresDeCaja:
-                  _abrirCierres(context);
-                case DestinoAtencion.cortesias:
-                  abrirCortesias(context);
-              }
-            },
-          ),
-        ],
         // Hospedaje: cómo están las habitaciones AHORA. Solo si alguna de las
         // sucursales que se miran vende habitaciones, y se calla si no se pudo leer.
         if (hospedaje != null) ...[
@@ -312,25 +319,32 @@ class _DataContent extends StatelessWidget {
           onDiscountTap: () => abrirDescuentos(context),
           descuentosCount: resumenPedidos.descuentos,
         ),
-        // Método de pago y sucursales: apilados en móvil, lado a lado en
-        // pantalla ancha para no dejar barras de un extremo al otro.
-        if (paymentCard != null || locationsCard != null) ...[
+        if (atencionAlLado) ...[
           _gap,
-          if (wide && paymentCard != null && locationsCard != null)
-            IntrinsicHeight(
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Expanded(child: paymentCard),
-                  const SizedBox(width: 16),
-                  Expanded(child: locationsCard),
-                ],
-              ),
-            )
-          else ...[
-            if (paymentCard != null) paymentCard,
-            if (paymentCard != null && locationsCard != null) _gap,
-            if (locationsCard != null) locationsCard,
+          InicioLadoALado(izquierda: paymentCard, derecha: tarjetaAtencion(llenarAlto: true), altoMinimo: 200),
+          if (locationsCard != null) ...[_gap, locationsCard],
+        ] else ...[
+          if (atencion.isNotEmpty) ...[_gap, tarjetaAtencion()],
+          // Método de pago y sucursales: apilados en móvil, lado a lado en
+          // pantalla ancha para no dejar barras de un extremo al otro.
+          if (paymentCard != null || locationsCard != null) ...[
+            _gap,
+            if (wide && paymentCard != null && locationsCard != null)
+              IntrinsicHeight(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(child: paymentCard),
+                    const SizedBox(width: 16),
+                    Expanded(child: locationsCard),
+                  ],
+                ),
+              )
+            else ...[
+              if (paymentCard != null) paymentCard,
+              if (paymentCard != null && locationsCard != null) _gap,
+              if (locationsCard != null) locationsCard,
+            ],
           ],
         ],
         _gap,
