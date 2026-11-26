@@ -74,6 +74,9 @@ enum EstadoCierre {
   cuadro,
   sobrante,
   faltante,
+
+  /// La cerró un administrador sin contar el dinero: no hay con qué cuadrarla.
+  descuadrada,
 }
 
 /// Una fila de "¿Cuadró la caja?": lo esperado y lo contado de un método. Los
@@ -271,8 +274,10 @@ class CierreCaja {
   }) {
     // Cuando el cierre tiene diferencias almacenadas (differenceCash != null), se
     // usan tal cual: son las calculadas desde los pedidos reales al cerrar. Si no
-    // (cortes antiguos), se recalcula desde los pedidos.
-    final selladas = r.differenceCash != null;
+    // (cortes antiguos), se recalcula desde los pedidos. Una caja cerrada por
+    // administrador tampoco se recalcula: al cerrarla se le guardó lo vendido,
+    // sacado de sus propios pedidos.
+    final selladas = r.differenceCash != null || r.cerradaPorAdmin;
     final calc = selladas ? const VentasRecalculadas() : VentasRecalculadas.desde(r, pedidos);
     final efectivo = calc.hayPedidos ? calc.cash : r.salesCash;
     final tarjeta = calc.hayPedidos ? calc.card : r.salesCard;
@@ -336,11 +341,13 @@ class CierreCaja {
     Map<String, double> propias,
   ) {
     final filas = <FilaCuadre>[];
+    // Cerrada por administrador: nadie contó, aunque haya algo guardado.
+    final sinConteo = r.cerradaPorAdmin;
 
     void agrega(String metodo, double ventas, double? contado, double apertura,
         {double retiros = 0, double depositos = 0}) {
       final esperado = ventas - retiros + depositos;
-      final contadoSinApertura = contado != null ? contado - apertura : null;
+      final contadoSinApertura = contado != null && !sinConteo ? contado - apertura : null;
       if (esperado == 0 && (contadoSinApertura == null || contadoSinApertura == 0)) return;
       filas.add(FilaCuadre(metodo, esperado, contadoSinApertura));
     }
@@ -357,7 +364,9 @@ class CierreCaja {
     // forzado sin diferencia. Así la tabla suma lo mismo que la insignia.
     final sellado = r.differenceCash != null;
     propias.forEach((id, esperado) {
-      final contado = sellado ? esperado + (r.differenceCustomMethods[id] ?? 0) : r.actualCustomMethods[id];
+      final contado = sinConteo
+          ? null
+          : (sellado ? esperado + (r.differenceCustomMethods[id] ?? 0) : r.actualCustomMethods[id]);
       if (esperado.abs() < 0.005 && (contado ?? 0).abs() < 0.005) return;
       filas.add(FilaCuadre(nombreDelMetodo(r, id), esperado, contado));
     });
@@ -405,6 +414,7 @@ class CierreCaja {
       ];
 
   EstadoCierre get estado {
+    if (caja.cerradaPorAdmin) return EstadoCierre.descuadrada;
     final d = diferencia;
     if (d == null) return EstadoCierre.sinContar;
     if (d.abs() < AtencionInicio.umbralFaltante) return EstadoCierre.cuadro;
@@ -447,6 +457,9 @@ class ResumenMoneda {
   final double sobrante;
   final int sinContar;
 
+  /// Cerrados por un administrador sin contar el dinero.
+  final int descuadradas;
+
   /// Cuántos de sus cierres se recalcularon desde los pedidos (cortes antiguos):
   /// sus ventas pueden repetir las de otro corte hecho a la vez.
   final int recalculados;
@@ -468,6 +481,7 @@ class ResumenMoneda {
     required this.conSobrante,
     required this.sobrante,
     required this.sinContar,
+    required this.descuadradas,
     required this.recalculados,
     required this.abiertas,
     required this.olvidadas,
@@ -535,6 +549,7 @@ class ResumenCierres {
         conSobrante: propios.where((c) => c.estado == EstadoCierre.sobrante).length,
         sobrante: propios.fold(0.0, (a, c) => a + c.sobrante),
         sinContar: propios.where((c) => c.estado == EstadoCierre.sinContar).length,
+        descuadradas: propios.where((c) => c.estado == EstadoCierre.descuadrada).length,
         recalculados: propios.where((c) => c.recalculado).length,
         abiertas: abiertasDeLaMoneda.length,
         olvidadas: viejas,

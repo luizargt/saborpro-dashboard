@@ -96,6 +96,24 @@ void main() {
     });
   });
 
+  group('caja cerrada por administrador', () {
+    test('pastilla "Descuadrada", de quién era, quién la cerró y la venta', () {
+      final r = AvisoResumen.de(aviso(
+        ManagerNotificationType.cajaCerrada,
+        '⚠️ Caja cerrada por administrador',
+        'Soporte cerró la caja de WENDY en Sanarate, El Progreso sin contar el dinero: '
+            'quedó descuadrada. Venta total: Q2600.00',
+        data: {'cuadro': 'false', 'cerrada_por_admin': 'true'},
+      ));
+      expect(r.titulo, 'Caja cerrada por administrador');
+      expect(r.pildora!.texto, 'Descuadrada');
+      expect(r.pildora!.tono, TonoAviso.warn);
+      expect(r.descripcion, 'WENDY · Sanarate, El Progreso · la cerró Soporte');
+      expect(r.monto, 'Q2,600.00');
+      expect(r.crudo, isFalse);
+    });
+  });
+
   group('dinero que sale', () {
     test('retiro: quién, dónde, el motivo y el monto', () {
       final r = AvisoResumen.de(aviso(

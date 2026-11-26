@@ -104,6 +104,11 @@ class AvisoResumen {
           r'))?\. Venta total: (' +
           _monto +
           r')$');
+  /// Una caja que un administrador cerró desde esta app, sin contar el dinero.
+  static final _reCerroAdmin = RegExp(
+      r'^(.+?) cerró la caja de (.+?) en (.+?) sin contar el dinero: quedó descuadrada\. Venta total: (' +
+          _monto +
+          r')$');
   static final _reRetiro = RegExp(
       r'^(.+?) retiró (' + _monto + r') de la caja en (.+?)(?: — (.+))?$');
   static final _reRetiros = RegExp(
@@ -161,6 +166,16 @@ class AvisoResumen {
         );
 
       case ManagerNotificationType.cajaCerrada:
+        final porAdmin = _reCerroAdmin.firstMatch(body);
+        if (porAdmin != null) {
+          return AvisoResumen(
+            titulo: 'Caja cerrada por administrador',
+            pildora: const PildoraAviso('Descuadrada', TonoAviso.warn),
+            descripcion: '${porAdmin.group(2)} · ${porAdmin.group(3)} · la cerró ${porAdmin.group(1)}',
+            monto: formatearMonto(porAdmin.group(4)!),
+            tono: TonoAviso.warn,
+          );
+        }
         final m = _reCerro.firstMatch(body);
         if (m == null) {
           // Sin poder leer el texto, el título ("Cuadró" / "Descuadre") y la

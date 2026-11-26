@@ -57,6 +57,10 @@ class CashRegisterSummary {
   /// aparato, la hora y lo que contó. Solo se leen: esta app nunca los escribe.
   final List<Map<String, dynamic>> cierresNoAplicados;
 
+  /// La marca que deja Sabor Manager al cerrar una caja como administrador
+  /// (`closed_by_admin`, ver `CierreAdmin`): quién la cerró. Nula si no la tiene.
+  final Map<String, dynamic>? cierreAdmin;
+
   // Nombres de métodos personalizados: id → nombre
   final Map<String, String> customMethodNames;
   final String? locationName;
@@ -96,11 +100,25 @@ class CashRegisterSummary {
     this.differenceCustomMethods = const {},
     this.closingNotes,
     this.cierresNoAplicados = const [],
+    this.cierreAdmin,
     this.customMethodNames = const {},
     this.locationName,
   });
 
   bool get isOpen => status == 'open';
+
+  /// La cerró un administrador sin contar el dinero: el corte quedó descuadrado
+  /// y no tiene diferencia, porque no se sabe cuánto había. Aunque el POS lo
+  /// recalcule después (sella una diferencia contra un conteo que no existe)
+  /// sigue así. Si en cambio aparece un conteo (un aparato que la cerró encima),
+  /// vale ese conteo.
+  bool get cerradaPorAdmin => cierreAdmin != null && status == 'closed' && actualCash == null;
+
+  /// Quién la cerró como administrador; vacío si la marca no lo dice.
+  String get nombreDelAdmin {
+    final nombre = cierreAdmin?['user_name'];
+    return nombre is String ? nombre.trim() : '';
+  }
 
   // Fondo inicial total (abre la caja con esto)
   double get totalInitial =>
@@ -171,6 +189,9 @@ class CashRegisterSummary {
   // Diferencia total (contado - esperado). null si no se contó nada.
   // Los retiros reducen el efectivo esperado en gaveta; los depósitos lo aumentan.
   double? get totalDifference {
+    // Sin conteo no hay diferencia: un faltante por todo lo vendido acusaría al
+    // cajero de un dinero que nadie contó.
+    if (cerradaPorAdmin) return null;
     // Corte con diferencias selladas: la suma de las de cada método, igual que
     // el POS. Recontar con lo declarado daba otra cosa en los cierres forzados,
     // que no tocan los métodos propios (salían con un faltante por esas ventas).
@@ -239,6 +260,7 @@ class CashRegisterSummary {
       differenceCustomMethods: differenceCustomMethods,
       closingNotes: closingNotes,
       cierresNoAplicados: cierresNoAplicados,
+      cierreAdmin: cierreAdmin,
       customMethodNames: customMethodNames ?? this.customMethodNames,
       locationName: locationName ?? this.locationName,
     );
@@ -317,6 +339,9 @@ class CashRegisterSummary {
       differenceCustomMethods: customMap(map['differenceCustomMethods']),
       closingNotes: map['closingNotes'] as String?,
       cierresNoAplicados: lista(map['cierres_no_aplicados']),
+      cierreAdmin: map['closed_by_admin'] is Map
+          ? Map<String, dynamic>.from(map['closed_by_admin'] as Map)
+          : null,
     );
   }
 }

@@ -13,6 +13,7 @@ import 'package:intl/intl.dart';
 import '../../data/models/cash_register_summary.dart';
 import '../../data/models/cierres_caja.dart' show fechaCorta, formatoMonto, inicialesDe;
 import '../../data/models/detalle_caja.dart';
+import 'cierres_caja_view.dart' show textoCerradaPorAdmin;
 import 'resumen_ui.dart';
 import 'inicio_ui.dart';
 
@@ -91,6 +92,9 @@ class DetalleCajaEncabezado extends StatelessWidget {
           style: _t(telefono ? 18 : 20, FontWeight.w700, _C.ink),
         ),
         Text(_subtitulo, maxLines: 1, overflow: TextOverflow.ellipsis, style: _t(13, FontWeight.w400, _C.muted)),
+        if (caja.cerradaPorAdmin)
+          Text(textoCerradaPorAdmin(caja),
+              maxLines: 2, overflow: TextOverflow.ellipsis, style: _t(13, FontWeight.w600, _C.warn)),
       ],
     );
     final pestanas = _Pestanas(

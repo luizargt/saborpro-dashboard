@@ -183,6 +183,77 @@ void main() {
     });
   });
 
+  group('cerrada por administrador', () {
+    CierreCaja porAdmin({String id = 'adm'}) => cierre(CashRegisterSummary.fromMap({
+          'id': id,
+          'userName': 'WENDY',
+          'status': 'closed',
+          'locationId': 'gt',
+          'openedAt': Timestamp.fromDate(DateTime(2026, 11, 21, 7)),
+          'closedAt': Timestamp.fromDate(DateTime(2026, 11, 21, 9)),
+          'expectedCash': 395.0,
+          'expectedTransfer': 175.0,
+          'closed_by_admin': {'user_id': 'a1', 'user_name': 'Soporte'},
+          'closingNotes': 'Cierre forzado desde Sabor Manager',
+        }));
+
+    testWidgets('dice que quedó descuadrada, con lo esperado y nada contado', (tester) async {
+      await montar(tester, cuerpo(cierres: [porAdmin()], abiertas: const []), size: const Size(1280, 3000));
+      expect(find.text('Descuadrada'), findsOneWidget);
+      expect(find.text('Cerrada por administrador (Soporte) · sin conteo'), findsOneWidget);
+      expect(find.text('Q395.00'), findsWidgets);
+      expect(find.text('Q570.00'), findsWidgets);
+      // Contado y diferencia de las dos filas.
+      expect(find.text('—'), findsAtLeastNWidgets(4));
+      expect(find.textContaining('Faltante'), findsNothing);
+      expect(find.text('Cuadró'), findsNothing);
+      expect(find.text('1 caja descuadrada sin conteo'), findsOneWidget);
+    });
+
+    testWidgets('junto a uno que cuadró no se dice que todos cuadraron', (tester) async {
+      await montar(
+        tester,
+        cuerpo(cierres: [porAdmin(), porAdmin(id: 'b'), cierre(juan())], abiertas: const []),
+        size: const Size(1280, 3000),
+      );
+      expect(find.text('Todos los cierres cuadraron'), findsNothing);
+      expect(find.text('Los contados cuadraron'), findsOneWidget);
+      expect(find.text('2 cajas descuadradas sin conteo'), findsOneWidget);
+      // Solo la insignia del corte de Juan: el resumen no anuncia "Cuadró".
+      expect(find.text('Cuadró'), findsOneWidget);
+    });
+
+    testWidgets('si su cajero contó después, se dice contra qué comparar', (tester) async {
+      final corte = cierre(CashRegisterSummary.fromMap({
+        'id': 'adm2',
+        'userName': 'WENDY',
+        'status': 'closed',
+        'openedAt': Timestamp.fromDate(DateTime(2026, 11, 21, 7)),
+        'closedAt': Timestamp.fromDate(DateTime(2026, 11, 21, 9)),
+        'expectedCash': 395.0,
+        'closed_by_admin': {'user_name': 'Soporte'},
+        'closingNotes': 'Cierre forzado desde Sabor Manager',
+        'cierres_no_aplicados': [
+          {'closed_at': Timestamp.fromDate(DateTime(2026, 11, 21, 10)), 'actualCash': 390.0},
+        ],
+      }));
+      await montar(tester, cuerpo(cierres: [corte], abiertas: const []), size: const Size(1280, 3000));
+      expect(
+        find.text('La cerró un administrador sin contar el dinero. Este es el conteo que se hizo: '
+            'compara el efectivo con "Total efectivo" y lo demás con "Esperado".'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('efectivo Q390.00'), findsOneWidget);
+    });
+
+    testWidgets('cabe en un teléfono, también con letra grande', (tester) async {
+      for (final escala in const [1.0, 1.3, 2.0]) {
+        await montar(tester, cuerpo(cierres: [porAdmin()], abiertas: const []), size: const Size(360, 4000), escala: escala);
+        expect(tester.takeException(), isNull, reason: 'x$escala');
+      }
+    });
+  });
+
   group('cajas en más de una moneda', () {
     testWidgets('un resumen por moneda, con su rótulo; no se suman quetzales con dólares', (tester) async {
       final sv = cierre(ana(extra: {'id': 'sv1', 'userName': 'Rosa', 'locationId': 'sv', 'differenceCash': 0.0, 'actualCash': 4534.0}), signo: r'$');

@@ -245,7 +245,7 @@ class DetalleCaja {
 
       // Las ventas nuevas dicen en qué caja se cobraron y cuentan solo en esa:
       // con dos cajas del cajero abiertas a la vez, antes salían en las dos.
-      final caja = _cajaDelCobro(o);
+      final caja = cajaDelCobro(o);
       if (caja != null) return caja == reg.id;
 
       final cobradoPor = o['paid_by_user_id'] as String? ?? '';
@@ -347,7 +347,7 @@ DateTime? _fecha(dynamic ts) {
 /// esa caja, `cash_register_paid_by`, que solo vale para la caja con la que
 /// viene), también, aunque la hora quede dentro del margen. Igual que
 /// Order.cajaDelCobro en el POS.
-String? _cajaDelCobro(Map<String, dynamic> o) {
+String? cajaDelCobro(Map<String, dynamic> o) {
   final caja = o['cash_register_id'];
   if (caja is! String || caja.isEmpty) return null;
   final sello = o['cash_register_paid_by'];

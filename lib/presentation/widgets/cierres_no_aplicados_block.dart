@@ -90,13 +90,19 @@ class CierresNoAplicadosBlock extends StatelessWidget {
     // real es el de abajo.
     final forzado = register.closingNotes?.contains('Cierre forzado') ?? false;
     final titulo = uno ? 'Esta caja se cerró dos veces' : 'Esta caja se cerró ${cierres.length + 1} veces';
-    final explicacion = forzado
-        ? 'Se cerró sin contar el dinero (cierre forzado), así que el cuadre de '
-            'este corte no es real. ${uno ? 'Este es el conteo que se hizo' : 'Estos '
-                'son los conteos que se hicieron'}: compáralo con lo esperado.'
-        : 'Vale el cierre ${vigente == null ? 'de este corte' : 'del ${_cuando(vigente)}'}. '
-            '${uno ? 'Este otro llegó' : 'Estos otros llegaron'} cuando la caja ya '
-            'estaba cerrada y no ${uno ? 'cambia' : 'cambian'} el cuadre:';
+    final explicacion = register.cerradaPorAdmin
+        // "Esperado" no incluye el fondo de apertura y el cajón sí: el efectivo
+        // se compara con "Total efectivo".
+        ? 'La cerró un administrador sin contar el dinero. '
+            '${uno ? 'Este es el conteo que se hizo' : 'Estos son los conteos que se hicieron'}: '
+            'compara el efectivo con "Total efectivo" y lo demás con "Esperado".'
+        : forzado
+            ? 'Se cerró sin contar el dinero (cierre forzado), así que el cuadre de '
+                'este corte no es real. ${uno ? 'Este es el conteo que se hizo' : 'Estos '
+                    'son los conteos que se hicieron'}: compáralo con lo esperado.'
+            : 'Vale el cierre ${vigente == null ? 'de este corte' : 'del ${_cuando(vigente)}'}. '
+                '${uno ? 'Este otro llegó' : 'Estos otros llegaron'} cuando la caja ya '
+                'estaba cerrada y no ${uno ? 'cambia' : 'cambian'} el cuadre:';
     final texto = _t(13, FontWeight.w400, _C.ink, height: 1.45);
     return Container(
       width: double.infinity,

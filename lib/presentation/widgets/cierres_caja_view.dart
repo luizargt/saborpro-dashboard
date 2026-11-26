@@ -32,6 +32,12 @@ String _q(String signo, double v) => formatoMonto(signo, v);
 
 bool _mismoDia(DateTime a, DateTime b) => a.year == b.year && a.month == b.month && a.day == b.day;
 
+/// "Cerrada por administrador (Soporte) · sin conteo".
+String textoCerradaPorAdmin(CashRegisterSummary r) {
+  final quien = r.nombreDelAdmin;
+  return 'Cerrada por administrador${quien.isEmpty ? '' : ' ($quien)'} · sin conteo';
+}
+
 /// "las 08:02 AM" si es de hoy; si no, "el 12 nov, 09:03 PM".
 String _desde(DateTime d, DateTime ahora) =>
     _mismoDia(d, ahora) ? 'las ${_hora.format(d)}' : 'el ${fechaCorta(d)}, ${_hora.format(d)}';
@@ -52,8 +58,8 @@ class CierresCajaBody extends StatelessWidget {
 
   final ValueChanged<CierreCaja> onVerDetalle;
 
-  /// Lo que se agrega al final de la tarjeta de una caja abierta (el cierre
-  /// forzado, que solo existe al depurar).
+  /// Lo que va en la esquina de la tarjeta de cada caja abierta (los tres puntos
+  /// con "Cerrar caja").
   final Widget? Function(CashRegisterSummary caja)? accionAbierta;
 
   const CierresCajaBody({
@@ -211,10 +217,15 @@ class _Resumen extends StatelessWidget {
       difValor = _q(s, g.sobrante);
       difColor = _C.warn;
       difSub = '${g.conSobrante} ${g.conSobrante == 1 ? 'cierre con sobrante' : 'cierres con sobrante'}';
-    } else if (g.sinContar == g.cierres) {
+    } else if (g.sinContar + g.descuadradas == g.cierres) {
       difValor = '—';
       difColor = _C.muted;
-      difSub = 'Sin contar';
+      difSub = g.sinContar > 0 ? 'Sin contar' : '';
+    } else if (g.descuadradas > 0) {
+      // Con una descuadrada en el período no se anuncia en verde que "Cuadró".
+      difValor = '—';
+      difColor = _C.muted;
+      difSub = 'Los contados cuadraron';
     } else {
       difValor = 'Cuadró';
       difColor = _C.gift;
@@ -256,7 +267,16 @@ class _Resumen extends StatelessWidget {
           etiqueta: 'Diferencia en caja',
           valor: difValor,
           colorValor: difColor,
-          sub: [ResumenCard.linea(difSub, ancho)],
+          sub: [
+            if (difSub.isNotEmpty) ResumenCard.linea(difSub, ancho),
+            // No suman a la diferencia (nadie contó), pero hay que saber que están.
+            if (g.descuadradas > 0)
+              ResumenCard.linea(
+                '${g.descuadradas} ${g.descuadradas == 1 ? 'caja descuadrada' : 'cajas descuadradas'} sin conteo',
+                ancho,
+                color: _C.warn,
+              ),
+          ],
         ),
         ResumenCelda(etiqueta: 'Efectivo y tarjeta', cuerpo: _Reparto(g: g)),
         ResumenCelda(
@@ -395,6 +415,7 @@ class _CajasAbiertas extends StatelessWidget {
   Widget build(BuildContext context) {
     // Como `repeat(auto-fill, minmax(320px, 1fr))` del diseño.
     final columnas = math.max(1, ((ancho + 12) / (320 + 12)).floor());
+    final anchoTarjeta = (ancho - 12 * (columnas - 1)) / columnas;
     final filas = <List<CashRegisterSummary>>[];
     for (var i = 0; i < abiertas.length; i += columnas) {
       filas.add(abiertas.sublist(i, math.min(i + columnas, abiertas.length)));
@@ -412,7 +433,15 @@ class _CajasAbiertas extends StatelessWidget {
                   if (i > 0) const SizedBox(width: 12),
                   Expanded(
                     child: i < filas[f].length
-                        ? _CajaAbierta(caja: filas[f][i], ahora: ahora, accion: accion?.call(filas[f][i]))
+                        ? _CajaAbierta(
+                            // La llave sigue a la caja: un cierre en curso no
+                            // puede pasarse a la tarjeta de al lado.
+                            key: ValueKey('abierta-${filas[f][i].id}'),
+                            caja: filas[f][i],
+                            ahora: ahora,
+                            ancho: anchoTarjeta,
+                            accion: accion?.call(filas[f][i]),
+                          )
                         : const SizedBox.shrink(),
                   ),
                 ],
@@ -428,9 +457,14 @@ class _CajasAbiertas extends StatelessWidget {
 class _CajaAbierta extends StatelessWidget {
   final CashRegisterSummary caja;
   final DateTime ahora;
+
+  /// Lo que mide la tarjeta.
+  final double ancho;
+
+  /// Va en la esquina de arriba a la derecha (los tres puntos).
   final Widget? accion;
 
-  const _CajaAbierta({required this.caja, required this.ahora, this.accion});
+  const _CajaAbierta({super.key, required this.caja, required this.ahora, required this.ancho, this.accion});
 
   @override
   Widget build(BuildContext context) {
@@ -440,48 +474,72 @@ class _CajaAbierta extends StatelessWidget {
     final color = vieja ? _C.warn : _C.gift;
     final halo = vieja ? _C.warnTint : _C.giftTint;
     final sucursal = caja.locationName;
+    final accion = this.accion;
+    // En una tarjeta angosta con letra grande, el tiempo baja debajo del nombre:
+    // al lado no queda sitio para los dos.
+    final apretada = ancho < 420 && MediaQuery.textScalerOf(context).scale(13) > 13 * 1.15;
+
+    final quien = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(caja.userName, style: _t(16, FontWeight.w700, _C.ink)),
+        Text(
+          'Abierta desde ${_desde(caja.openedAt, ahora)}${sucursal != null && sucursal.isNotEmpty ? ' · $sucursal' : ''}',
+          style: _t(13, FontWeight.w400, _C.muted),
+        ),
+      ],
+    );
+    final tiempo = Column(
+      crossAxisAlignment: apretada ? CrossAxisAlignment.start : CrossAxisAlignment.end,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text('Abierta', style: _t(13, FontWeight.w400, _C.muted)),
+        Text(formatoDuracion(dur), style: _t(18, FontWeight.w700, vieja ? _C.warn : _C.ink)),
+      ],
+    );
+
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
       decoration: BoxDecoration(
         color: _C.card,
         borderRadius: BorderRadius.circular(20),
         border: vieja ? Border.all(color: _C.warn, width: 2) : null,
       ),
-      child: Row(
+      child: Stack(
+        // La fila recibe el alto de la tarjeta (todas las de la fila miden igual)
+        // y sigue centrada en él.
+        fit: StackFit.passthrough,
         children: [
-          Container(
-            width: 12,
-            height: 12,
-            decoration: BoxDecoration(
-              color: color,
-              shape: BoxShape.circle,
-              boxShadow: [BoxShadow(color: halo, spreadRadius: 5)],
-            ),
-          ),
-          const SizedBox(width: 19),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
+          Padding(
+            // Con la acción en la esquina, el contenido arranca debajo de ella y
+            // conserva todo su ancho.
+            padding: EdgeInsets.fromLTRB(18, accion == null ? 16 : 34, 18, 16),
+            child: Row(
               children: [
-                Text(caja.userName, style: _t(16, FontWeight.w700, _C.ink)),
-                Text(
-                  'Abierta desde ${_desde(caja.openedAt, ahora)}${sucursal != null && sucursal.isNotEmpty ? ' · $sucursal' : ''}',
-                  style: _t(13, FontWeight.w400, _C.muted),
+                Container(
+                  width: 12,
+                  height: 12,
+                  decoration: BoxDecoration(
+                    color: color,
+                    shape: BoxShape.circle,
+                    boxShadow: [BoxShadow(color: halo, spreadRadius: 5)],
+                  ),
                 ),
+                const SizedBox(width: 19),
+                Expanded(
+                  child: apretada
+                      ? Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [quien, const SizedBox(height: 8), tiempo],
+                        )
+                      : quien,
+                ),
+                if (!apretada) ...[const SizedBox(width: 14), tiempo],
               ],
             ),
           ),
-          const SizedBox(width: 14),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('Abierta', style: _t(13, FontWeight.w400, _C.muted)),
-              Text(formatoDuracion(dur), style: _t(18, FontWeight.w700, vieja ? _C.warn : _C.ink)),
-            ],
-          ),
-          if (accion != null) ...[const SizedBox(width: 8), accion!],
+          if (accion != null) Positioned(top: 0, right: 2, child: accion),
         ],
       ),
     );
@@ -613,6 +671,7 @@ class _Cabecera extends StatelessWidget {
       children: [
         Text(r.userName, style: _t(17, FontWeight.w700, _C.ink)),
         Text(rango, style: _t(13, FontWeight.w400, _C.muted)),
+        if (r.cerradaPorAdmin) Text(textoCerradaPorAdmin(r), style: _t(13, FontWeight.w600, _C.warn)),
       ],
     );
     final estado = _Estado(cierre: c);
@@ -659,7 +718,7 @@ class _Cabecera extends StatelessWidget {
   }
 }
 
-/// "Faltante Q385.00", "Sobrante Q50.00" o "Cuadró".
+/// "Faltante Q385.00", "Sobrante Q50.00", "Cuadró" o "Descuadrada".
 class _Estado extends StatelessWidget {
   final CierreCaja cierre;
   const _Estado({required this.cierre});
@@ -670,6 +729,7 @@ class _Estado extends StatelessWidget {
     final (String texto, Color color, Color fondo, IconData icono) = switch (c.estado) {
       EstadoCierre.faltante => ('Faltante ${_q(c.signo, c.faltante)}', _C.bad, _C.badTint, Icons.warning_amber_rounded),
       EstadoCierre.sobrante => ('Sobrante ${_q(c.signo, c.sobrante)}', _C.warn, _C.warnTint, Icons.info_outline_rounded),
+      EstadoCierre.descuadrada => ('Descuadrada', _C.warn, _C.warnTint, Icons.warning_amber_rounded),
       _ => ('Cuadró', _C.gift, _C.giftTint, Icons.check_rounded),
     };
     return Align(
